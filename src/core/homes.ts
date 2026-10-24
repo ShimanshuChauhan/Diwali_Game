@@ -100,6 +100,9 @@ export type ItemRejection =
  */
 export type CrackerHandsRejection = 'carryingPlate' | 'carryingGift' | 'holdingThali';
 
+/** The cracker actions the hands gate, named in `crackerBlocked`. */
+export type CrackerAction = 'select' | 'place' | 'ignite' | 'igniteHeld';
+
 /** Why a gift-box command was refused. */
 export type GiftRejection =
   | 'notHolding'
@@ -296,7 +299,13 @@ export type HandItem =
 export type HandItemKind = HandItem['kind'];
 
 /** Item commands, named in `itemRejected` so the UI can word the prompt. */
-export type ItemAction = 'pickUpPlate' | 'returnPlate' | 'eat' | 'offer' | 'take';
+export type ItemAction = 'pickUpPlate' | 'returnPlate' | 'eat' | 'offer' | 'take' | 'returnItem' | 'deliver';
+
+/** A designated place to put a carried item back; the home tells the two gift boxes' spots apart. */
+export interface ReturnSpot {
+  readonly item: HandItemKind;
+  readonly home: HomeId;
+}
 
 export interface HeldItemsModule extends Resettable {
   /** One item at a time; null when the hands are free. */
@@ -313,8 +322,19 @@ export interface HeldItemsModule extends Resettable {
    * exchange for boxes). Puts away the selected cracker. Emits `itemPickedUp`.
    */
   take(item: HandItem): CommandResult<ItemRejection>;
+  /** Take the thali for aarti; refused while another item or a lit phuljhari is in hand. */
+  reserveThali(): CommandResult<ItemRejection>;
   /** Free the hands of `kind` if held. Emits `itemReturned`. */
   release(kind: HandItemKind): void;
+  /** Put the carried item back on `spot`, which must be its designated one. Emits `itemReturned`. */
+  returnTo(spot: ReturnSpot): CommandResult<ItemRejection>;
+  /**
+   * Consume the carried `kind` (a gift handed over or acknowledged). With
+   * `next`, that item goes straight into the freed hands in the same step,
+   * e.g. the neighbour's return box. Emits `itemDelivered`, then
+   * `itemPickedUp` for `next`.
+   */
+  deliver(kind: HandItemKind, next?: HandItem): CommandResult<ItemRejection>;
   /** Take the sharing plate from the family tray. */
   pickUpPlate(): CommandResult<ItemRejection>;
   /** Put the plate back on the sweets table. */

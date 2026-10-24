@@ -7,3 +7,12 @@ export {
   type HomesResetHooks,
   type HomesStatefulModule,
 } from './reset';
+export {
+  CRACKER_BLOCKED_TEXT,
+  HeldItems,
+  ITEM_REJECTION_TEXT,
+  returnSpotFor,
+  type HandCrackers,
+  type HandState,
+  type HeldItemsOptions,
+} from './heldItems';

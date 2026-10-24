@@ -33,6 +33,8 @@ type HomesEventName =
   | 'itemPickedUp'
   | 'itemReturned'
   | 'itemRejected'
+  | 'itemDelivered'
+  | 'crackerBlocked'
   | 'sweetsEaten'
   | 'sweetsOffered'
   | 'giftExchanged'
@@ -55,6 +57,8 @@ const SAMPLES: { readonly [K in HomesEventName]: GameEvents[K] } = {
   itemPickedUp: { item: { kind: 'sweetsPlate' } },
   itemReturned: { item: { kind: 'giftBox', box: 'return' } },
   itemRejected: { action: 'pickUpPlate', reason: 'handsFull' },
+  itemDelivered: { item: { kind: 'giftBox', box: 'outbound' } },
+  crackerBlocked: { action: 'igniteHeld', reason: 'carryingPlate' },
   sweetsEaten: {},
   sweetsOffered: { member: 'grandmother' },
   giftExchanged: {},
@@ -102,6 +106,7 @@ describe('homes events on the game bus', () => {
     expectTypeOf<GameEvents['transitionRejected']['reason']>().toEqualTypeOf<TransitionRejection>();
     expectTypeOf<GameEvents['aartiRejected']['reason']>().toEqualTypeOf<AartiRejection>();
     expectTypeOf<GameEvents['itemRejected']['reason']>().toEqualTypeOf<ItemRejection>();
+    expectTypeOf<GameEvents['crackerBlocked']['reason']>().toEqualTypeOf<CrackerHandsRejection>();
     expectTypeOf<'handsFull' | 'carryingPlate'>().toExtend<ItemRejection>();
     expectTypeOf<'transitionInProgress' | 'carryingPlate'>().toExtend<TransitionRejection>();
     expectTypeOf<'ceremonyCompleted' | 'handsFull'>().toExtend<AartiRejection>();

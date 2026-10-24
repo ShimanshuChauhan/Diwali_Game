@@ -145,6 +145,15 @@ export class Crackers implements CrackersModule {
     this.bus.emit('crackerSelected', { type });
   }
 
+  /**
+   * Put the held phuljhari down but keep the selection, e.g. while the hands
+   * carry sweets; a lit one is finished early. Selecting it again takes a
+   * fresh one. Silent apart from that finish.
+   */
+  putAway(): void {
+    this.dropHeld();
+  }
+
   place(preview: PlacementPreview): PlaceResult {
     const { type, position } = preview;
     if (isHandheld(type)) return this.rejectPlacement(type, 'handheldOnly');

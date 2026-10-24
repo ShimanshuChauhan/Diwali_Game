@@ -116,9 +116,13 @@ Ownership rules:
   Audio follows `AartiSnapshot` (playing only while `participating`) and
   never completes the ceremony; callbacks tagged with an old `playbackId`
   are ignored.
-- **Hands** are `HeldItemsModule`'s: the ceremony `take`s the thali, gift
-  exchange `take`s boxes, and crackers ask `crackerBlock()` before select,
-  place, ignite and held ignition.
+- **Hands** are `HeldItemsModule`'s (`src/homes/heldItems.ts`): the
+  ceremony `reserveThali`s, gift exchange `take`s boxes, `returnTo`s them
+  to their designated spots and `deliver`s them (swapping outbound for
+  return in one step), and the cracker controls ask `crackerBlock()` before
+  select, place, ignite and held ignition, emitting `crackerBlocked`.
+  Taking an item puts an unlit phuljhari away (`Crackers.putAway`) and
+  brings it back once the hands are free; a lit one refuses the item.
 - **Gift progression** is `GiftExchangeModule`'s. It listens for
   `aartiCompleted` to release a pending acknowledgement.
 - Household state progresses whether or not its home is the active
@@ -143,8 +147,9 @@ E at neighbour ─▶ GiftExchangeModule.exchange ─▶ giftExchanged (return b
 | `aartiJoined` / `aartiLeft` / `aartiSongChanged` | Ceremony | Aarti audio, household, UI (mini player) |
 | `aartiCompleted`                        | Ceremony        | Household, held items, gift exchange, aarti audio |
 | `aartiRejected`                         | Ceremony        | UI                                  |
-| `itemPickedUp` / `itemReturned`         | Held items      | Crackers (put away), presentation, UI |
+| `itemPickedUp` / `itemReturned` / `itemDelivered` | Held items | Presentation, UI          |
 | `itemRejected`                          | Held items      | UI                                  |
+| `crackerBlocked`                        | Cracker controls | UI (return-or-deliver prompt)      |
 | `sweetsEaten` / `sweetsOffered`         | Held items      | Household                           |
 | `giftExchanged` / `giftPlaced` / `giftAcknowledged` | Gift exchange | Household, presentation, UI |
 | `giftRejected`                          | Gift exchange   | UI                                  |

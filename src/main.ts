@@ -17,7 +17,7 @@ import { DiyaScene, Diyas } from './diyas';
 import { createEffectsDemo } from './effects/effectsDemo';
 import { EffectsRenderer } from './effects/effectsRenderer';
 import { FireworksEffects } from './effects/fireworksEffects';
-import { homesResetHooks, registerHomesReset } from './homes';
+import { HeldItems, homesResetHooks, registerHomesReset } from './homes';
 import { Interaction } from './interaction';
 import { createPlacementGhost } from './interaction/ghost';
 import { NeighbourScene, Neighbours } from './neighbours';
@@ -99,7 +99,6 @@ async function boot(): Promise<void> {
   });
 
   const session = new Session({ bus });
-  registerHomesReset(session, homesResetHooks());
   const obstacles = rapierBoomCaster(physics, { margin: TUNING.camera.collisionMargin, exclude: player.collider });
   const rig = new CameraRig({ obstacles, bus, spawnYaw: world.spawnYaw });
   const character = new PlayerCharacter({ mode: rig.mode });
@@ -162,6 +161,8 @@ async function boot(): Promise<void> {
     voices: () => audio.activeVoices,
   });
   const crackers = new Crackers({ bus, admission: capacity, handPosition });
+  const heldItems = new HeldItems({ bus, crackers });
+  registerHomesReset(session, homesResetHooks({ heldItems }));
   const interaction = new Interaction({
     world,
     crackers: () => crackers.list(),
@@ -180,6 +181,7 @@ async function boot(): Promise<void> {
     interaction,
     bus,
     pose: () => player.pose,
+    hands: heldItems,
     view: () => {
       camera.getWorldDirection(listenerForward);
       return { mode: rig.mode, position: camera.position, forward: listenerForward, yaw: rig.yaw, pitch: rig.pitch };
