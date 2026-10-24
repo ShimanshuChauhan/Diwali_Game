@@ -65,3 +65,4 @@ Node without a browser.
 
 Project code is released under the [MIT licence](LICENSE). Third-party
 dependencies keep their own licences (Three.js: MIT, Rapier: Apache-2.0).
+Bundled third-party assets and their credits are listed in [`NOTICES.md`](NOTICES.md).
