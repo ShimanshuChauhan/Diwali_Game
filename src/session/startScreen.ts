@@ -6,6 +6,8 @@ export interface StartScreenOptions {
   readonly bus: GameEventBus;
   /** Called on click; the click is also the gesture that unlocks audio. */
   readonly onStart: () => void;
+  /** Also cover the game while paused. Defaults to true; false when a pause menu does that. */
+  readonly showWhenPaused?: boolean;
 }
 
 const CONTROLS: readonly [string, string][] = [
@@ -24,7 +26,7 @@ const CONTROLS: readonly [string, string][] = [
  * Clicking anywhere on it starts or resumes play.
  */
 export function createStartScreen(options: StartScreenOptions): Unsubscribe {
-  const { parent, bus, onStart } = options;
+  const { parent, bus, onStart, showWhenPaused = true } = options;
 
   const overlay = document.createElement('div');
   overlay.style.cssText = [
@@ -74,11 +76,8 @@ export function createStartScreen(options: StartScreenOptions): Unsubscribe {
 
   show('Click to begin');
   overlay.addEventListener('click', onStart);
-  const unsubscribes = [
-    bus.on('sessionStarted', hide),
-    bus.on('resumed', hide),
-    bus.on('paused', () => show('Paused — click to resume')),
-  ];
+  const unsubscribes = [bus.on('sessionStarted', hide), bus.on('resumed', hide)];
+  if (showWhenPaused) unsubscribes.push(bus.on('paused', () => show('Paused — click to resume')));
 
   return () => {
     overlay.removeEventListener('click', onStart);
