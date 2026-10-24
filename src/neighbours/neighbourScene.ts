@@ -1,84 +1,42 @@
 import * as THREE from 'three';
+import { Figure, type FigurePose, type Look } from '../people/figure';
 import type { NeighbourView, Neighbours } from './neighbours';
 
-/** Festive outfit colours (kurta / saree, then a trim or dupatta). */
-export const OUTFITS: readonly (readonly [string, string])[] = [
-  ['#c2185b', '#ffd54f'],
-  ['#ff8f00', '#7b1fa2'],
-  ['#2e7d32', '#ffca28'],
-  ['#6a1b9a', '#f48fb1'],
-  ['#d84315', '#fff176'],
-  ['#00838f', '#ffb74d'],
-  ['#ad1457', '#81d4fa'],
-  ['#f9a825', '#c62828'],
+/**
+ * The street's festive neighbours, one look per roster slot: women in
+ * sarees, men in kurta-pyjama (some in Nehru jackets) and two children.
+ */
+export const LOOKS: readonly Look[] = [
+  { outfit: 'saree', main: '#c2185b', trim: '#ffd54f', second: '#ffb300', skin: '#8d5524', hair: '#160f0c', hairStyle: 'braid', bindi: true },
+  { outfit: 'kurta', main: '#ff8f00', trim: '#7b1fa2', second: '#f3e9d2', skin: '#a0673a', hair: '#1b1410', hairStyle: 'short', moustache: true },
+  { outfit: 'saree', main: '#2e7d32', trim: '#ffca28', second: '#c62828', skin: '#c68642', hair: '#1b1410', hairStyle: 'bun', bindi: true },
+  { outfit: 'kurta', main: '#fdd835', trim: '#c62828', second: '#f3e9d2', skin: '#a0673a', hair: '#1b1410', hairStyle: 'short', scale: 0.62 },
+  { outfit: 'kurta', main: '#f3e9d2', trim: '#d4a017', second: '#f3e9d2', jacket: '#6a1b9a', skin: '#7a4a26', hair: '#2a2a2a', hairStyle: 'short', moustache: true },
+  { outfit: 'saree', main: '#6a1b9a', trim: '#f48fb1', second: '#f48fb1', skin: '#a0673a', hair: '#160f0c', hairStyle: 'braid', bindi: true },
+  { outfit: 'saree', main: '#ff7043', trim: '#ffee58', second: '#00838f', skin: '#c68642', hair: '#1b1410', hairStyle: 'braid', scale: 0.64 },
+  { outfit: 'kurta', main: '#00838f', trim: '#ffb74d', second: '#f3e9d2', jacket: '#bf360c', skin: '#8d5524', hair: '#1b1410', hairStyle: 'short' },
 ];
-const SKIN = ['#8d5524', '#a0673a', '#c68642', '#7a4a26'] as const;
-const HAIR = '#1b1410';
-
-const BODY = { radiusTop: 0.17, radiusBottom: 0.27, height: 1.05 } as const;
-const HEAD_RADIUS = 0.13;
-const SHOULDER_Y = 1.32;
-const ARM = { width: 0.08, length: 0.55 } as const;
-
-interface Figure {
-  readonly root: THREE.Group;
-  readonly head: THREE.Group;
-  readonly leftArm: THREE.Object3D;
-  readonly rightArm: THREE.Object3D;
-}
 
 /**
- * Draws the neighbours as simple original stylised figures: a flared
- * festive tunic, a trim sash, a head with hair, and two arms that rise for
- * a cheer. Geometry is shared; one material per outfit colour.
+ * Draws each neighbour as a festive `Figure` and animates it for its
+ * current activity: walking, chatting with gestures, watching the sky with
+ * hands together, cheering with arms up, or idling with a slow breath.
  */
 export class NeighbourScene {
   readonly object = new THREE.Group();
 
   private readonly neighbours: Neighbours;
   private readonly figures: Figure[] = [];
-  private readonly geometries: THREE.BufferGeometry[] = [];
-  private readonly materials = new Map<string, THREE.MeshStandardMaterial>();
   private time = 0;
 
   constructor(options: { readonly scene: THREE.Scene; readonly neighbours: Neighbours }) {
     this.neighbours = options.neighbours;
     this.object.name = 'neighbours';
-    const body = this.geometry(new THREE.CylinderGeometry(BODY.radiusTop, BODY.radiusBottom, BODY.height, 12));
-    body.translate(0, BODY.height / 2 + 0.25, 0);
-    const legs = this.geometry(new THREE.CylinderGeometry(0.12, 0.12, 0.3, 8));
-    legs.translate(0, 0.15, 0);
-    const sash = this.geometry(new THREE.BoxGeometry(0.06, 0.75, 0.4));
-    sash.rotateX(0.5);
-    sash.translate(0, 0.95, 0);
-    const head = this.geometry(new THREE.SphereGeometry(HEAD_RADIUS, 14, 10));
-    head.translate(0, HEAD_RADIUS, 0);
-    const hair = this.geometry(new THREE.SphereGeometry(HEAD_RADIUS * 1.06, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2));
-    hair.translate(0, HEAD_RADIUS + 0.015, 0.012);
-    const arm = this.geometry(new THREE.BoxGeometry(ARM.width, ARM.length, ARM.width));
-    arm.translate(0, -ARM.length / 2, 0);
-
     for (const view of this.neighbours.views()) {
-      const [tunic, trim] = OUTFITS[view.outfit % OUTFITS.length]!;
-      const skin = this.material(SKIN[view.outfit % SKIN.length]!);
-      const root = new THREE.Group();
-      root.name = `neighbour.${view.id}`;
-      root.add(new THREE.Mesh(body, this.material(tunic)));
-      root.add(new THREE.Mesh(legs, this.material(trim)));
-      root.add(new THREE.Mesh(sash, this.material(trim)));
-      const headGroup = new THREE.Group();
-      headGroup.position.y = SHOULDER_Y + 0.04;
-      headGroup.add(new THREE.Mesh(head, skin), new THREE.Mesh(hair, this.material(HAIR)));
-      root.add(headGroup);
-      const arms = [-1, 1].map((side) => {
-        const pivot = new THREE.Group();
-        pivot.position.set(side * (BODY.radiusTop + ARM.width / 2), SHOULDER_Y, 0);
-        pivot.add(new THREE.Mesh(arm, this.material(tunic)));
-        root.add(pivot);
-        return pivot;
-      });
-      this.object.add(root);
-      this.figures.push({ root, head: headGroup, leftArm: arms[0]!, rightArm: arms[1]! });
+      const figure = new Figure(LOOKS[view.outfit % LOOKS.length]!);
+      figure.root.name = `neighbour.${view.id}`;
+      this.object.add(figure.root);
+      this.figures.push(figure);
     }
     options.scene.add(this.object);
   }
@@ -87,65 +45,99 @@ export class NeighbourScene {
   frame(delta: number): void {
     this.time += delta;
     const views = this.neighbours.views();
-    for (let i = 0; i < views.length; i++) pose(this.figures[i]!, views[i]!, this.time + i * 1.7);
+    for (let i = 0; i < views.length; i++) {
+      const figure = this.figures[i]!;
+      const view = views[i]!;
+      figure.root.position.set(view.position.x, view.position.y, view.position.z);
+      figure.root.rotation.y = view.yaw;
+      figure.setPose(poseFor(view, this.time + i * 1.7));
+    }
   }
 
   dispose(): void {
-    for (const geometry of this.geometries) geometry.dispose();
-    for (const material of this.materials.values()) material.dispose();
+    for (const figure of this.figures) figure.dispose();
     this.object.removeFromParent();
     this.object.clear();
   }
-
-  private geometry<T extends THREE.BufferGeometry>(geometry: T): T {
-    this.geometries.push(geometry);
-    return geometry;
-  }
-
-  private material(colour: string): THREE.MeshStandardMaterial {
-    let material = this.materials.get(colour);
-    if (!material) {
-      material = new THREE.MeshStandardMaterial({ color: colour, roughness: 0.75 });
-      this.materials.set(colour, material);
-    }
-    return material;
-  }
 }
 
-function pose(figure: Figure, view: NeighbourView, t: number): void {
-  const { root, head, leftArm, rightArm } = figure;
-  const p = view.position;
-  let bob = 0;
-  let left = 0.1;
-  let right = -0.1;
-  let swing = 0;
+/** Body pose for a neighbour's activity, `t` seconds into an offset clock. */
+export function poseFor(view: NeighbourView, t: number): FigurePose {
+  const headPitch = view.lookUp;
   switch (view.activity) {
-    case 'wander':
-      bob = Math.abs(Math.sin(t * 7)) * 0.03;
-      swing = Math.sin(t * 7) * 0.4;
-      break;
-    case 'chat':
-      // An occasional hand gesture while talking.
-      right = -0.1 - Math.max(0, Math.sin(t * 1.3)) * 0.9;
-      break;
+    case 'wander': {
+      const step = Math.sin(t * 6.5);
+      return {
+        bob: Math.abs(Math.cos(t * 6.5)) * 0.025,
+        headPitch,
+        leftLeg: step * 0.45,
+        rightLeg: -step * 0.45,
+        leftKnee: Math.max(0, -step) * 0.7,
+        rightKnee: Math.max(0, step) * 0.7,
+        leftArm: -step * 0.35,
+        rightArm: step * 0.35,
+        leftElbow: 0.2,
+        rightElbow: 0.2,
+        leftSpread: 0.05,
+        rightSpread: 0.05,
+      };
+    }
+    case 'chat': {
+      // Talking with one hand, now and then.
+      const gesture = Math.max(0, Math.sin(t * 1.3));
+      return {
+        headPitch: headPitch + Math.sin(t * 2.1) * 0.06,
+        headYaw: Math.sin(t * 0.7) * 0.25,
+        rightArm: 0.5 * gesture,
+        rightElbow: 0.3 + 1.2 * gesture + Math.sin(t * 7) * 0.12 * gesture,
+        leftArm: 0.05,
+        leftElbow: 0.2,
+        leftSpread: 0.06,
+        rightSpread: 0.08,
+      };
+    }
     case 'watch':
-      left = 0.15;
-      right = -0.15;
-      break;
+      // Looking up at the sky with hands held together in front.
+      return {
+        headPitch,
+        lean: -0.06,
+        leftArm: 0.35,
+        rightArm: 0.35,
+        leftElbow: 1.2,
+        rightElbow: 1.2,
+        leftSpread: -0.18,
+        rightSpread: -0.18,
+      };
     case 'cheer': {
-      const wave = Math.sin(t * 9) * 0.25;
-      left = 2.6 + wave;
-      right = -2.6 + wave;
-      bob = Math.abs(Math.sin(t * 6)) * 0.08;
-      break;
+      // Both arms up, waving, with a little hop.
+      const wave = Math.sin(t * 9) * 0.3;
+      return {
+        bob: Math.abs(Math.sin(t * 6)) * 0.07,
+        headPitch: headPitch + 0.1,
+        leftArm: 0.4,
+        rightArm: 0.4,
+        leftSpread: 2.5 + wave,
+        rightSpread: 2.5 - wave,
+        leftElbow: 0.3,
+        rightElbow: 0.3,
+        leftKnee: Math.abs(Math.sin(t * 6)) * 0.3,
+        rightKnee: Math.abs(Math.sin(t * 6)) * 0.3,
+      };
     }
     case 'idle':
-      bob = Math.sin(t * 1.5) * 0.005;
-      break;
+    default: {
+      const breath = Math.sin(t * 1.5);
+      return {
+        bob: breath * 0.004,
+        headPitch,
+        headYaw: Math.sin(t * 0.4) * 0.2,
+        leftArm: 0.02,
+        rightArm: 0.02,
+        leftElbow: 0.18 + breath * 0.02,
+        rightElbow: 0.18 + breath * 0.02,
+        leftSpread: 0.07,
+        rightSpread: 0.07,
+      };
+    }
   }
-  root.position.set(p.x, p.y + bob, p.z);
-  root.rotation.y = view.yaw;
-  head.rotation.x = view.lookUp;
-  leftArm.rotation.set(swing, 0, -left);
-  rightArm.rotation.set(-swing, 0, -right);
 }

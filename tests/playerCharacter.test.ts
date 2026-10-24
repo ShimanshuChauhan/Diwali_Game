@@ -207,16 +207,22 @@ describe('character model', () => {
     expect(character.object.rotation.y).toBeCloseTo(1.2, 9);
   });
 
-  it('is built from original procedural meshes in a few festive colours', () => {
+  it('is built from original procedural meshes in a few festive colours, sharing one material', () => {
     const character = new PlayerCharacter();
     const colours = new Set<string>();
+    const materials = new Set<THREE.Material>();
     let meshes = 0;
     character.object.traverse((o) => {
       if (!(o instanceof THREE.Mesh)) return;
       meshes++;
-      colours.add((o.material as THREE.MeshStandardMaterial).color.getHexString());
+      materials.add(o.material as THREE.Material);
+      const attribute = (o.geometry as THREE.BufferGeometry).getAttribute('color');
+      for (let i = 0; i < attribute.count; i++) {
+        colours.add(new THREE.Color(attribute.getX(i), attribute.getY(i), attribute.getZ(i)).getHexString());
+      }
     });
     expect(meshes).toBeGreaterThan(10);
+    expect(materials.size).toBe(1);
     expect(colours.size).toBeGreaterThanOrEqual(5);
   });
 

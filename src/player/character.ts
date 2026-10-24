@@ -1,31 +1,26 @@
 import * as THREE from 'three';
 import type { PlayerPose } from '../core/contracts';
 import type { CameraMode, Vec3 } from '../core/types';
+import { Figure, type Look } from '../people/figure';
 import { bodyVisible, gaitPose, HAND_SOCKET, handSocketFor, REST_GAIT, stepGait, type GaitState } from './gait';
 
-/** Body landmarks above the feet, metres; the head sits around the eye height. */
-const HIP_Y = 0.85;
-const SHOULDER_Y = 1.42;
-const SHOULDER_X = HAND_SOCKET.right;
-const HIP_X = 0.1;
-const LEG_LENGTH = HIP_Y - 0.05;
-const ARM_LENGTH = 0.55;
-const HEAD_Y = 1.62;
-const HEAD_RADIUS = 0.12;
-
-/** The held arm reaches straight from the shoulder to the hand socket. */
-const HELD_ARM_DROP = SHOULDER_Y - HAND_SOCKET.up;
-const HELD_ARM_LENGTH = Math.hypot(HELD_ARM_DROP, HAND_SOCKET.forward);
-const HELD_ARM_PITCH = Math.atan2(HAND_SOCKET.forward, HELD_ARM_DROP);
-
-const COLOURS = {
-  kurta: '#c2185b',
+/** The player's festive outfit: a rani-pink kurta under a navy Nehru jacket. */
+const PLAYER_LOOK: Look = {
+  outfit: 'kurta',
+  main: '#c2185b',
   trim: '#f4b400',
-  pyjama: '#f3e9d2',
+  second: '#f3e9d2',
+  jacket: '#1f3a5f',
   skin: '#b07850',
   hair: '#1b1210',
-  mojari: '#7a3b12',
-} as const;
+  hairStyle: 'short',
+};
+
+/** Where the right hand holds things, in body space (see `HAND_SOCKET`). */
+const HELD_HAND = new THREE.Vector3(HAND_SOCKET.right, HAND_SOCKET.up, -HAND_SOCKET.forward);
+
+/** How far a knee folds as its leg swings back. */
+const KNEE_FOLD = 0.9;
 
 export interface PlayerCharacterOptions {
   /** Starting view; the body only shows in third-person. */
@@ -33,10 +28,9 @@ export interface PlayerCharacterOptions {
 }
 
 /**
- * The preset festive character: an original, procedurally built figure in a
- * knee-length kurta with gold trim, cream pyjama and mojari, animated by the
- * gait cycle in `gait.ts`. Hidden in first-person. The right arm is held
- * forward and ends in `handSocket`, where the phuljhari attaches;
+ * The preset festive character, built with the shared `Figure` and animated
+ * by the gait cycle in `gait.ts`. Hidden in first-person. The right arm bends
+ * to hold its hand at `handSocket`, where the phuljhari attaches;
  * `handPosition` gives the same point as plain data for the crackers module.
  */
 export class PlayerCharacter {
@@ -44,20 +38,15 @@ export class PlayerCharacter {
   /** Attach point on the right hand for held items. */
   readonly handSocket = new THREE.Object3D();
 
-  private readonly body = new THREE.Group();
-  private readonly leftLeg = new THREE.Group();
-  private readonly rightLeg = new THREE.Group();
-  private readonly freeArm = new THREE.Group();
-  private readonly geometries: THREE.BufferGeometry[] = [];
-  private readonly materials: THREE.Material[] = [];
+  private readonly figure = new Figure(PLAYER_LOOK);
   private gait: GaitState = REST_GAIT;
 
   constructor(options: PlayerCharacterOptions = {}) {
     this.object.name = 'player.character';
     this.handSocket.name = 'player.handSocket';
-    this.body.name = 'player.body';
-    this.object.add(this.body);
-    this.build();
+    this.object.add(this.figure.root);
+    this.figure.rightHand.add(this.handSocket);
+    this.pose();
     this.object.visible = bodyVisible(options.mode ?? 'firstPerson');
   }
 
@@ -76,11 +65,7 @@ export class PlayerCharacter {
    */
   update(pose: PlayerPose, speed: number, mode: CameraMode, dt: number): void {
     this.gait = stepGait(this.gait, speed, dt);
-    const { legSwing, armSwing, bob } = gaitPose(this.gait);
-    this.leftLeg.rotation.x = legSwing;
-    this.rightLeg.rotation.x = -legSwing;
-    this.freeArm.rotation.x = armSwing;
-    this.body.position.y = bob;
+    this.pose();
     const { x, y, z } = pose.position;
     this.object.position.set(x, y, z);
     this.object.rotation.y = pose.yaw;
@@ -95,93 +80,25 @@ export class PlayerCharacter {
   /** Back to a standing rest for a fresh visit. */
   reset(): void {
     this.gait = REST_GAIT;
+    this.pose();
   }
 
   dispose(): void {
     this.object.removeFromParent();
-    for (const geometry of this.geometries) geometry.dispose();
-    for (const material of this.materials) material.dispose();
+    this.figure.dispose();
   }
 
-  private build(): void {
-    const kurta = this.material(COLOURS.kurta, 0.8);
-    const trim = this.material(COLOURS.trim, 0.4, 0.6);
-    const pyjama = this.material(COLOURS.pyjama, 0.9);
-    const skin = this.material(COLOURS.skin, 0.7);
-    const hair = this.material(COLOURS.hair, 0.9);
-    const mojari = this.material(COLOURS.mojari, 0.6);
-
-    // Kurta: fitted chest over a skirt flaring to the knee, gold at hem and collar.
-    this.part(new THREE.CylinderGeometry(0.17, 0.19, SHOULDER_Y - HIP_Y + 0.05, 14), kurta, 0, (SHOULDER_Y + HIP_Y) / 2);
-    this.part(new THREE.CylinderGeometry(0.19, 0.27, 0.42, 14), kurta, 0, HIP_Y - 0.19);
-    this.part(new THREE.CylinderGeometry(0.272, 0.272, 0.035, 14), trim, 0, HIP_Y - 0.39);
-    this.part(new THREE.CylinderGeometry(0.075, 0.08, 0.05, 10), trim, 0, SHOULDER_Y + 0.04);
-    // Placket of gold buttons down the chest.
-    for (let i = 0; i < 3; i++) this.part(new THREE.SphereGeometry(0.014, 6, 4), trim, 0, SHOULDER_Y - 0.06 - i * 0.08, -0.172);
-
-    // Head and hair.
-    this.part(new THREE.CylinderGeometry(0.05, 0.055, 0.1, 8), skin, 0, SHOULDER_Y + 0.08);
-    this.part(new THREE.SphereGeometry(HEAD_RADIUS, 16, 12), skin, 0, HEAD_Y);
-    const cap = this.part(
-      new THREE.SphereGeometry(HEAD_RADIUS * 1.06, 16, 8, 0, Math.PI * 2, 0, Math.PI * 0.55),
-      hair,
-      0,
-      HEAD_Y + 0.01,
-    );
-    cap.rotation.x = 0.25;
-
-    // Legs hang from the hips and swing about them.
-    for (const [leg, side] of [
-      [this.leftLeg, -1],
-      [this.rightLeg, 1],
-    ] as const) {
-      leg.position.set(side * HIP_X, HIP_Y, 0);
-      this.body.add(leg);
-      this.limb(leg, new THREE.CylinderGeometry(0.06, 0.05, LEG_LENGTH, 8), pyjama, LEG_LENGTH);
-      const shoe = this.part(new THREE.BoxGeometry(0.1, 0.06, 0.22), mojari, 0, -LEG_LENGTH - 0.02, -0.04, leg);
-      shoe.name = 'player.mojari';
-    }
-
-    // Left arm swings freely, opposite the left leg.
-    this.freeArm.position.set(-SHOULDER_X, SHOULDER_Y, 0);
-    this.body.add(this.freeArm);
-    this.limb(this.freeArm, new THREE.CylinderGeometry(0.05, 0.045, ARM_LENGTH, 8), kurta, ARM_LENGTH);
-    this.part(new THREE.SphereGeometry(0.045, 8, 6), skin, 0, -ARM_LENGTH, 0, this.freeArm);
-
-    // Right arm is held forward, ending in the hand and its socket.
-    const heldArm = new THREE.Group();
-    heldArm.position.set(SHOULDER_X, SHOULDER_Y, 0);
-    heldArm.rotation.x = HELD_ARM_PITCH;
-    this.body.add(heldArm);
-    this.limb(heldArm, new THREE.CylinderGeometry(0.05, 0.045, HELD_ARM_LENGTH, 8), kurta, HELD_ARM_LENGTH);
-    this.part(new THREE.SphereGeometry(0.045, 8, 6), skin, 0, -HELD_ARM_LENGTH, 0, heldArm);
-    this.handSocket.position.set(0, -HELD_ARM_LENGTH, 0);
-    heldArm.add(this.handSocket);
-  }
-
-  /** A limb segment hanging `length` below its pivot group. */
-  private limb(pivot: THREE.Group, geometry: THREE.BufferGeometry, material: THREE.Material, length: number): void {
-    this.part(geometry, material, 0, -length / 2, 0, pivot);
-  }
-
-  private part(
-    geometry: THREE.BufferGeometry,
-    material: THREE.Material,
-    x: number,
-    y: number,
-    z = 0,
-    parent: THREE.Object3D = this.body,
-  ): THREE.Mesh {
-    this.geometries.push(geometry);
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.position.set(x, y, z);
-    parent.add(mesh);
-    return mesh;
-  }
-
-  private material(color: string, roughness: number, metalness = 0): THREE.MeshStandardMaterial {
-    const material = new THREE.MeshStandardMaterial({ color, roughness, metalness });
-    this.materials.push(material);
-    return material;
+  private pose(): void {
+    const { legSwing, armSwing, bob } = gaitPose(this.gait);
+    this.figure.setPose({
+      bob,
+      leftLeg: legSwing,
+      rightLeg: -legSwing,
+      leftKnee: Math.max(0, -legSwing) * KNEE_FOLD,
+      rightKnee: Math.max(0, legSwing) * KNEE_FOLD,
+      leftArm: armSwing,
+      leftElbow: 0.15 + Math.max(0, armSwing) * 0.4,
+    });
+    this.figure.reachRight(HELD_HAND);
   }
 }

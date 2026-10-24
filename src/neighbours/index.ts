@@ -10,4 +10,4 @@ export {
   type NeighboursOptions,
   type NeighbourView,
 } from './neighbours';
-export { NeighbourScene, OUTFITS } from './neighbourScene';
+export { LOOKS, NeighbourScene, poseFor } from './neighbourScene';
