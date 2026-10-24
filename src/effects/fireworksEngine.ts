@@ -8,6 +8,7 @@ import {
   type CoreSpec,
   type EmitterPreset,
   type GlowLightSpec,
+  type NozzleSpec,
   type PatternShape,
   type RimSpec,
   type SurgeSpec,
@@ -474,9 +475,39 @@ export class FireworksEngine {
       this.coneDirection(preset, emitter.spinAngle + ((k % jets) * Math.PI * 2) / jets, dir);
       const speed = lerp(preset.speed.min, preset.speed.max, this.random()) * surge;
       this.fillSpec(index, emitter, preset, dir[0]! * speed, dir[1]! * speed, dir[2]! * speed, back, 1);
+      this.spawnStar(emitter, preset, null);
+    }
+    if (preset.nozzle) this.emitNozzle(index, emitter, preset, preset.nozzle, dt);
+    if (preset.crackle) this.crackle(index, emitter, preset, dt);
+  }
+
+  /** Short-lived white-hot sparks at a fountain's mouth (anar). */
+  private emitNozzle(index: number, emitter: EmitterSlot, preset: EmitterPreset, nozzle: NozzleSpec, dt: number): void {
+    emitter.glowCarry += nozzle.rate * this.countScale * dt;
+    const n = Math.floor(emitter.glowCarry);
+    emitter.glowCarry -= n;
+    const spec = this.spec;
+    const hot = this.axisU;
+    writeLinear(nozzle.colour, hot, 0);
+    const dir = this.scratch;
+    for (let k = 0; k < n; k++) {
+      this.coneDirection(preset, 0, dir);
+      const speed = lerp(nozzle.speed.min, nozzle.speed.max, this.random());
+      this.fillSpec(index, emitter, preset, dir[0]! * speed, dir[1]! * speed, dir[2]! * speed, 0, 1);
+      spec.y = emitter.y + nozzle.height;
+      spec.life = lerp(nozzle.life.min, nozzle.life.max, this.random());
+      spec.r0 = hot[0]! * nozzle.brightness;
+      spec.g0 = hot[1]! * nozzle.brightness;
+      spec.b0 = hot[2]! * nozzle.brightness;
+      spec.r1 = spec.r0 * 0.5;
+      spec.g1 = spec.g0 * 0.35;
+      spec.b1 = spec.b0 * 0.1;
+      spec.size0 = nozzle.size;
+      spec.size1 = nozzle.size * 0.5;
+      spec.gravity = 0;
+      spec.flicker = 0.3;
       this.spawn(emitter);
     }
-    if (preset.crackle) this.crackle(index, emitter, preset, dt);
   }
 
   /**
@@ -575,11 +606,14 @@ export class FireworksEngine {
     const sparks = Math.max(2, Math.round(crackle.count * this.countScale));
     const dir = this.scratch;
     const spec = this.spec;
+    const tint = this.axisW;
+    if (crackle.colour !== undefined) writeLinear(crackle.colour, tint, 0);
+    const lift = crackle.height ?? 0;
     for (let p = 0; p < pops; p++) {
       randomUnit(this.random, dir, 0);
       const reach = crackle.radius * this.random();
       const cx = emitter.x + dir[0]! * reach;
-      const cy = emitter.y + dir[1]! * reach;
+      const cy = emitter.y + lift + dir[1]! * reach;
       const cz = emitter.z + dir[2]! * reach;
       for (let k = 0; k < sparks; k++) {
         randomUnit(this.random, dir, 0);
@@ -591,6 +625,14 @@ export class FireworksEngine {
         spec.life = lerp(crackle.life.min, crackle.life.max, this.random());
         spec.size0 = crackle.size;
         spec.size1 = crackle.size * 0.3;
+        if (crackle.colour !== undefined) {
+          spec.r0 = tint[0]! * 1.5;
+          spec.g0 = tint[1]! * 1.5;
+          spec.b0 = tint[2]! * 1.5;
+          spec.r1 = spec.r0 * 0.3;
+          spec.g1 = spec.g0 * 0.3;
+          spec.b1 = spec.b0 * 0.3;
+        }
         this.spawn(emitter);
       }
     }
