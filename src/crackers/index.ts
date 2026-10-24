@@ -5,7 +5,7 @@ export {
   PLACE_AHEAD,
   type CrackerControlContext,
 } from './controls';
-export { Crackers, type CrackersOptions } from './crackers';
+export { Crackers, type CrackerAdmission, type CrackersOptions } from './crackers';
 export {
   BURST_PATTERNS,
   CRACKER_DEFINITIONS,

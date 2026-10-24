@@ -46,6 +46,11 @@ export interface PlacementSources {
   readonly world: WorldModule;
   /** Crackers not yet finished; used for capacity and spacing. */
   readonly crackers?: () => readonly CrackerSnapshot[];
+  /**
+   * Whether one more cracker fits, e.g. the capacity budget, which may
+   * reclaim an old unlit one to make room. Defaults to the placed cap.
+   */
+  readonly hasRoom?: () => boolean;
   /** Live neighbour positions, kept clear on top of the static areas. */
   readonly neighbours?: () => readonly NeighbourSnapshot[];
   readonly tuning?: Tuning;
@@ -101,6 +106,7 @@ function insideAnyZone(zones: readonly ExclusionZone[], p: Vec3, clearance: numb
 export class PlacementRules {
   private readonly world: WorldModule;
   private readonly crackers: () => readonly CrackerSnapshot[];
+  private readonly hasRoom: (() => boolean) | undefined;
   private readonly neighbours: () => readonly NeighbourSnapshot[];
   private readonly tuning: Tuning;
   private readonly minSurfaceNormalY: number;
@@ -117,6 +123,7 @@ export class PlacementRules {
   constructor(sources: PlacementSources) {
     this.world = sources.world;
     this.crackers = sources.crackers ?? NONE;
+    this.hasRoom = sources.hasRoom;
     this.neighbours = sources.neighbours ?? NONE;
     this.tuning = sources.tuning ?? TUNING;
     this.minSurfaceNormalY = Math.cos((this.tuning.placement.maxSurfaceSlope * Math.PI) / 180);
@@ -156,7 +163,7 @@ export class PlacementRules {
     if (isHandheld(type)) return 'handheldOnly';
 
     const crackers = this.crackers();
-    if (crackers.length >= caps.maxPlacedCrackers) return 'capacity';
+    if (this.hasRoom ? !this.hasRoom() : crackers.length >= caps.maxPlacedCrackers) return 'capacity';
 
     const dx = target.x - playerPosition.x;
     const dy = target.y - playerPosition.y;

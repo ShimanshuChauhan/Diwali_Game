@@ -27,6 +27,8 @@ export interface InteractionOptions {
   readonly world: WorldModule;
   /** Crackers not yet finished; unlit ones are E targets. */
   readonly crackers?: () => readonly CrackerSnapshot[];
+  /** Whether one more cracker fits; see `PlacementSources.hasRoom`. */
+  readonly hasRoom?: () => boolean;
   /** Live neighbour positions for placement exclusion. */
   readonly neighbours?: () => readonly NeighbourSnapshot[];
   /**
@@ -92,6 +94,7 @@ export class Interaction implements InteractionModule {
     this.rules = new PlacementRules({
       world: options.world,
       crackers: this.crackers,
+      hasRoom: options.hasRoom,
       neighbours: options.neighbours,
       tuning: this.tuning,
     });

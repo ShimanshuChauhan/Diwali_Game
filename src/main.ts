@@ -9,13 +9,15 @@ import { Atmosphere } from './atmosphere';
 import { AudioEngine } from './audio/audioEngine';
 import { unlockOnFirstGesture } from './audio/controls';
 import { CameraRig, rapierBoomCaster } from './camera';
-import { applyCrackerAction, Crackers, handPositionFor } from './crackers';
+import { CapacityBudget } from './capacity';
+import { applyCrackerAction, Crackers } from './crackers';
 import { DiyaScene, Diyas } from './diyas';
 import { createEffectsDemo } from './effects/effectsDemo';
 import { EffectsRenderer } from './effects/effectsRenderer';
 import { FireworksEffects } from './effects/fireworksEffects';
 import { Interaction } from './interaction';
-import { MovementIntentTracker, PlayerController } from './player';
+import { NeighbourScene, Neighbours } from './neighbours';
+import { MovementIntentTracker, PlayerCharacter, PlayerController } from './player';
 import { createDomControls } from './session/domControls';
 import { Input } from './session/input';
 import { Session } from './session/session';
@@ -27,6 +29,7 @@ import { createWorldScene } from './world/scene';
 
 const SIM_STEP = 1 / 60;
 const MAX_STEPS_PER_FRAME = 5;
+const NO_EFFECT_STATS = { activeEffects: 0, liveParticles: 0, dynamicLights: 0 };
 
 async function boot(): Promise<void> {
   const container = document.getElementById('app');
@@ -61,10 +64,13 @@ async function boot(): Promise<void> {
   const session = new Session({ bus });
   const obstacles = rapierBoomCaster(physics, { margin: TUNING.camera.collisionMargin, exclude: player.collider });
   const rig = new CameraRig({ obstacles, bus, spawnYaw: world.spawnYaw });
+  const character = new PlayerCharacter({ mode: rig.mode });
+  scene.add(character.object);
   bus.on('sessionReset', () => {
     player.reset();
     movement.reset();
     rig.reset();
+    character.reset();
   });
   const input = new Input({ bus, enabled: false });
   const controls = createDomControls({
@@ -86,7 +92,10 @@ async function boot(): Promise<void> {
   const diyas = new Diyas({ sites: world.diyaSites, bus });
   const diyaScene = new DiyaScene({ scene, diyas, profile: qualityProfile(DEFAULT_QUALITY), bus });
 
-  const audio = new AudioEngine({ bus });
+  const neighbours = new Neighbours({ areas: world.neighbourAreas, bus });
+  const neighbourScene = new NeighbourScene({ scene, neighbours });
+
+  const audio = new AudioEngine({ bus, neighbourPosition: (id) => neighbours.positionOf(id) });
   unlockOnFirstGesture(window, audio);
   // Stand-in quality setting until the quality module lands.
   let quality = qualityProfile(DEFAULT_QUALITY);
@@ -110,13 +119,23 @@ async function boot(): Promise<void> {
     },
   });
   const listenerForward = new THREE.Vector3();
-  const handPosition = () => handPositionFor(player.pose.position, rig.yaw);
-  const crackers = new Crackers({ bus, handPosition });
+  const handPosition = () => character.handPosition(player.pose);
+  // `capacity.stats` holds the resource counters for the perf overlay.
+  const capacity = new CapacityBudget({
+    crackers: () => crackers,
+    bus,
+    quality,
+    effects: () => effects?.stats ?? NO_EFFECT_STATS,
+    voices: () => audio.activeVoices,
+  });
+  const crackers = new Crackers({ bus, admission: capacity, handPosition });
   const interaction = new Interaction({
     world,
     crackers: () => crackers.list(),
+    hasRoom: () => capacity.hasRoom(),
     playerPosition: () => player.pose.position,
     isDiyaUsable: (id) => !diyas.isLit(id),
+    neighbours: () => neighbours.positions(),
   });
   const crackerControls = {
     crackers,
@@ -168,15 +187,18 @@ async function boot(): Promise<void> {
       physics.step();
       crackers.update(SIM_STEP);
       effects?.update(SIM_STEP);
+      capacity.update(SIM_STEP);
       audio.update(SIM_STEP);
       atmosphere.update(SIM_STEP);
       diyaScene.update(SIM_STEP);
+      neighbours.update(SIM_STEP);
     }
     if (effectsDemo) {
       const demo = demoLoop.advance(delta);
       for (let i = 0; i < demo.steps; i++) effectsDemo.update(SIM_STEP);
       effectsDemo.frame(delta);
     } else {
+      character.update(player.pose, player.speed, rig.mode, session.paused ? 0 : delta);
       const { position: eye, forward } = rig.update(player.pose, delta);
       camera.position.set(eye.x, eye.y, eye.z);
       camera.lookAt(eye.x + forward.x, eye.y + forward.y, eye.z + forward.z);
@@ -185,6 +207,7 @@ async function boot(): Promise<void> {
     effectsView?.sync();
     atmosphere.frame();
     diyaScene.frame(camera.position);
+    neighbourScene.frame(session.paused ? 0 : delta);
     camera.getWorldDirection(listenerForward);
     const view = { mode: rig.mode, position: camera.position, forward: listenerForward, yaw: rig.yaw, pitch: rig.pitch };
     audio.setListener(view);
