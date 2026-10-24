@@ -108,6 +108,13 @@ export interface FamilyHomeLayout extends InteriorLayout {
   readonly gathering: Readonly<Record<FamilyMemberId, Placement>>;
   /** Where each family member sits after aarti. */
   readonly seats: Readonly<Record<FamilyMemberId, Placement>>;
+  /**
+   * Furniture-free walks from each gathering spot to its seat: the
+   * waypoints between the two, in order. The server's passes through `serving`.
+   */
+  readonly routes: Readonly<Record<FamilyMemberId, readonly Vec3[]>>;
+  /** Where the tray is served from after aarti, beside the sweets table. */
+  readonly serving: Placement;
   /** The thali's resting place on the chowki. */
   readonly thali: Vec3;
   /** Where the neighbour's return box goes on the sweets table. */
