@@ -4,7 +4,6 @@ import { crackerForSlot } from './core/actions';
 import { FixedStep } from './core/fixedStep';
 import { TUNING } from './core/tuning';
 import { createGameEventBus } from './core/events';
-import { DEFAULT_QUALITY, qualityProfile } from './core/quality';
 import { Atmosphere } from './atmosphere';
 import { AudioEngine } from './audio/audioEngine';
 import { unlockOnFirstGesture } from './audio/controls';
@@ -18,6 +17,8 @@ import { FireworksEffects } from './effects/fireworksEffects';
 import { Interaction } from './interaction';
 import { NeighbourScene, Neighbours } from './neighbours';
 import { MovementIntentTracker, PlayerCharacter, PlayerController } from './player';
+import { createPerfOverlay, FrameTimer, initialQualityLevel, QualitySettings, type QualityStorage } from './quality';
+import { RenderPipeline } from './quality/renderPipeline';
 import { createDomControls } from './session/domControls';
 import { Input } from './session/input';
 import { Session } from './session/session';
@@ -30,6 +31,15 @@ import { createWorldScene } from './world/scene';
 const SIM_STEP = 1 / 60;
 const MAX_STEPS_PER_FRAME = 5;
 const NO_EFFECT_STATS = { activeEffects: 0, liveParticles: 0, dynamicLights: 0 };
+
+/** `localStorage`, or null where the browser blocks it. */
+function browserStorage(): QualityStorage | null {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
 
 async function boot(): Promise<void> {
   const container = document.getElementById('app');
@@ -44,7 +54,6 @@ async function boot(): Promise<void> {
   physics.step(); // put the static colliders in the broad phase before the player queries it
 
   const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   container.appendChild(renderer.domElement);
@@ -54,13 +63,31 @@ async function boot(): Promise<void> {
   const player = new PlayerController({ physics, bounds: world.bounds, spawn: world.spawn, spawnYaw: world.spawnYaw });
   const movement = new MovementIntentTracker();
 
+  const bus = createGameEventBus();
+  const storage = browserStorage();
+  const quality = new QualitySettings({
+    bus,
+    level: initialQualityLevel({ search: location.search, storage }),
+    storage,
+  });
+  const pipeline = new RenderPipeline({
+    renderer,
+    scene,
+    camera,
+    profile: quality.profile,
+    bus,
+    shadowLight: scene.children.find((child) => child instanceof THREE.DirectionalLight),
+    shadowBounds: world.bounds,
+    // A new pixel ratio resizes the drawing buffer; let viewports follow.
+    onResize: () => window.dispatchEvent(new Event('resize')),
+  });
+
   window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
+    pipeline.setSize(window.innerWidth, window.innerHeight);
   });
 
-  const bus = createGameEventBus();
   const session = new Session({ bus });
   const obstacles = rapierBoomCaster(physics, { margin: TUNING.camera.collisionMargin, exclude: player.collider });
   const rig = new CameraRig({ obstacles, bus, spawnYaw: world.spawnYaw });
@@ -85,20 +112,18 @@ async function boot(): Promise<void> {
   const hud = new HudModel({ bus });
   const hudView = createHud(document.body, hud);
 
-  const atmosphere = new Atmosphere({ scene, layout: world.layout, profile: qualityProfile(DEFAULT_QUALITY), renderer, bus });
+  const atmosphere = new Atmosphere({ scene, layout: world.layout, profile: quality.profile, renderer, bus });
   atmosphere.setViewport(renderer.domElement.height, camera);
   window.addEventListener('resize', () => atmosphere.setViewport(renderer.domElement.height, camera));
 
   const diyas = new Diyas({ sites: world.diyaSites, bus });
-  const diyaScene = new DiyaScene({ scene, diyas, profile: qualityProfile(DEFAULT_QUALITY), bus });
+  const diyaScene = new DiyaScene({ scene, diyas, profile: quality.profile, bus });
 
   const neighbours = new Neighbours({ areas: world.neighbourAreas, bus });
   const neighbourScene = new NeighbourScene({ scene, neighbours });
 
-  const audio = new AudioEngine({ bus, neighbourPosition: (id) => neighbours.positionOf(id) });
+  const audio = new AudioEngine({ bus, profile: quality.profile, neighbourPosition: (id) => neighbours.positionOf(id) });
   unlockOnFirstGesture(window, audio);
-  // Stand-in quality setting until the quality module lands.
-  let quality = qualityProfile(DEFAULT_QUALITY);
   createPauseMenu({
     parent: document.body,
     bus,
@@ -108,23 +133,14 @@ async function boot(): Promise<void> {
       controls.requestStart();
     },
     audio,
-    quality: {
-      get profile() {
-        return quality;
-      },
-      setLevel(level) {
-        quality = qualityProfile(level);
-        bus.emit('qualityChanged', { profile: quality });
-      },
-    },
+    quality,
   });
   const listenerForward = new THREE.Vector3();
   const handPosition = () => character.handPosition(player.pose);
-  // `capacity.stats` holds the resource counters for the perf overlay.
   const capacity = new CapacityBudget({
     crackers: () => crackers,
     bus,
-    quality,
+    quality: quality.profile,
     effects: () => effects?.stats ?? NO_EFFECT_STATS,
     voices: () => audio.activeVoices,
   });
@@ -151,7 +167,7 @@ async function boot(): Promise<void> {
     ? createEffectsDemo(scene, camera, renderer)
     : null;
   // The stress demo brings its own effects; otherwise crackers drive these.
-  const effects = effectsDemo ? null : new FireworksEffects(bus, { quality, handPosition });
+  const effects = effectsDemo ? null : new FireworksEffects(bus, { quality: quality.profile, handPosition });
   const effectsView = effects ? new EffectsRenderer(effects.engine) : null;
   if (effectsView) {
     scene.add(effectsView.object);
@@ -163,6 +179,20 @@ async function boot(): Promise<void> {
   const loop = new FixedStep({ step: SIM_STEP, maxSteps: MAX_STEPS_PER_FRAME });
   const demoLoop = new FixedStep({ step: SIM_STEP, maxSteps: MAX_STEPS_PER_FRAME });
   const timer = new THREE.Timer();
+  const frames = new FrameTimer();
+  const perfOverlay = createPerfOverlay({
+    parent: document.body,
+    win: window,
+    visible: new URLSearchParams(location.search).has('perf'),
+    sample: () => ({
+      level: quality.level,
+      fps: frames.fps,
+      frameMs: frames.averageMs,
+      worstFrameMs: frames.worstMs,
+      ...pipeline.stats,
+      capacity: capacity.stats,
+    }),
+  });
 
   renderer.setAnimationLoop((time) => {
     timer.update(time);
@@ -214,7 +244,9 @@ async function boot(): Promise<void> {
     hud.setContext({ interactable: interaction.findInteractable(view) });
     hud.update(delta);
     hudView.sync();
-    renderer.render(scene, camera);
+    pipeline.render();
+    frames.record(delta);
+    perfOverlay.frame(delta);
   });
 
   if (status) status.textContent = `Three.js r${THREE.REVISION} · Rapier ${RAPIER.version()}`;
