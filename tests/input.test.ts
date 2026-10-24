@@ -89,6 +89,18 @@ describe('Input action mapping', () => {
     expect(input.drainActions()).toEqual([{ type: 'place' }]);
   });
 
+  it('ends a held click with one release, ignoring releases it did not see start', () => {
+    const input = new Input();
+    input.mouseUp(0);
+    input.mouseDown(2);
+    input.mouseUp(2);
+    expect(input.drainActions()).toEqual([]);
+    input.mouseDown(0);
+    input.mouseUp(0);
+    input.mouseUp(0);
+    expect(input.drainActions()).toEqual([{ type: 'place' }, { type: 'placeReleased' }]);
+  });
+
   it('merges consecutive mouse deltas into one look action', () => {
     const input = new Input();
     input.look(3, -1);
@@ -143,6 +155,28 @@ describe('Input held-key clearing', () => {
     input.releaseAll();
     input.releaseAll();
     expect(input.drainActions()).toEqual([{ type: 'move', forward: 0, right: 0 }]);
+  });
+
+  it('releaseAll lets go of a held click, so a hold cannot stick', () => {
+    const input = new Input();
+    input.mouseDown(0);
+    input.drainActions();
+    input.releaseAll();
+    input.releaseAll();
+    expect(input.drainActions()).toEqual([{ type: 'placeReleased' }]);
+    // The real release arrives later, or never; either way nothing more happens.
+    input.mouseUp(0);
+    expect(input.drainActions()).toEqual([]);
+  });
+
+  it('disabling mid-hold delivers the release once re-enabled', () => {
+    const input = new Input();
+    input.mouseDown(0);
+    input.drainActions();
+    input.setEnabled(false);
+    expect(input.drainActions()).toEqual([]);
+    input.setEnabled(true);
+    expect(input.drainActions()).toEqual([{ type: 'placeReleased' }]);
   });
 
   it('releaseAll while idle queues nothing', () => {

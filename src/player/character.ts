@@ -40,6 +40,9 @@ export class PlayerCharacter {
 
   private readonly figure = new Figure(PLAYER_LOOK);
   private gait: GaitState = REST_GAIT;
+  /** Body-space palm target that replaces the phuljhari hold, e.g. under the aarti thali. */
+  private readonly reach = new THREE.Vector3();
+  private reaching = false;
 
   constructor(options: PlayerCharacterOptions = {}) {
     this.object.name = 'player.character';
@@ -72,14 +75,29 @@ export class PlayerCharacter {
     this.object.visible = bodyVisible(mode);
   }
 
+  /** How far the body rides above the feet this frame, metres; body-space holds move with it. */
+  get bob(): number {
+    return gaitPose(this.gait).bob;
+  }
+
   /** World position of the hand socket for `pose`, including the current bob. */
   handPosition(pose: PlayerPose): Vec3 {
     return handSocketFor(pose.position, pose.yaw, gaitPose(this.gait).bob);
   }
 
+  /**
+   * Hold the right palm at `target` (body space, as `HELD_HAND`) from the
+   * next `update`, or go back to the phuljhari hold with null.
+   */
+  holdAt(target: THREE.Vector3 | null): void {
+    this.reaching = target !== null;
+    if (target) this.reach.copy(target);
+  }
+
   /** Back to a standing rest for a fresh visit. */
   reset(): void {
     this.gait = REST_GAIT;
+    this.reaching = false;
     this.pose();
   }
 
@@ -99,6 +117,6 @@ export class PlayerCharacter {
       leftArm: armSwing,
       leftElbow: 0.15 + Math.max(0, armSwing) * 0.4,
     });
-    this.figure.reachRight(HELD_HAND);
+    this.figure.reachRight(this.reaching ? this.reach : HELD_HAND);
   }
 }

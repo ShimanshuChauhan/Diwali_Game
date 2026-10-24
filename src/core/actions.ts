@@ -5,7 +5,8 @@ import { CRACKER_TYPES, type CrackerType } from './types';
  * consume these rather than raw DOM events, so they never see a keyboard.
  *
  * Proposed bindings (PRD → Controls): WASD move, Shift run, mouse look,
- * 1–4 select, click place, E light/interact, V toggle camera, Escape pause.
+ * 1–4 select, click place (hold to circle the thali in aarti), E
+ * light/interact, V toggle camera, Escape pause.
  */
 export type GameAction =
   /** Movement axes in [-1, 1]; the latest value replaces the previous one. */
@@ -16,6 +17,11 @@ export type GameAction =
   | { readonly type: 'look'; readonly dx: number; readonly dy: number }
   | { readonly type: 'select'; readonly slot: SelectSlot }
   | { readonly type: 'place' }
+  /**
+   * The place button was let go, or dropped on focus loss. Ends a hold that
+   * `place` began, e.g. circling the thali during aarti.
+   */
+  | { readonly type: 'placeReleased' }
   | { readonly type: 'interact' }
   | { readonly type: 'toggleCamera' }
   | { readonly type: 'pause' };

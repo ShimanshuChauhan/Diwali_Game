@@ -3,8 +3,10 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import { FixedStep } from './core/fixedStep';
 import { TUNING } from './core/tuning';
 import { createGameEventBus } from './core/events';
-import { AartiCeremony } from './aarti';
+import { AartiCeremony, applyAartiAction, holdStill } from './aarti';
+import { firstPersonThali, heldThali, stepThali, Thali, THALI_REST, thaliPalm } from './aarti/thali';
 import { Atmosphere } from './atmosphere';
+import { AartiAudio } from './audio/aarti/aartiAudio';
 import { AudioEngine } from './audio/audioEngine';
 import { unlockOnFirstGesture } from './audio/controls';
 import { createSoundBoard } from './audio/soundBoard';
@@ -13,6 +15,7 @@ import { CapacityBudget } from './capacity';
 import { aimPoint, applyCrackerAction, Crackers } from './crackers';
 import { CrackerProps } from './crackers/props';
 import { firstPersonHand, firstPersonStick, heldStick, Sparkler } from './crackers/sparkler';
+import { AARTI_SONG_IDS } from './core/homes';
 import { isHandheld, type Vec3 } from './core/types';
 import { DiyaScene, Diyas } from './diyas';
 import { createEffectsDemo } from './effects/effectsDemo';
@@ -38,7 +41,7 @@ import { createDomControls } from './session/domControls';
 import { Input } from './session/input';
 import { Session } from './session/session';
 import { createStartScreen } from './session/startScreen';
-import { createHud, createPauseMenu, HudModel } from './ui';
+import { createHud, createMiniPlayer, createPauseMenu, HudModel, MiniPlayerModel } from './ui';
 import { createWorld } from './world';
 import { addWorldColliders } from './world/colliders';
 import { createWorldScene } from './world/scene';
@@ -182,8 +185,28 @@ async function boot(): Promise<void> {
       rig.face(arrival.yaw);
     },
   });
-  const ceremony = new AartiCeremony({ bus, hands: heldItems, location: () => locations.location });
-  registerHomesReset(session, homesResetHooks({ heldItems, locations, aartiCeremony: ceremony }));
+  const aartiAudio = new AartiAudio({
+    bus,
+    output: () => audio.musicOutput,
+    onPlaybackEnded: (id) => ceremony.playbackEnded(id),
+  });
+  const ceremony = new AartiCeremony({
+    bus,
+    hands: heldItems,
+    location: () => locations.location,
+    durationOf: (song) => aartiAudio.durationOf(song),
+  });
+  // Have the recordings ready by the time the player reaches the puja corner.
+  bus.on('locationChanged', ({ to }) => {
+    if (to === 'familyHome') for (const song of AARTI_SONG_IDS) aartiAudio.load(song).catch(() => undefined);
+  });
+  registerHomesReset(session, homesResetHooks({ heldItems, locations, aartiCeremony: ceremony, aartiAudio }));
+  // Participants keep facing the puja as they join it; the view looks round freely.
+  let aartiFacing = 0;
+  bus.on('aartiJoined', () => (aartiFacing = player.pose.yaw));
+  // Only while taking part: the songs and the current one's progress. Choosing never resumes or leaves.
+  const miniPlayer = new MiniPlayerModel({ bus });
+  const miniPlayerPanel = createMiniPlayer(document.body, miniPlayer, (song) => ceremony.selectSong(song));
   // Only homes with a built interior are offered; the neighbour's arrives with #65.
   const doorways = locations.doorways().filter((d) => d.destination === 'outdoors' || d.destination === 'familyHome');
   const interaction = new Interaction({
@@ -243,6 +266,12 @@ async function boot(): Promise<void> {
   const interiorAssets = new InteriorAssets();
   const familyHomeScene = buildInteriorScene(familyHome, interiorAssets);
   scene.add(familyHomeScene.root);
+  // In hand in either location, like the phuljhari, so it is not part of the street.
+  const thali = new Thali();
+  scene.add(thali.object);
+  let thaliMotion = THALI_REST;
+  const thaliPalmTarget = new THREE.Vector3();
+  const thaliView = new THREE.Vector3();
   const presenter = new LocationPresenter({
     outdoor,
     interiors: [familyHomeScene],
@@ -295,6 +324,8 @@ async function boot(): Promise<void> {
     timer.update(time);
     for (const action of input.drainActions()) {
       if (locations.controlsLocked && !allowedDuringFade(action)) continue;
+      // Taking part in aarti: click circles the thali, 1–3 choose the song, E leaves.
+      if (applyAartiAction(action, ceremony)) continue;
       if (action.type === 'pause') session.pause('user');
       else if (action.type === 'look') rig.look(action.dx, action.dy);
       else if (action.type === 'toggleCamera') rig.toggleMode();
@@ -311,7 +342,8 @@ async function boot(): Promise<void> {
     // its own bus and keeps real time so it needs no click to start.
     const { steps } = loop.advance(session.paused ? 0 : delta);
     for (let i = 0; i < steps; i++) {
-      const intent = movement.intent(rig.yaw);
+      // Aarti participants stand still but can look round.
+      const intent = holdStill(movement.intent(rig.yaw), ceremony.snapshot, aartiFacing);
       player.move(locations.controlsLocked ? { ...intent, forward: 0, right: 0 } : intent, SIM_STEP);
       physics.step();
       stress?.update(SIM_STEP);
@@ -325,6 +357,8 @@ async function boot(): Promise<void> {
       locations.update(SIM_STEP);
       ceremony.update(SIM_STEP);
     }
+    const aarti = ceremony.snapshot;
+    aartiAudio.sync(aarti);
     presenter.activate(locations.location);
     const outdoors = presenter.active === 'outdoors';
     if (effectsDemo) {
@@ -332,11 +366,24 @@ async function boot(): Promise<void> {
       for (let i = 0; i < demo.steps; i++) effectsDemo.update(SIM_STEP);
       effectsDemo.frame(delta);
     } else {
-      character.update(player.pose, player.speed, rig.mode, session.paused ? 0 : delta);
+      const shown = session.paused ? 0 : delta;
+      thaliMotion = aarti.participating ? stepThali(thaliMotion, aarti.circling, shown) : THALI_REST;
+      character.holdAt(aarti.participating ? thaliPalm(thaliMotion, thaliPalmTarget) : null);
+      character.update(player.pose, player.speed, rig.mode, shown);
       const { position: eye, forward } = rig.update(player.pose, delta);
       camera.position.set(eye.x, eye.y, eye.z);
       camera.lookAt(eye.x + forward.x, eye.y + forward.y, eye.z + forward.z);
       camera.updateMatrixWorld();
+      // Low in view in first person; in the right hand, circling in front of the chest, in third.
+      const firstPerson = rig.mode === 'firstPerson';
+      thali.update(
+        firstPerson
+          ? firstPersonThali(camera, thaliMotion, thaliView)
+          : heldThali(player.pose.position, player.pose.yaw, thaliMotion, character.bob),
+        firstPerson ? rig.yaw : player.pose.yaw,
+        aarti.participating,
+        shown,
+      );
       const held = crackers.held;
       const direction =
         rig.mode === 'firstPerson' ? firstPersonStick(camera, stickDirection) : heldStick(player.pose.yaw, stickDirection);
@@ -379,12 +426,14 @@ async function boot(): Promise<void> {
         hands: heldItems.hands,
         sparklerLit: crackers.held?.lit ?? false,
         trayServed: heldItems.trayServed,
-        aarti: ceremony.snapshot,
+        aarti,
         doorway: (id) => locations.doorway(id),
       },
     });
     hud.update(delta);
     hudView.sync();
+    miniPlayer.setAarti(aarti);
+    miniPlayerPanel.sync();
     presenter.setFade(locations.fadeOpacity);
     pipeline.render();
     frames.record(delta);

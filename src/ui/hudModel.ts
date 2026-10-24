@@ -126,6 +126,7 @@ export class HudModel implements UiModule {
   private currentSelection: CrackerType;
   private currentMode: CameraMode = 'firstPerson';
   private isPaused = true;
+  private inAarti = false;
   private lines: readonly PromptLine[] = [];
   private currentRejection: { text: string; remaining: number } | null = null;
   private rev = 0;
@@ -184,6 +185,11 @@ export class HudModel implements UiModule {
     return !this.isPaused;
   }
 
+  /** The cracker hotbar gives way to the aarti mini player, whose songs 1–3 pick. */
+  get hotbarVisible(): boolean {
+    return !this.inAarti;
+  }
+
   /** The crosshair is for aiming in first-person only. */
   get crosshairVisible(): boolean {
     return !this.isPaused && this.currentMode === 'firstPerson';
@@ -214,6 +220,11 @@ export class HudModel implements UiModule {
 
   /** Recompute the prompt from what the player is near and aiming at. */
   setContext(context: HudContext): void {
+    const inAarti = context.homes?.aarti?.participating ?? false;
+    if (inAarti !== this.inAarti) {
+      this.inAarti = inAarti;
+      this.changed();
+    }
     this.setLines(promptLines(this.currentSelection, context));
   }
 
@@ -243,6 +254,7 @@ export class HudModel implements UiModule {
   reset(): void {
     this.currentSelection = this.initialSelection;
     this.lines = [];
+    this.inAarti = false;
     this.currentRejection = null;
     this.changed();
   }

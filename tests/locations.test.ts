@@ -311,11 +311,12 @@ describe('locations: control during the fade', () => {
     { type: 'interact' },
     { type: 'toggleCamera' },
     { type: 'pause' },
+    { type: 'placeReleased' },
   ];
 
   it('drops cracker and interaction actions but keeps look, camera, pause and held keys', () => {
     const passed = actions.filter(allowedDuringFade).map((a) => a.type);
-    expect(passed).toEqual(['move', 'run', 'look', 'toggleCamera', 'pause']);
+    expect(passed).toEqual(['move', 'run', 'look', 'toggleCamera', 'pause', 'placeReleased']);
   });
 
   it('locks controls exactly while a transition runs', () => {
