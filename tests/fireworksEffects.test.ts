@@ -4,7 +4,7 @@ import { QUALITY_PROFILES } from '../src/core/quality';
 import { TUNING } from '../src/core/tuning';
 import { CRACKER_TYPES } from '../src/core/types';
 import { FireworksEffects, countScaleFor } from '../src/effects/fireworksEffects';
-import { FireworksEngine, NO_EFFECT } from '../src/effects/fireworksEngine';
+import { burstSparkCount, FireworksEngine, NO_EFFECT } from '../src/effects/fireworksEngine';
 import { BURST_PATTERNS, FOUNTAIN, ROCKET_TRAIL, SKY_BURST } from '../src/effects/presets';
 
 const step = 1 / 60;
@@ -22,8 +22,8 @@ function seeded(seed: number): () => number {
 }
 
 function engine(budget: Partial<Parameters<FireworksEngine['applyBudget']>[0]> = {}) {
-  const e = new FireworksEngine({ particleCapacity: 5000, emitterCapacity: 8, flashCapacity: 4, random: seeded(1) });
-  e.applyBudget({ maxParticles: 5000, maxActiveEffects: 8, maxDynamicLights: 4, countScale: 1, ...budget });
+  const e = new FireworksEngine({ particleCapacity: 10000, emitterCapacity: 8, flashCapacity: 4, random: seeded(1) });
+  e.applyBudget({ maxParticles: 10000, maxActiveEffects: 8, maxDynamicLights: 4, countScale: 1, ...budget });
   return e;
 }
 
@@ -36,7 +36,7 @@ describe('FireworksEngine', () => {
     const e = engine();
     const handle = e.burst(0, 30, 0, 'peony', [0xff0000]);
     expect(handle).not.toBe(NO_EFFECT);
-    expect(e.stats.liveParticles).toBe(SKY_BURST.count);
+    expect(e.stats.liveParticles).toBe(burstSparkCount('peony'));
     expect(e.stats.activeEffects).toBe(1);
     expect(e.stats.dynamicLights).toBe(1);
     run(e, 6);
@@ -75,6 +75,58 @@ describe('FireworksEngine', () => {
     }
   });
 
+  /** Distances of live sparks from `centre`, sorted. */
+  function radii(e: FireworksEngine, cy: number): number[] {
+    const p = e.particles.positions;
+    const out: number[] = [];
+    for (let i = 0; i < e.particles.count; i++) out.push(Math.hypot(p[i * 3]!, p[i * 3 + 1]! - cy, p[i * 3 + 2]!));
+    return out.sort((a, b) => a - b);
+  }
+
+  it('strings a tail of sparks out behind each star so bursts read as streaks', () => {
+    const e = engine();
+    e.burst(0, 30, 0, 'ring', [0xffffff]);
+    run(e, 0.5);
+    const r = radii(e, 30);
+    // Stars lead; their tails trail inward along the same headings.
+    const ratio = r[0]! / r[r.length - 1]!;
+    expect(ratio).toBeGreaterThan(0.6);
+    expect(ratio).toBeLessThan(0.9);
+  });
+
+  it('adds a smaller inner pistil shell to a peony but not to a ring', () => {
+    const inner = (pattern: 'peony' | 'ring') => {
+      const e = engine();
+      e.burst(0, 30, 0, pattern, [0xff0000, 0x0000ff]);
+      run(e, 0.5);
+      const r = radii(e, 30);
+      const max = r[r.length - 1]!;
+      return r.filter((d) => d < max * 0.55).length;
+    };
+    expect(inner('peony')).toBeGreaterThan(50);
+    expect(inner('ring')).toBe(0);
+  });
+
+  it('bangs with a big bright sprite at the centre that is gone in a moment', () => {
+    const e = engine();
+    e.burst(0, 30, 0, 'peony', [0x0000ff]);
+    const sizes = () => Math.max(...e.particles.sizes.subarray(0, e.particles.count));
+    e.update(step);
+    expect(sizes()).toBeGreaterThanOrEqual(SKY_BURST.core!.size);
+    run(e, SKY_BURST.core!.life + 0.1);
+    expect(sizes()).toBeLessThan(SKY_BURST.core!.size / 2);
+  });
+
+  it('pushes burst colours past 1 so the bloom picks them up', () => {
+    const e = engine();
+    e.burst(0, 30, 0, 'ring', [0xffffff]);
+    e.update(step);
+    const c = e.particles.colours;
+    let brightest = 0;
+    for (let i = 0; i < e.particles.count; i++) brightest = Math.max(brightest, c[i * 4]!);
+    expect(brightest).toBeGreaterThan(1);
+  });
+
   it('moves a stream emitter with its velocity and leaves a trail behind it', () => {
     const e = engine();
     const handle = e.startStream(ROCKET_TRAIL, 0, 0, 0);
@@ -96,13 +148,14 @@ describe('FireworksEngine', () => {
     const e = engine({ maxParticles: 500 });
     for (let i = 0; i < 4; i++) e.burst(0, 30, 0, 'peony', [0xffffff]);
     expect(e.stats.liveParticles).toBe(500);
-    expect(e.stats.droppedParticles).toBe(4 * SKY_BURST.count - 500);
+    expect(e.stats.droppedParticles).toBe(4 * burstSparkCount('peony') - 500);
   });
 
   it('scales particle counts with the quality scale', () => {
     const low = engine({ countScale: 0.5 });
     low.burst(0, 30, 0, 'peony', []);
-    expect(low.stats.liveParticles).toBe(SKY_BURST.count / 2);
+    expect(low.stats.liveParticles).toBe(burstSparkCount('peony', 0.5));
+    expect(low.stats.liveParticles).toBeLessThan(burstSparkCount('peony') * 0.6);
   });
 
   it('evicts the oldest finished-emitting effect rather than refusing a new one', () => {
@@ -115,7 +168,7 @@ describe('FireworksEngine', () => {
     expect(e.stats.activeEffects).toBe(2);
     expect(e.stats.evictedEffects).toBe(1);
     // The evicted burst's sparks keep flying until they expire.
-    expect(e.stats.liveParticles).toBe(3 * SKY_BURST.count);
+    expect(e.stats.liveParticles).toBe(3 * burstSparkCount('peony'));
   });
 
   it('refuses a new effect when every slot is still emitting', () => {

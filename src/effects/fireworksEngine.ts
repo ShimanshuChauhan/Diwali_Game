@@ -5,6 +5,7 @@ import { GRAVITY, ParticlePool, createParticleSpec } from './particlePool';
 import {
   PATTERN_SHAPES,
   SKY_BURST,
+  type CoreSpec,
   type EmitterPreset,
   type GlowLightSpec,
   type PatternShape,
@@ -102,6 +103,28 @@ interface EmitterSlot {
   colours: Float32Array;
   hasEndColour: boolean;
   endColour: Float32Array;
+}
+
+/** Most tail sparks a burst star may have. */
+const MAX_TAIL = 8;
+
+/** Flicker for glitter stars that twinkle as they fade. */
+const GLITTER_FLICKER = 0.85;
+
+/** Pistil stars fly at this fraction of the main shell's speed. */
+const PISTIL_SPEED = 0.45;
+
+/**
+ * Particles a sky burst of `pattern` spawns at once: each star plus its
+ * tail, the pistil shell, the core sprite and any crossette stars.
+ */
+export function burstSparkCount(pattern: BurstPattern, countScale = 1): number {
+  const shape = PATTERN_SHAPES[pattern];
+  const stars = Math.max(1, Math.round(SKY_BURST.count * shape.countScale * countScale));
+  const perStar = 1 + Math.min(MAX_TAIL, shape.tailCount ?? SKY_BURST.tail?.count ?? 0);
+  const pistil = shape.pistil ? Math.max(1, Math.round(stars * shape.pistil)) : 0;
+  const core = SKY_BURST.core ? 1 : 0;
+  return (stars + pistil) * perStar + core + (shape.breaks?.stars ?? 0);
 }
 
 export class FireworksEngine {
@@ -667,13 +690,117 @@ export class FireworksEngine {
       const base = shape?.outline ? preset.speed.max * speedScale : lerp(preset.speed.min, preset.speed.max, this.random()) * speedScale;
       const speed = base * (1 - jitter * this.random());
       this.fillSpec(index, emitter, preset, dir[0]! * speed, dir[1]! * speed, dir[2]! * speed, 0, lifeScale);
-      if (shape) {
-        this.spec.drag = shape.drag;
-        this.spec.gravity = shape.gravity;
-      }
+      this.spawnStar(emitter, preset, shape);
+    }
+    if (shape?.pistil) this.emitPistil(index, emitter, preset, shape, count, speedScale, lifeScale);
+    if (preset.core) this.emitCore(index, emitter, preset, preset.core);
+    if (shape?.breaks) this.launchStars(index, emitter, shape, speedScale);
+  }
+
+  /**
+   * Spawn the burst star in `spec` with the burst's brightness, then its
+   * tail: slower, dimmer, smaller copies on the same heading, so drag keeps
+   * them strung out behind it as a streak.
+   */
+  private spawnStar(emitter: EmitterSlot, preset: EmitterPreset, shape: PatternShape | null): void {
+    const spec = this.spec;
+    if (shape) {
+      spec.drag = shape.drag;
+      spec.gravity = shape.gravity;
+      if (shape.glitter) spec.flicker = GLITTER_FLICKER;
+    }
+    const brightness = preset.brightness ?? 1;
+    spec.r0 *= brightness;
+    spec.g0 *= brightness;
+    spec.b0 *= brightness;
+    spec.r1 *= brightness;
+    spec.g1 *= brightness;
+    spec.b1 *= brightness;
+    this.spawn(emitter);
+
+    const tail = preset.tail;
+    const count = Math.min(MAX_TAIL, shape?.tailCount ?? tail?.count ?? 0);
+    if (!tail || count <= 0) return;
+    const vx = spec.vx;
+    const vy = spec.vy;
+    const vz = spec.vz;
+    const life = spec.life;
+    const size0 = spec.size0;
+    const size1 = spec.size1;
+    const r0 = spec.r0;
+    const g0 = spec.g0;
+    const b0 = spec.b0;
+    const r1 = spec.r1;
+    const g1 = spec.g1;
+    const b1 = spec.b1;
+    const step = shape?.tailStep ?? tail.step;
+    for (let k = 1; k <= count; k++) {
+      const slow = Math.max(0.2, 1 - step * k);
+      const dim = Math.pow(tail.fade, k);
+      const shrink = Math.pow(0.85, k);
+      spec.vx = vx * slow;
+      spec.vy = vy * slow;
+      spec.vz = vz * slow;
+      spec.life = life * (1 - 0.06 * k);
+      spec.size0 = size0 * shrink;
+      spec.size1 = size1 * shrink;
+      spec.r0 = r0 * dim;
+      spec.g0 = g0 * dim;
+      spec.b0 = b0 * dim;
+      spec.r1 = r1 * dim;
+      spec.g1 = g1 * dim;
+      spec.b1 = b1 * dim;
       this.spawn(emitter);
     }
-    if (shape?.breaks) this.launchStars(index, emitter, shape, speedScale);
+  }
+
+  /** Pistil: a smaller inner shell in a contrasting colour. */
+  private emitPistil(
+    index: number,
+    emitter: EmitterSlot,
+    preset: EmitterPreset,
+    shape: PatternShape,
+    count: number,
+    speedScale: number,
+    lifeScale: number,
+  ): void {
+    const stars = Math.max(1, Math.round(count * shape.pistil!));
+    const spec = this.spec;
+    const dir = this.scratch;
+    // The palette's last colour, or a hot white when there is only one.
+    const c = (emitter.colourCount - 1) * 3;
+    const single = emitter.colourCount <= 1;
+    for (let k = 0; k < stars; k++) {
+      randomUnit(this.random, dir, 0);
+      const speed = lerp(preset.speed.min, preset.speed.max, this.random()) * speedScale * PISTIL_SPEED;
+      this.fillSpec(index, emitter, preset, dir[0]! * speed, dir[1]! * speed, dir[2]! * speed, 0, lifeScale * 0.8);
+      spec.r0 = single ? 1 : emitter.colours[c]!;
+      spec.g0 = single ? 0.95 : emitter.colours[c + 1]!;
+      spec.b0 = single ? 0.85 : emitter.colours[c + 2]!;
+      spec.r1 = spec.r0 * preset.fade;
+      spec.g1 = spec.g0 * preset.fade;
+      spec.b1 = spec.b0 * preset.fade;
+      spec.size0 = preset.size0 * 0.8;
+      this.spawnStar(emitter, preset, shape);
+    }
+  }
+
+  /** The bang: one big, brief, hot sprite where the shell bursts. */
+  private emitCore(index: number, emitter: EmitterSlot, preset: EmitterPreset, core: CoreSpec): void {
+    const spec = this.spec;
+    this.fillSpec(index, emitter, preset, 0, 0, 0, 0, 1);
+    writeLinear(core.colour, this.scratch, 0);
+    spec.r0 = this.scratch[0]! * core.brightness;
+    spec.g0 = this.scratch[1]! * core.brightness;
+    spec.b0 = this.scratch[2]! * core.brightness;
+    spec.r1 = spec.g1 = spec.b1 = 0;
+    spec.life = core.life;
+    spec.size0 = core.size;
+    spec.size1 = core.size * 1.4;
+    spec.gravity = 0;
+    spec.drag = 0;
+    spec.flicker = 0;
+    this.spawn(emitter);
   }
 
   /** Crossette: bright stars that fly out, then each split into a cross. */
@@ -797,9 +924,7 @@ export class FireworksEngine {
         spec.b1 = spec.b0 * preset.fade;
       }
       spec.size0 = preset.size0 * 0.8;
-      spec.drag = shape.drag;
-      spec.gravity = shape.gravity;
-      this.spawn(emitter);
+      this.spawnStar(emitter, preset, shape);
     }
   }
 

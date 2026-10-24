@@ -64,6 +64,31 @@ export interface EmitterPreset {
   readonly rim?: RimSpec;
   /** A light that keeps flickering while the stream burns (chakri). */
   readonly light?: GlowLightSpec;
+  /** Trailing sparks behind each burst star, so it reads as a streak. */
+  readonly tail?: TailSpec;
+  /** Colour multiplier for bursts; above 1 pushes cores into the bloom. */
+  readonly brightness?: number;
+  /** Brief bright sprite at the heart of a burst: the bang. */
+  readonly core?: CoreSpec;
+}
+
+export interface TailSpec {
+  /** Trailing sparks per star. */
+  readonly count: number;
+  /** Speed lost by each successive tail spark, as a fraction of the star's. */
+  readonly step: number;
+  /** Brightness kept by each successive tail spark. */
+  readonly fade: number;
+}
+
+export interface CoreSpec {
+  /** Sprite size, metres. */
+  readonly size: number;
+  readonly life: number;
+  /** 0xRRGGBB. */
+  readonly colour: number;
+  /** Colour multiplier. */
+  readonly brightness: number;
 }
 
 export interface RimSpec {
@@ -267,23 +292,26 @@ export const SPARKLER: EmitterPreset = {
 /** Shared base for overhead rocket bursts; patterns adjust it. */
 export const SKY_BURST: EmitterPreset = {
   kind: 'burst',
-  count: 360,
+  count: 200,
   rate: 0,
   duration: 0,
-  speed: { min: 13, max: 16 },
-  life: { min: 1.6, max: 2.4 },
+  speed: { min: 19, max: 23 },
+  life: { min: 2.6, max: 3.4 },
   direction: UP,
   spread: Math.PI,
   spin: 0,
-  gravity: 0.35,
-  drag: 1.1,
-  size0: 0.55,
-  size1: 0.2,
-  flicker: 0.25,
-  fade: 0.35,
+  gravity: 0.4,
+  drag: 1.15,
+  size0: 1.1,
+  size1: 0.8,
+  flicker: 0.2,
+  fade: 0.9,
   inherit: 0,
   colours: [0xff4f6d, 0xffd34f, 0x4fb6ff],
   flash: { peak: 3000, range: 70, duration: 0.6 },
+  tail: { count: 6, step: 0.028, fade: 0.72 },
+  brightness: 1.35,
+  core: { size: 9, life: 0.22, colour: 0xfff6e0, brightness: 3 },
 };
 
 /** Per-pattern changes applied on top of `SKY_BURST`. */
@@ -304,6 +332,14 @@ export interface PatternShape {
   readonly outline?: 'heart';
   /** Bright stars that each split again after a delay (crossette). */
   readonly breaks?: BreakSpec;
+  /** Inner shell in a second colour, as a fraction of the star count (pistil). */
+  readonly pistil?: number;
+  /** Tail sparks per star instead of the burst's default. */
+  readonly tailCount?: number;
+  /** Speed step between tail sparks instead of the burst's default; larger draws longer trails. */
+  readonly tailStep?: number;
+  /** Stars twinkle hard as they fade (glitter). */
+  readonly glitter?: boolean;
 }
 
 export interface BreakSpec {
@@ -320,18 +356,40 @@ export interface BreakSpec {
 }
 
 export const PATTERN_SHAPES: Readonly<Record<BurstPattern, PatternShape>> = {
-  peony: { countScale: 1, speedScale: 1, lifeScale: 1, drag: 1.1, gravity: 0.35, arms: 0, armLift: 0, planar: false },
-  ring: { countScale: 0.6, speedScale: 1.1, lifeScale: 0.9, drag: 1, gravity: 0.25, arms: 0, armLift: 0, planar: true },
-  willow: {
-    countScale: 0.9,
-    speedScale: 0.7,
-    lifeScale: 2,
-    drag: 1.8,
-    gravity: 0.7,
+  peony: {
+    countScale: 1,
+    speedScale: 1,
+    lifeScale: 1,
+    drag: 1.15,
+    gravity: 0.4,
     arms: 0,
     armLift: 0,
     planar: false,
-    endColour: 0xb06a10,
+    pistil: 0.3,
+  },
+  ring: {
+    countScale: 0.7,
+    speedScale: 1.05,
+    lifeScale: 0.9,
+    drag: 1,
+    gravity: 0.25,
+    arms: 0,
+    armLift: 0,
+    planar: true,
+  },
+  willow: {
+    countScale: 0.8,
+    speedScale: 0.9,
+    lifeScale: 1.6,
+    drag: 1.35,
+    gravity: 0.9,
+    arms: 0,
+    armLift: 0,
+    planar: false,
+    endColour: 0x8a4a08,
+    tailCount: 7,
+    tailStep: 0.07,
+    glitter: true,
   },
   crossette: {
     countScale: 0.3,
@@ -342,12 +400,26 @@ export const PATTERN_SHAPES: Readonly<Record<BurstPattern, PatternShape>> = {
     arms: 0,
     armLift: 0,
     planar: false,
-    breaks: { stars: 10, delay: 0.75, sparks: 28, speed: 7, starSize: 0.8 },
+    tailCount: 2,
+    breaks: { stars: 12, delay: 0.75, sparks: 32, speed: 8, starSize: 1 },
   },
-  palm: { countScale: 0.6, speedScale: 1.2, lifeScale: 1.3, drag: 1, gravity: 0.6, arms: 7, armLift: 0.6, planar: false },
+  palm: {
+    countScale: 0.7,
+    speedScale: 1.15,
+    lifeScale: 1.3,
+    drag: 1,
+    gravity: 0.6,
+    arms: 8,
+    armLift: 0.6,
+    planar: false,
+    endColour: 0xa05a10,
+    tailCount: 6,
+    tailStep: 0.05,
+    glitter: true,
+  },
   heart: {
-    countScale: 0.55,
-    speedScale: 1,
+    countScale: 0.6,
+    speedScale: 0.85,
     lifeScale: 1,
     drag: 1.2,
     gravity: 0.12,
@@ -355,6 +427,7 @@ export const PATTERN_SHAPES: Readonly<Record<BurstPattern, PatternShape>> = {
     armLift: 0,
     planar: true,
     outline: 'heart',
+    tailCount: 2,
   },
 };
 
