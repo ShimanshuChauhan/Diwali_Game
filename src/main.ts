@@ -19,6 +19,7 @@ import { createEffectsDemo } from './effects/effectsDemo';
 import { EffectsRenderer } from './effects/effectsRenderer';
 import { FireworksEffects } from './effects/fireworksEffects';
 import { allowedDuringFade, createFadeOverlay, HeldItems, homesResetHooks, Locations, registerHomesReset } from './homes';
+import { createSubtitles, Household, HouseholdScene, subtitlesFor } from './household';
 import { applyHomeAction, HOME_SPOTS, Interaction } from './interaction';
 import {
   addInteriorColliders,
@@ -183,7 +184,8 @@ async function boot(): Promise<void> {
     },
   });
   const ceremony = new AartiCeremony({ bus, hands: heldItems, location: () => locations.location });
-  registerHomesReset(session, homesResetHooks({ heldItems, locations, aartiCeremony: ceremony }));
+  const household = new Household({ bus, layout: familyHome });
+  registerHomesReset(session, homesResetHooks({ heldItems, locations, aartiCeremony: ceremony, household }));
   // Only homes with a built interior are offered; the neighbour's arrives with #65.
   const doorways = locations.doorways().filter((d) => d.destination === 'outdoors' || d.destination === 'familyHome');
   const interaction = new Interaction({
@@ -197,10 +199,11 @@ async function boot(): Promise<void> {
     doorways: () => doorways,
     hands: () => heldItems.hands,
     aarti: () => ceremony.snapshot,
+    members: () => household.members(),
     spots: { ...HOME_SPOTS, familyHome: familyHomeSpots(familyHome) },
   });
-  // Household (#61) and gift exchange (#66) join here as they land.
-  const homeActions = { locations, ceremony, hands: heldItems };
+  // Gift exchange (#66) joins here when it lands.
+  const homeActions = { locations, ceremony, hands: heldItems, household };
   // Room for the placed cap plus crackers still burning after being lit.
   const props = new CrackerProps(TUNING.caps.maxPlacedCrackers + TUNING.caps.maxLitCrackers);
   scene.add(props.object);
@@ -243,6 +246,8 @@ async function boot(): Promise<void> {
   const interiorAssets = new InteriorAssets();
   const familyHomeScene = buildInteriorScene(familyHome, interiorAssets);
   scene.add(familyHomeScene.root);
+  const familyScene = new HouseholdScene({ household, layout: familyHome, parent: familyHomeScene.root, assets: interiorAssets });
+  const subtitles = createSubtitles(document.body);
   const presenter = new LocationPresenter({
     outdoor,
     interiors: [familyHomeScene],
@@ -324,6 +329,7 @@ async function boot(): Promise<void> {
       neighbours.update(SIM_STEP);
       locations.update(SIM_STEP);
       ceremony.update(SIM_STEP);
+      household.update(SIM_STEP);
     }
     presenter.activate(locations.location);
     const outdoors = presenter.active === 'outdoors';
@@ -353,7 +359,11 @@ async function boot(): Promise<void> {
       atmosphere.frame();
       diyaScene.frame(camera.position);
       neighbourScene.frame(session.paused ? 0 : delta);
-    } else presenter.frame(session.paused ? 0 : delta);
+    } else {
+      presenter.frame(session.paused ? 0 : delta);
+      if (presenter.active === 'familyHome') familyScene.frame(session.paused ? 0 : delta, player.pose.position);
+    }
+    subtitles.sync(subtitlesFor(household.members(), presenter.active));
     camera.getWorldDirection(listenerForward);
     const view = { mode: rig.mode, position: camera.position, forward: listenerForward, yaw: rig.yaw, pitch: rig.pitch };
     audio.setListener(view);

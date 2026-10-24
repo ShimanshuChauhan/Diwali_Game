@@ -1,4 +1,5 @@
 import type { FamilyMemberId, Placement } from '../core/homes';
+import type { Vec3 } from '../core/types';
 import { doorwayId, HOME_ENTRANCES } from '../homes/doorways';
 import { facing, InteriorBuilder, type FamilyHomeLayout } from './layout';
 
@@ -194,6 +195,21 @@ export function createFamilyHomeLayout(anchor = HOME_ENTRANCES.familyHome.interi
     sibling: at(2.2, -2.5, NORTH),
   };
 
+  // Walks to the seats keep to open floor: the aisle west of the table, the
+  // gap between the armchair and the table, and the strip in front of the
+  // sofa; the tray is served from the table's south side.
+  const servingPosition = b.at(tableX - 0.3, 0, table.maxZ + 0.4);
+  const serving: Placement = { position: servingPosition, yaw: facing(servingPosition, b.at(tableX, 0, tableZ)) };
+  const aisle = b.at(1.0, 0, -5.7);
+  const sofaFront = (z: number) => b.at(sofa.minX - 0.4, 0, z);
+  const routes: Record<FamilyMemberId, readonly Vec3[]> = {
+    mother: [b.at(0.9, 0, table.maxZ + 0.4), servingPosition, sofaFront(sofa.minZ + 3.0)],
+    father: [aisle, sofaFront(-5.7)],
+    grandmother: [aisle, sofaFront(-5.7), sofaFront(sofa.minZ + 1.8)],
+    grandfather: [aisle, b.at(2.2, 0, -5.7)],
+    sibling: [b.at(0.9, 0, -2.5)],
+  };
+
   const pujaTarget = b.at(pujaX, 0, puja.front + 0.1);
   const trayTarget = b.at(tableX, 0, tableZ);
   const trayStand = b.at(table.minX - 0.45, 0, tableZ);
@@ -239,6 +255,8 @@ export function createFamilyHomeLayout(anchor = HOME_ENTRANCES.familyHome.interi
     ],
     gathering,
     seats,
+    routes,
+    serving,
     thali,
     giftTable,
   };
