@@ -16,3 +16,13 @@ export {
   type HandState,
   type HeldItemsOptions,
 } from './heldItems';
+export { doorwayId, HOME_ENTRANCES, homeDoorways, type DoorSide, type HomeEntrance } from './doorways';
+export { createFadeOverlay, type FadeOverlay } from './fadeOverlay';
+export {
+  allowedDuringFade,
+  fadeOpacity,
+  Locations,
+  TRANSITION_REJECTION_TEXT,
+  type DoorHands,
+  type LocationsOptions,
+} from './locations';

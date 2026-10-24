@@ -123,6 +123,12 @@ Ownership rules:
   select, place, ignite and held ignition, emitting `crackerBlocked`.
   Taking an item puts an unlit phuljhari away (`Crackers.putAway`) and
   brings it back once the hands are free; a lit one refuses the item.
+- **Location** is `LocationsModule`'s (`src/homes/locations.ts`, doors in
+  `doorways.ts`): one fade at a time, `controlsLocked` while it runs (the
+  loop drops actions failing `allowedDuringFade` and zeroes movement), the
+  player moved through `onArrive` at the midpoint. A carried plate blocks
+  leaving the family home; gift boxes pass. Crackers and capacity keep
+  stepping wherever the player is, so outdoor lifecycles carry on.
 - **Gift progression** is `GiftExchangeModule`'s. It listens for
   `aartiCompleted` to release a pending acknowledgement.
 - Household state progresses whether or not its home is the active
