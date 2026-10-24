@@ -89,10 +89,10 @@ describe('contextual prompts', () => {
   });
 
   it('offers to light the held phuljhari until it is lit', () => {
-    expect(promptLines('phuljhari', { interactable: null, held: { type: 'phuljhari', lit: false } })).toEqual([
+    expect(promptLines('phuljhari', { interactable: null, held: { id: 'held', type: 'phuljhari', lit: false } })).toEqual([
       { text: 'E: Light phuljhari', blocked: false },
     ]);
-    expect(promptLines('phuljhari', { interactable: null, held: { type: 'phuljhari', lit: true } })).toEqual([]);
+    expect(promptLines('phuljhari', { interactable: null, held: { id: 'held', type: 'phuljhari', lit: true } })).toEqual([]);
     // A nearby target takes E, so the held prompt steps aside.
     expect(promptLines('phuljhari', { interactable: DIYA }).map((l) => l.text)).toEqual(['E: Light diya']);
   });

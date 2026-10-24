@@ -10,6 +10,7 @@ import { AudioEngine } from './audio/audioEngine';
 import { unlockOnFirstGesture } from './audio/controls';
 import { CameraRig, rapierBoomCaster } from './camera';
 import { applyCrackerAction, Crackers, handPositionFor } from './crackers';
+import { DiyaScene, Diyas } from './diyas';
 import { createEffectsDemo } from './effects/effectsDemo';
 import { Interaction } from './interaction';
 import { MovementIntentTracker, PlayerController } from './player';
@@ -80,6 +81,9 @@ async function boot(): Promise<void> {
   atmosphere.setViewport(renderer.domElement.height, camera);
   window.addEventListener('resize', () => atmosphere.setViewport(renderer.domElement.height, camera));
 
+  const diyas = new Diyas({ sites: world.diyaSites, bus });
+  const diyaScene = new DiyaScene({ scene, diyas, profile: qualityProfile(DEFAULT_QUALITY), bus });
+
   const audio = new AudioEngine({ bus });
   unlockOnFirstGesture(window, audio);
   // Stand-in quality setting until the quality module lands.
@@ -109,6 +113,7 @@ async function boot(): Promise<void> {
     world,
     crackers: () => crackers.list(),
     playerPosition: () => player.pose.position,
+    isDiyaUsable: (id) => !diyas.isLit(id),
   });
   const crackerControls = {
     crackers,
@@ -136,7 +141,11 @@ async function boot(): Promise<void> {
       else if (action.type === 'select') bus.emit('crackerSelected', { type: crackerForSlot(action.slot) });
       else if (action.type === 'look') rig.look(action.dx, action.dy);
       else if (action.type === 'toggleCamera') rig.toggleMode();
-      else if (!applyCrackerAction(action, crackerControls)) movement.apply(action);
+      else if (action.type === 'interact') {
+        const target = interaction.findInteractable(crackerControls.view());
+        if (target?.kind === 'diya') diyas.light(target.id);
+        else applyCrackerAction(action, crackerControls);
+      } else if (!applyCrackerAction(action, crackerControls)) movement.apply(action);
     }
     const delta = timer.getDelta();
     // The game sim freezes while paused; the effects stress demo runs on
@@ -148,6 +157,7 @@ async function boot(): Promise<void> {
       crackers.update(SIM_STEP);
       audio.update(SIM_STEP);
       atmosphere.update(SIM_STEP);
+      diyaScene.update(SIM_STEP);
     }
     if (effectsDemo) {
       const demo = demoLoop.advance(delta);
@@ -159,6 +169,7 @@ async function boot(): Promise<void> {
       camera.lookAt(eye.x + forward.x, eye.y + forward.y, eye.z + forward.z);
     }
     atmosphere.frame();
+    diyaScene.frame(camera.position);
     camera.getWorldDirection(listenerForward);
     const view = { mode: rig.mode, position: camera.position, forward: listenerForward, yaw: rig.yaw, pitch: rig.pitch };
     audio.setListener(view);
