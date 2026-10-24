@@ -267,7 +267,7 @@ describe('simultaneous crackers', () => {
 });
 
 describe('rockets', () => {
-  it('bursts above the launch point at the end of its ascent, then finishes', () => {
+  it('bursts where its flight ends at the end of its ascent, then finishes', () => {
     const { crackers, log, names } = setup();
     const id = placed(crackers, 'rocket', v(4, 0, -3));
     crackers.ignite(id);
@@ -277,7 +277,39 @@ describe('rockets', () => {
     run(crackers, 0.1);
     expect(names().slice(-2)).toEqual(['burst', 'crackerFinished']);
     const burst = log.find((e) => e.name === 'burst')!.payload as GameEvents['burst'];
-    expect(burst).toEqual({ id, position: v(4, variant.apexHeight, -3), pattern: variant.pattern, colours: variant.colours });
+    expect(burst).toEqual({
+      id,
+      position: v(4 + variant.drift.x, variant.apexHeight, -3 + variant.drift.z),
+      pattern: variant.pattern,
+      colours: variant.colours,
+    });
+  });
+
+  it('announces its flight when it launches so trail and sound can follow it', () => {
+    const { crackers, log } = setup();
+    const id = placed(crackers, 'rocket', v(0, 0, 0));
+    crackers.ignite(id);
+    run(crackers, fuse.rocket + 0.01);
+    const variant = crackers.rocketVariant(id)!;
+    const active = log.find((e) => e.name === 'crackerActive')!.payload as GameEvents['crackerActive'];
+    expect(active.flight).toEqual({ ascent: variant.ascent, apexHeight: variant.apexHeight, drift: variant.drift });
+  });
+
+  it('leans each rocket a little off vertical, in varied directions', () => {
+    let seed = 11;
+    const random = () => {
+      seed = (seed * 16807) % 2147483647;
+      return seed / 2147483647;
+    };
+    const headings = new Set<number>();
+    for (let i = 0; i < 40; i++) {
+      const r = rollRocketVariant(CRACKER_DEFINITIONS.rocket, random);
+      const lean = (Math.atan2(Math.hypot(r.drift.x, r.drift.z), r.apexHeight) * 180) / Math.PI;
+      expect(lean).toBeGreaterThanOrEqual(4 - 1e-9);
+      expect(lean).toBeLessThanOrEqual(12 + 1e-9);
+      headings.add(Math.floor(((Math.atan2(r.drift.z, r.drift.x) + Math.PI) / (Math.PI * 2)) * 4));
+    }
+    expect(headings.size).toBe(4);
   });
 
   it('randomises burst shape, colours and timing per rocket', () => {

@@ -59,3 +59,14 @@ export type IgnitionRejection = 'notFound' | 'alreadyLit' | 'outOfReach' | 'capa
 
 /** Rocket burst shapes. */
 export type BurstPattern = 'peony' | 'ring' | 'willow' | 'crossette' | 'palm' | 'heart';
+
+/**
+ * A rocket's path from launch to burst: it climbs `apexHeight` metres in
+ * `ascent` seconds while drifting `drift` metres sideways.
+ */
+export interface RocketFlight {
+  readonly ascent: number;
+  readonly apexHeight: number;
+  /** Horizontal offset of the burst from the launch point, metres. */
+  readonly drift: { readonly x: number; readonly z: number };
+}

@@ -238,6 +238,24 @@ describe('FireworksEffects', () => {
     for (let i = 0; i < CRACKER_TYPES.length; i++) expect(effects.handleFor(`c${i}`)).not.toBe(NO_EFFECT);
   });
 
+  it('steers a rocket trail along its flight to where it will burst', () => {
+    const { bus, effects } = setup();
+    const flight = { ascent: 1.5, apexHeight: 25, drift: { x: 2, z: -3 } };
+    bus.emit('crackerActive', { id: 'r', type: 'rocket', position: { x: 1, y: 0, z: 1 }, flight });
+    const trail = effects.handleFor('r');
+    let previous = -Infinity;
+    for (let t = 0; t < flight.ascent; t += step) {
+      effects.update(step);
+      const at = effects.engine.emitterPosition(trail)!;
+      expect(at.y).toBeGreaterThanOrEqual(previous - 1e-6);
+      previous = at.y;
+    }
+    const end = effects.engine.emitterPosition(trail)!;
+    expect(end.x).toBeCloseTo(3, 0);
+    expect(end.y).toBeCloseTo(25, 0);
+    expect(end.z).toBeCloseTo(-2, 0);
+  });
+
   it('flies a rocket trail up to the apex in the active duration, then bursts', () => {
     const { bus, effects } = setup();
     bus.emit('crackerActive', { id: 'r', type: 'rocket', position: { x: 0, y: 0, z: 0 } });

@@ -9,6 +9,7 @@ import type {
   IgnitionRejection,
   NeighbourId,
   PlacementRejection,
+  RocketFlight,
   Vec3,
 } from './types';
 
@@ -30,7 +31,13 @@ export interface GameEvents {
   placementRejected: { readonly type: CrackerType; readonly reason: PlacementRejection };
   fuseLit: { readonly id: CrackerId; readonly type: CrackerType; readonly position: Vec3 };
   ignitionRejected: { readonly id: CrackerId; readonly reason: IgnitionRejection };
-  crackerActive: { readonly id: CrackerId; readonly type: CrackerType; readonly position: Vec3 };
+  crackerActive: {
+    readonly id: CrackerId;
+    readonly type: CrackerType;
+    readonly position: Vec3;
+    /** A rocket's path to its burst; absent for other crackers. */
+    readonly flight?: RocketFlight;
+  };
   /** `reclaimed` means removed by the capacity policy before it ran. */
   crackerFinished: {
     readonly id: CrackerId;

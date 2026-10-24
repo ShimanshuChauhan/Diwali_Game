@@ -3,7 +3,8 @@ import type { GameEventBus, GameEvents } from '../core/events';
 import type { Unsubscribe } from '../core/eventBus';
 import { QUALITY_LEVELS, QUALITY_PROFILES, qualityProfile, DEFAULT_QUALITY, type QualityProfile } from '../core/quality';
 import { TUNING, type Tuning } from '../core/tuning';
-import type { CrackerId, CrackerType, Vec3 } from '../core/types';
+import { rocketFlightAt, type MutableVec3 } from '../core/rocketFlight';
+import type { CrackerId, CrackerType, RocketFlight, Vec3 } from '../core/types';
 import { FireworksEngine, NO_EFFECT, type EffectHandle, type EngineStats } from './fireworksEngine';
 import { ANAR_PALETTES, CHAKRI_PALETTES, FOUNTAIN, FUSE, ROCKET_TRAIL, SPARKLER, SPINNER, type EmitterPreset } from './presets';
 
@@ -75,6 +76,10 @@ export class FireworksEffects implements EffectsModule {
   private readonly handPosition: (() => Vec3) | null;
   private readonly random: () => number;
   private readonly spinners = new Set<CrackerId>();
+  /** Rockets in flight: their path, launch point and time since launch. */
+  private readonly flights = new Map<CrackerId, { flight: RocketFlight; origin: Vec3; time: number }>();
+  private readonly flightNow: MutableVec3 = { x: 0, y: 0, z: 0 };
+  private readonly flightNext: MutableVec3 = { x: 0, y: 0, z: 0 };
   private readonly unsubscribes: Unsubscribe[] = [];
 
   constructor(bus: GameEventBus | null, options: FireworksEffectsOptions = {}) {
@@ -118,13 +123,35 @@ export class FireworksEffects implements EffectsModule {
         if (handle !== undefined) this.engine.moveEmitter(handle, hand.x, hand.y, hand.z);
       }
     }
+    this.steerRockets(dt);
     this.engine.update(dt);
+  }
+
+  /**
+   * Put each rocket's trail where its flight is now and aim it at where the
+   * flight will be after this step; the engine then carries it there, and
+   * the sparks it sheds inherit that motion.
+   */
+  private steerRockets(dt: number): void {
+    const now = this.flightNow;
+    const next = this.flightNext;
+    for (const [id, rocket] of this.flights) {
+      const handle = this.byCracker.get(id);
+      if (handle === undefined) continue;
+      rocketFlightAt(rocket.flight, rocket.time, now);
+      rocketFlightAt(rocket.flight, rocket.time + dt, next);
+      const { origin } = rocket;
+      this.engine.moveEmitter(handle, origin.x + now.x, origin.y + now.y, origin.z + now.z);
+      this.engine.setEmitterVelocity(handle, (next.x - now.x) / dt, (next.y - now.y) / dt, (next.z - now.z) / dt);
+      rocket.time += dt;
+    }
   }
 
   reset(): void {
     this.byCracker.clear();
     this.inHand.clear();
     this.spinners.clear();
+    this.flights.clear();
     this.engine.reset();
   }
 
@@ -164,7 +191,7 @@ export class FireworksEffects implements EffectsModule {
     this.track(id, type, handle);
   }
 
-  onCrackerActive({ id, type, position }: GameEvents['crackerActive']): void {
+  onCrackerActive({ id, type, position, flight }: GameEvents['crackerActive']): void {
     this.stopCracker(id);
     // Each anar and chakri burns in one of a few palettes.
     const palettes = PALETTES[type];
@@ -176,7 +203,9 @@ export class FireworksEffects implements EffectsModule {
     if (type === 'chakri') this.spinners.add(id);
     if (type === 'rocket') {
       const { rocketApexHeight, activeDuration } = this.tuning.crackers;
-      this.engine.setEmitterVelocity(handle, 0, rocketApexHeight / activeDuration.rocket, 0);
+      // Without a rolled flight (e.g. the effects demo), climb straight up at the nominal pace.
+      const path = flight ?? { ascent: activeDuration.rocket, apexHeight: rocketApexHeight, drift: { x: 0, z: 0 } };
+      this.flights.set(id, { flight: path, origin: { x: position.x, y: position.y, z: position.z }, time: 0 });
     }
   }
 
@@ -196,6 +225,7 @@ export class FireworksEffects implements EffectsModule {
     this.byCracker.delete(id);
     this.inHand.delete(id);
     this.spinners.delete(id);
+    this.flights.delete(id);
   }
 
   private track(id: CrackerId, type: CrackerType, handle: EffectHandle): void {
