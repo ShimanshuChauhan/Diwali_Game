@@ -10,12 +10,12 @@ import { AudioEngine } from './audio/audioEngine';
 import { unlockOnFirstGesture } from './audio/controls';
 import { CameraRig, rapierBoomCaster } from './camera';
 import { CapacityBudget } from './capacity';
-import { applyCrackerAction, Crackers, handPositionFor } from './crackers';
+import { applyCrackerAction, Crackers } from './crackers';
 import { DiyaScene, Diyas } from './diyas';
 import { createEffectsDemo } from './effects/effectsDemo';
 import { Interaction } from './interaction';
 import { NeighbourScene, Neighbours } from './neighbours';
-import { MovementIntentTracker, PlayerController } from './player';
+import { MovementIntentTracker, PlayerCharacter, PlayerController } from './player';
 import { createDomControls } from './session/domControls';
 import { Input } from './session/input';
 import { Session } from './session/session';
@@ -61,10 +61,13 @@ async function boot(): Promise<void> {
   const session = new Session({ bus });
   const obstacles = rapierBoomCaster(physics, { margin: TUNING.camera.collisionMargin, exclude: player.collider });
   const rig = new CameraRig({ obstacles, bus, spawnYaw: world.spawnYaw });
+  const character = new PlayerCharacter({ mode: rig.mode });
+  scene.add(character.object);
   bus.on('sessionReset', () => {
     player.reset();
     movement.reset();
     rig.reset();
+    character.reset();
   });
   const input = new Input({ bus, enabled: false });
   const controls = createDomControls({
@@ -118,7 +121,7 @@ async function boot(): Promise<void> {
   const crackers = new Crackers({
     bus,
     admission: capacity,
-    handPosition: () => handPositionFor(player.pose.position, rig.yaw),
+    handPosition: () => character.handPosition(player.pose),
   });
   const interaction = new Interaction({
     world,
@@ -179,6 +182,7 @@ async function boot(): Promise<void> {
       for (let i = 0; i < demo.steps; i++) effectsDemo.update(SIM_STEP);
       effectsDemo.frame(delta);
     } else {
+      character.update(player.pose, player.speed, rig.mode, session.paused ? 0 : delta);
       const { position: eye, forward } = rig.update(player.pose, delta);
       camera.position.set(eye.x, eye.y, eye.z);
       camera.lookAt(eye.x + forward.x, eye.y + forward.y, eye.z + forward.z);
