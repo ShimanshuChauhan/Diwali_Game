@@ -9,6 +9,7 @@ import { Atmosphere } from './atmosphere';
 import { AudioEngine } from './audio/audioEngine';
 import { unlockOnFirstGesture } from './audio/controls';
 import { applyCrackerAction, Crackers, handPositionFor } from './crackers';
+import { DiyaScene, Diyas } from './diyas';
 import { createEffectsDemo } from './effects/effectsDemo';
 import { Interaction } from './interaction';
 import { MovementIntentTracker, PlayerController } from './player';
@@ -77,11 +78,13 @@ async function boot(): Promise<void> {
   createStartScreen({ parent: document.body, bus, onStart: () => controls.requestStart(), showWhenPaused: false });
   const hud = new HudModel({ bus });
   const hudView = createHud(document.body, hud);
-  const interaction = new Interaction({ world, playerPosition: () => player.pose.position });
 
   const atmosphere = new Atmosphere({ scene, layout: world.layout, profile: qualityProfile(DEFAULT_QUALITY), renderer, bus });
   atmosphere.setViewport(renderer.domElement.height, camera);
   window.addEventListener('resize', () => atmosphere.setViewport(renderer.domElement.height, camera));
+
+  const diyas = new Diyas({ sites: world.diyaSites, bus });
+  const diyaScene = new DiyaScene({ scene, diyas, profile: qualityProfile(DEFAULT_QUALITY), bus });
 
   const audio = new AudioEngine({ bus });
   unlockOnFirstGesture(window, audio);
@@ -112,6 +115,7 @@ async function boot(): Promise<void> {
     world,
     crackers: () => crackers.list(),
     playerPosition: () => player.pose.position,
+    isDiyaUsable: (id) => !diyas.isLit(id),
   });
   const crackerControls = {
     crackers,
@@ -141,6 +145,10 @@ async function boot(): Promise<void> {
         const { mouseSensitivity, pitchLimit } = TUNING.camera;
         yaw -= action.dx * mouseSensitivity;
         pitch = Math.min(Math.max(pitch - action.dy * mouseSensitivity, -pitchLimit), pitchLimit);
+      } else if (action.type === 'interact') {
+        const target = interaction.findInteractable(crackerControls.view());
+        if (target?.kind === 'diya') diyas.light(target.id);
+        else applyCrackerAction(action, crackerControls);
       } else if (!applyCrackerAction(action, crackerControls)) movement.apply(action);
     }
     const delta = timer.getDelta();
@@ -153,6 +161,7 @@ async function boot(): Promise<void> {
       crackers.update(SIM_STEP);
       audio.update(SIM_STEP);
       atmosphere.update(SIM_STEP);
+      diyaScene.update(SIM_STEP);
     }
     if (effectsDemo) {
       const demo = demoLoop.advance(delta);
@@ -164,6 +173,7 @@ async function boot(): Promise<void> {
       camera.rotation.set(pitch, yaw, 0);
     }
     atmosphere.frame();
+    diyaScene.frame(camera.position);
     camera.getWorldDirection(listenerForward);
     const view = { mode: 'firstPerson', position: camera.position, forward: listenerForward, yaw, pitch } as const;
     audio.setListener(view);
