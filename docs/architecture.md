@@ -176,8 +176,15 @@ Ownership rules:
   tray (`trayServed`, `sweetsEaten`). `Households` puts the family and the
   hosts behind the one `HouseholdModule` the interaction, routing, captions
   and reset use.
-- **Gift progression** is `GiftExchangeModule`'s. It listens for
-  `aartiCompleted` to release a pending acknowledgement.
+- **Gift progression** is `GiftExchange`'s (`src/gifts/giftExchange.ts`):
+  the outbound box starts on the family side table, `exchange` next door
+  records the swap and then `deliver`s outbound for return in one step, and
+  either box goes back on its own spot until delivered. On the sweets table
+  the acknowledgement is `pending` until `aartiCompleted` (heard wherever
+  the player is), or immediate after aarti; `giftAcknowledged` fires once.
+  `GiftReactions` queues Uncle and Aunty's thanks and the family's lines so
+  a busy speaker never loses them; the family's wait until the player is
+  home. `GiftScene` draws the boxes on their spots, the table or in hand.
 - Household state progresses whether or not its home is the active
   location; only presentation is location-gated.
 
