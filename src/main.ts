@@ -9,6 +9,7 @@ import { unlockOnFirstGesture } from './audio/controls';
 import { CameraRig, rapierBoomCaster } from './camera';
 import { CapacityBudget } from './capacity';
 import { aimPoint, applyCrackerAction, Crackers } from './crackers';
+import { CrackerProps } from './crackers/props';
 import { isHandheld } from './core/types';
 import { DiyaScene, Diyas } from './diyas';
 import { createEffectsDemo } from './effects/effectsDemo';
@@ -154,6 +155,9 @@ async function boot(): Promise<void> {
     isDiyaUsable: (id) => !diyas.isLit(id),
     neighbours: () => neighbours.positions(),
   });
+  // Room for the placed cap plus crackers still burning after being lit.
+  const props = new CrackerProps(TUNING.caps.maxPlacedCrackers + TUNING.caps.maxLitCrackers);
+  scene.add(props.object);
   const ghost = createPlacementGhost();
   scene.add(ghost.root);
   const crackerControls = {
@@ -242,17 +246,19 @@ async function boot(): Promise<void> {
     camera.getWorldDirection(listenerForward);
     const view = { mode: rig.mode, position: camera.position, forward: listenerForward, yaw: rig.yaw, pitch: rig.pitch };
     audio.setListener(view);
+    props.sync(crackers.list());
     // Ghost and prompt preview where a click would put the selected ground cracker.
     const selected = crackers.selected;
     const feet = player.pose.position;
+    const interactable = interaction.findInteractable(view);
+    const interactableType =
+      interactable?.kind === 'cracker' ? crackers.list().find((c) => c.id === interactable.id)?.type : undefined;
     const placement =
       session.paused || isHandheld(selected)
         ? null
         : interaction.previewPlacement({ type: selected, playerPosition: feet, target: aimPoint(feet, view.forward) });
-    ghost.update(placement);
-    const interactable = interaction.findInteractable(view);
-    const interactableType =
-      interactable?.kind === 'cracker' ? crackers.list().find((c) => c.id === interactable.id)?.type : undefined;
+    // At an unlit cracker, E comes first: a red ghost over it would only read as an error.
+    ghost.update(interactable?.kind === 'cracker' && !placement?.ok ? null : placement);
     hud.setContext({ interactable, interactableType, held: crackers.held, placement });
     hud.update(delta);
     hudView.sync();

@@ -88,6 +88,15 @@ describe('contextual prompts', () => {
     expect(lines).toEqual([{ text: PLACEMENT_REJECTION_TEXT.noSkyClearance, blocked: true }]);
   });
 
+  it('shows only the E prompt when aiming at an unlit cracker that blocks placement', () => {
+    const lines = promptLines('chakri', {
+      interactable: ANAR,
+      interactableType: 'anar',
+      placement: { ok: false, reason: 'blockedByGeometry' },
+    });
+    expect(lines).toEqual([{ text: 'E: Light anar', blocked: false }]);
+  });
+
   it('offers to light the held phuljhari until it is lit', () => {
     expect(promptLines('phuljhari', { interactable: null, held: { id: 'held', type: 'phuljhari', lit: false } })).toEqual([
       { text: 'E: Light phuljhari', blocked: false },

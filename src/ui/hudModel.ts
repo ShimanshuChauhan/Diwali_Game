@@ -62,7 +62,10 @@ export function promptLines(selected: CrackerType, context: HudContext): PromptL
   if (isHandheld(selected)) {
     if (!interactable && !context.held?.lit) lines.push({ text: `E: Light ${lower(selected)}`, blocked: false });
   } else if (context.placement && !context.placement.ok && context.placement.reason) {
-    lines.push({ text: rejectionText(context.placement.reason, 'placement'), blocked: true });
+    // Standing at an unlit cracker, the E line already says what to do.
+    if (interactable?.kind !== 'cracker') {
+      lines.push({ text: rejectionText(context.placement.reason, 'placement'), blocked: true });
+    }
   } else {
     lines.push({ text: `Click: Place ${lower(selected)}`, blocked: false });
   }
