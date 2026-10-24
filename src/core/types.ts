@@ -57,5 +57,5 @@ export type PlacementRejection =
 /** Why lighting a cracker was refused. */
 export type IgnitionRejection = 'notFound' | 'alreadyLit' | 'outOfReach' | 'capacity';
 
-/** Rocket burst shapes. Placeholder set; the effects module may extend it. */
-export type BurstPattern = 'peony' | 'ring' | 'willow' | 'crossette' | 'palm';
+/** Rocket burst shapes. */
+export type BurstPattern = 'peony' | 'ring' | 'willow' | 'crossette' | 'palm' | 'heart';

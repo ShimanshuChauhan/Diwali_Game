@@ -12,6 +12,8 @@ import { CameraRig, rapierBoomCaster } from './camera';
 import { applyCrackerAction, Crackers, handPositionFor } from './crackers';
 import { DiyaScene, Diyas } from './diyas';
 import { createEffectsDemo } from './effects/effectsDemo';
+import { EffectsRenderer } from './effects/effectsRenderer';
+import { FireworksEffects } from './effects/fireworksEffects';
 import { Interaction } from './interaction';
 import { MovementIntentTracker, PlayerController } from './player';
 import { createDomControls } from './session/domControls';
@@ -108,7 +110,8 @@ async function boot(): Promise<void> {
     },
   });
   const listenerForward = new THREE.Vector3();
-  const crackers = new Crackers({ bus, handPosition: () => handPositionFor(player.pose.position, rig.yaw) });
+  const handPosition = () => handPositionFor(player.pose.position, rig.yaw);
+  const crackers = new Crackers({ bus, handPosition });
   const interaction = new Interaction({
     world,
     crackers: () => crackers.list(),
@@ -128,6 +131,15 @@ async function boot(): Promise<void> {
   const effectsDemo = new URLSearchParams(location.search).has('effects-demo')
     ? createEffectsDemo(scene, camera, renderer)
     : null;
+  // The stress demo brings its own effects; otherwise crackers drive these.
+  const effects = effectsDemo ? null : new FireworksEffects(bus, { quality, handPosition });
+  const effectsView = effects ? new EffectsRenderer(effects.engine) : null;
+  if (effectsView) {
+    scene.add(effectsView.object);
+    effectsView.setViewport(renderer.domElement.height, camera);
+    window.addEventListener('resize', () => effectsView.setViewport(renderer.domElement.height, camera));
+    bus.on('qualityChanged', () => effectsView.syncLightCount());
+  }
 
   const loop = new FixedStep({ step: SIM_STEP, maxSteps: MAX_STEPS_PER_FRAME });
   const demoLoop = new FixedStep({ step: SIM_STEP, maxSteps: MAX_STEPS_PER_FRAME });
@@ -155,6 +167,7 @@ async function boot(): Promise<void> {
       player.move(movement.intent(rig.yaw), SIM_STEP);
       physics.step();
       crackers.update(SIM_STEP);
+      effects?.update(SIM_STEP);
       audio.update(SIM_STEP);
       atmosphere.update(SIM_STEP);
       diyaScene.update(SIM_STEP);
@@ -168,6 +181,8 @@ async function boot(): Promise<void> {
       camera.position.set(eye.x, eye.y, eye.z);
       camera.lookAt(eye.x + forward.x, eye.y + forward.y, eye.z + forward.z);
     }
+    effects?.setViewpoint(camera.position);
+    effectsView?.sync();
     atmosphere.frame();
     diyaScene.frame(camera.position);
     camera.getWorldDirection(listenerForward);

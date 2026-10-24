@@ -3,8 +3,7 @@ import type { BurstPattern } from '../core/types';
 /**
  * Emitter presets: plain data describing how an effect sprays particles.
  * Counts are for a scale of 1 (Medium quality); the engine scales them by
- * the quality profile. Values are placeholders to tune in play (#12 refines
- * the per-cracker looks).
+ * the quality profile. Values are tuned by eye; adjust in play.
  */
 
 export interface Range {
@@ -53,6 +52,44 @@ export interface EmitterPreset {
   /** Default colours when the caller gives none. */
   readonly colours: readonly number[];
   readonly flash?: FlashSpec;
+  /** Evenly spaced jets around `direction` as it spins (chakri); default 1. */
+  readonly jets?: number;
+  /** Speed swells over time so a fountain rises and falls (anar). */
+  readonly surge?: SurgeSpec;
+  /** Small pops of sparks around the source (phuljhari crackle). */
+  readonly crackle?: CrackleSpec;
+  /** The source drifts on the ground near where it started (chakri). */
+  readonly wander?: WanderSpec;
+}
+
+export interface SurgeSpec {
+  /** Peak fraction added to or taken from the launch speed. */
+  readonly amplitude: number;
+  /** Base swell frequency, Hz; a second, faster swell breaks the rhythm. */
+  readonly frequency: number;
+  /** Seconds to build from a low start to full speed. */
+  readonly rampUp: number;
+}
+
+export interface CrackleSpec {
+  /** Pops per second (at a count scale of 1 this many on average). */
+  readonly rate: number;
+  /** Sparks per pop. */
+  readonly count: number;
+  /** Pops happen within this distance of the source, metres. */
+  readonly radius: number;
+  readonly speed: Range;
+  readonly life: Range;
+  readonly size: number;
+}
+
+export interface WanderSpec {
+  /** Drift speed, m/s. */
+  readonly speed: number;
+  /** Maximum distance from the start, metres. */
+  readonly radius: number;
+  /** Random heading change, rad/s. */
+  readonly turn: number;
 }
 
 const UP = { x: 0, y: 1, z: 0 } as const;
@@ -80,7 +117,28 @@ export const ROCKET_TRAIL: EmitterPreset = {
   colours: [0xffc870, 0xffe2a8],
 };
 
-/** Anar ground fountain. */
+/** Fuse sparkle: a few tiny sparks while the fuse burns. */
+export const FUSE: EmitterPreset = {
+  kind: 'stream',
+  count: 0,
+  rate: 70,
+  duration: Infinity,
+  speed: { min: 0.6, max: 1.8 },
+  life: { min: 0.1, max: 0.3 },
+  direction: UP,
+  spread: 1.2,
+  spin: 0,
+  gravity: 0.5,
+  drag: 2,
+  size0: 0.07,
+  size1: 0.02,
+  flicker: 0.9,
+  fade: 0.3,
+  inherit: 0,
+  colours: [0xffe6a0, 0xffb050],
+};
+
+/** Anar ground fountain; its height swells and dips as it burns. */
 export const FOUNTAIN: EmitterPreset = {
   kind: 'stream',
   count: 0,
@@ -100,9 +158,10 @@ export const FOUNTAIN: EmitterPreset = {
   inherit: 0,
   colours: [0xffd27a, 0xfff2c4, 0xff9a3c],
   flash: { peak: 15, range: 12, duration: 0.6 },
+  surge: { amplitude: 0.3, frequency: 0.7, rampUp: 1 },
 };
 
-/** Chakri: a spinning horizontal jet just above the ground. */
+/** Chakri: twin spinning jets just above the ground, skittering about. */
 export const SPINNER: EmitterPreset = {
   kind: 'stream',
   count: 0,
@@ -121,6 +180,8 @@ export const SPINNER: EmitterPreset = {
   fade: 0.25,
   inherit: 0,
   colours: [0xffe08a, 0x9cff8a, 0xff7aa8],
+  jets: 2,
+  wander: { speed: 0.35, radius: 0.5, turn: 6 },
 };
 
 /** Phuljhari: a small crackling ball of sparks at the stick tip. */
@@ -142,6 +203,7 @@ export const SPARKLER: EmitterPreset = {
   fade: 0.3,
   inherit: 1,
   colours: [0xfff4d6, 0xffd08a],
+  crackle: { rate: 14, count: 8, radius: 0.25, speed: { min: 1.5, max: 3.5 }, life: { min: 0.06, max: 0.18 }, size: 0.05 },
 };
 
 /** Shared base for overhead rocket bursts; patterns adjust it. */
@@ -180,6 +242,23 @@ export interface PatternShape {
   /** Ring bursts lie in a single plane. */
   readonly planar: boolean;
   readonly endColour?: number;
+  /** Sparks trace a flat outline facing the viewer instead of a shell. */
+  readonly outline?: 'heart';
+  /** Bright stars that each split again after a delay (crossette). */
+  readonly breaks?: BreakSpec;
+}
+
+export interface BreakSpec {
+  /** Stars launched by the main burst. */
+  readonly stars: number;
+  /** Seconds before each star splits. */
+  readonly delay: number;
+  /** Sparks per split, laid out as a cross. */
+  readonly sparks: number;
+  /** Launch speed of the split's sparks, m/s. */
+  readonly speed: number;
+  /** Size of a star while it flies, metres. */
+  readonly starSize: number;
 }
 
 export const PATTERN_SHAPES: Readonly<Record<BurstPattern, PatternShape>> = {
@@ -196,8 +275,29 @@ export const PATTERN_SHAPES: Readonly<Record<BurstPattern, PatternShape>> = {
     planar: false,
     endColour: 0xb06a10,
   },
-  crossette: { countScale: 0.7, speedScale: 1.05, lifeScale: 1, drag: 1, gravity: 0.35, arms: 6, armLift: 0, planar: false },
+  crossette: {
+    countScale: 0.3,
+    speedScale: 1,
+    lifeScale: 0.6,
+    drag: 1,
+    gravity: 0.35,
+    arms: 0,
+    armLift: 0,
+    planar: false,
+    breaks: { stars: 10, delay: 0.75, sparks: 28, speed: 7, starSize: 0.8 },
+  },
   palm: { countScale: 0.6, speedScale: 1.2, lifeScale: 1.3, drag: 1, gravity: 0.6, arms: 7, armLift: 0.6, planar: false },
+  heart: {
+    countScale: 0.55,
+    speedScale: 1,
+    lifeScale: 1,
+    drag: 1.2,
+    gravity: 0.12,
+    arms: 0,
+    armLift: 0,
+    planar: true,
+    outline: 'heart',
+  },
 };
 
 export const BURST_PATTERNS = Object.keys(PATTERN_SHAPES) as BurstPattern[];
