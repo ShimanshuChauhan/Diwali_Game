@@ -72,6 +72,27 @@ export interface Tuning {
     /** Minimum gap between one neighbour's reactions. */
     readonly reactionCooldown: number;
   };
+  /** Family and neighbour homes expansion. */
+  readonly homes: {
+    /** Whole door fade, out and back in; the player moves at the midpoint. */
+    readonly fadeDuration: number;
+    /** Range for E at a door. */
+    readonly doorRange: number;
+    /** Range to join aarti at the puja corner. */
+    readonly pujaRange: number;
+    /** Range to eat from or return the plate to the sweets tray. */
+    readonly trayRange: number;
+    /** Range to offer sweets to, or greet, a household member. */
+    readonly personRange: number;
+    /** Range to put a gift box back on its spot or the sweets table. */
+    readonly returnSpotRange: number;
+    /** Minimum gap between one household member's reactions. */
+    readonly reactionCooldown: number;
+    /** How long a Hinglish line stays on screen. */
+    readonly dialogueDuration: number;
+    /** Gap between the family's gentle invitations; never a countdown. */
+    readonly inviteInterval: number;
+  };
 }
 
 export const TUNING: Tuning = {
@@ -118,5 +139,16 @@ export const TUNING: Tuning = {
   neighbours: {
     reactionRadius: 25,
     reactionCooldown: 6,
+  },
+  homes: {
+    fadeDuration: 0.6,
+    doorRange: 1.5,
+    pujaRange: 2,
+    trayRange: 1.5,
+    personRange: 1.8,
+    returnSpotRange: 1.5,
+    reactionCooldown: 4,
+    dialogueDuration: 3,
+    inviteInterval: 45,
   },
 };

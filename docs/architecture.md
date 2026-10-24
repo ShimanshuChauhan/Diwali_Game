@@ -13,6 +13,7 @@ live in [`src/core/`](../src/core).
 | `eventBus.ts`   | Generic typed `EventBus` (`on`/`once`/`off`/`emit`/`clear`)            |
 | `events.ts`     | `GameEvents` map — every game-wide event and its payload               |
 | `contracts.ts`  | One interface per module (`CrackersModule`, `WorldModule`, …)         |
+| `homes.ts`      | Homes expansion: location/song/member ids, rejection reasons, module interfaces |
 | `tuning.ts`     | `TUNING`: clearances, fuse lengths, caps, speeds (placeholders)        |
 | `quality.ts`    | `QualityProfile` and the Low/Medium/High `QUALITY_PROFILES`            |
 | `fixedStep.ts`  | Fixed-timestep accumulator for the game loop                          |
@@ -89,6 +90,70 @@ subscribe:
 
 Listeners run synchronously; keep them cheap and never emit an event from
 its own listener in a way that recurses.
+
+## Homes expansion
+
+The Family and Neighbour Homes expansion ([#51](https://github.com/ShimanshuChauhan/Diwali_Game/issues/51))
+adds two enterable homes, a once-per-session aarti, sweets and a gift round
+trip. Its contracts live in `src/core/homes.ts`, its events in `events.ts`
+and its tuning under `TUNING.homes`; the modules below are built against
+them in later issues.
+
+| Module                     | Interface                     | Owns                                               | Renderer? |
+| -------------------------- | ----------------------------- | -------------------------------------------------- | --------- |
+| Locations & transitions    | `LocationsModule`             | Active location, doorways, arrival poses, the door fade | No    |
+| Aarti ceremony             | `AartiCeremonyModule`         | `waiting → running → completed`, participation, song, elapsed time, thali circling, `playbackId` | No |
+| Recorded aarti audio       | `AartiAudioModule`            | Recording catalogue (licence, attribution, duration), loading, one playback source | Web Audio |
+| Household & dialogue       | `HouseholdModule`             | Family and uncle/aunty identities, activities, Hinglish lines and gestures, cooldowns | No |
+| Held items & sweets        | `HeldItemsModule`             | Exclusive hand occupancy, tray, plate, eating, offering, cracker gating | No |
+| Gift exchange              | `GiftExchangeModule`          | Box places, the one-time exchange, the one-time home acknowledgement | No |
+| Interior presentation      | `InteriorPresentationModule`  | Rooms, furniture, figures, warm light, the fade overlay; active location only | Yes |
+
+Ownership rules:
+
+- **Time** is the ceremony's: it advances in `update(dt)` on the fixed step,
+  which stops while paused, so song, ceremony and family freeze together.
+  Audio follows `AartiSnapshot` (playing only while `participating`) and
+  never completes the ceremony; callbacks tagged with an old `playbackId`
+  are ignored.
+- **Hands** are `HeldItemsModule`'s: the ceremony `take`s the thali, gift
+  exchange `take`s boxes, and crackers ask `crackerBlock()` before select,
+  place, ignite and held ignition.
+- **Gift progression** is `GiftExchangeModule`'s. It listens for
+  `aartiCompleted` to release a pending acknowledgement.
+- Household state progresses whether or not its home is the active
+  location; only presentation is location-gated.
+
+```
+E at door ─▶ LocationsModule.requestTransition ─┬─ ok ─▶ transitionStarted ─▶ (fade) ─▶ locationChanged
+                                                └─ no ─▶ transitionRejected (carryingPlate, transitionInProgress, …)
+E at puja ─▶ AartiCeremonyModule.join ─▶ HeldItemsModule.take(thali) ─▶ aartiJoined ─▶ AartiAudioModule.sync
+hold/release ─▶ setCircling        song pick ─▶ selectSong ─▶ aartiSongChanged
+fixed step ─▶ ceremony.update(dt) ─▶ aartiCompleted ─┬▶ Household (seats, serve tray)
+                                                     ├▶ HeldItems (trayServed, thali released)
+                                                     └▶ GiftExchange (pending → giftAcknowledged)
+E at tray/person ─▶ HeldItemsModule.pickUpPlate/eat/offer ─▶ sweetsEaten / sweetsOffered ─▶ Household.react
+E at neighbour ─▶ GiftExchangeModule.exchange ─▶ giftExchanged (return box now in hand)
+```
+
+| Event                                   | Published by    | Typical subscribers                 |
+| --------------------------------------- | --------------- | ----------------------------------- |
+| `transitionStarted` / `locationChanged` | Locations       | Interior presentation, player, camera, audio, UI |
+| `transitionRejected`                    | Locations       | UI                                  |
+| `aartiJoined` / `aartiLeft` / `aartiSongChanged` | Ceremony | Aarti audio, household, UI (mini player) |
+| `aartiCompleted`                        | Ceremony        | Household, held items, gift exchange, aarti audio |
+| `aartiRejected`                         | Ceremony        | UI                                  |
+| `itemPickedUp` / `itemReturned`         | Held items      | Crackers (put away), presentation, UI |
+| `itemRejected`                          | Held items      | UI                                  |
+| `sweetsEaten` / `sweetsOffered`         | Held items      | Household                           |
+| `giftExchanged` / `giftPlaced` / `giftAcknowledged` | Gift exchange | Household, presentation, UI |
+| `giftRejected`                          | Gift exchange   | UI                                  |
+| `householdReacted`                      | Household       | UI (Hinglish text), presentation (gesture) |
+
+**Fresh sessions** clear all expansion state. `src/homes/reset.ts` lists
+every stateful module (`HOMES_STATEFUL_MODULES`) and `main.ts` registers a
+reset hook for each with the session. Unbuilt modules use a `PendingReset`
+stub; a module replaces its stub by passing itself to `homesResetHooks()`.
 
 ## Tuning and quality
 
