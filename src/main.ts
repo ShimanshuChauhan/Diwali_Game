@@ -6,6 +6,10 @@ import { createGameEventBus } from './core/events';
 import { AudioEngine } from './audio/audioEngine';
 import { unlockOnFirstGesture } from './audio/controls';
 import { createEffectsDemo } from './effects/effectsDemo';
+import { createDomControls } from './session/domControls';
+import { Input } from './session/input';
+import { Session } from './session/session';
+import { createStartScreen } from './session/startScreen';
 import { createWorld } from './world';
 import { addWorldColliders } from './world/colliders';
 import { createWorldScene } from './world/scene';
@@ -44,6 +48,18 @@ async function boot(): Promise<void> {
   });
 
   const bus = createGameEventBus();
+  const session = new Session({ bus });
+  const input = new Input({ bus, enabled: false });
+  const controls = createDomControls({
+    input,
+    session,
+    bus,
+    element: renderer.domElement,
+    doc: document,
+    win: window,
+  });
+  createStartScreen({ parent: document.body, bus, onStart: () => controls.requestStart() });
+
   const audio = new AudioEngine({ bus });
   unlockOnFirstGesture(window, audio);
   const listenerForward = new THREE.Vector3();
@@ -52,18 +68,27 @@ async function boot(): Promise<void> {
     : null;
 
   const loop = new FixedStep({ step: SIM_STEP, maxSteps: MAX_STEPS_PER_FRAME });
+  const demoLoop = new FixedStep({ step: SIM_STEP, maxSteps: MAX_STEPS_PER_FRAME });
   const timer = new THREE.Timer();
 
   renderer.setAnimationLoop((time) => {
     timer.update(time);
+    for (const action of input.drainActions()) {
+      if (action.type === 'pause') session.pause('user');
+    }
     const delta = timer.getDelta();
-    const { steps } = loop.advance(delta);
+    // The game sim freezes while paused; the effects stress demo runs on
+    // its own bus and keeps real time so it needs no click to start.
+    const { steps } = loop.advance(session.paused ? 0 : delta);
     for (let i = 0; i < steps; i++) {
       physics.step();
       audio.update(SIM_STEP);
-      effectsDemo?.update(SIM_STEP);
     }
-    effectsDemo?.frame(delta);
+    if (effectsDemo) {
+      const demo = demoLoop.advance(delta);
+      for (let i = 0; i < demo.steps; i++) effectsDemo.update(SIM_STEP);
+      effectsDemo.frame(delta);
+    }
     camera.getWorldDirection(listenerForward);
     audio.setListener({ mode: 'firstPerson', position: camera.position, forward: listenerForward, yaw: 0, pitch: 0 });
     renderer.render(scene, camera);
