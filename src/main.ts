@@ -1,11 +1,14 @@
 import * as THREE from 'three';
 import RAPIER from '@dimforge/rapier3d-compat';
 import { FixedStep } from './core/fixedStep';
-import { createEveningScene } from './core/eveningScene';
+import { TUNING } from './core/tuning';
 import { createGameEventBus } from './core/events';
 import { AudioEngine } from './audio/audioEngine';
 import { unlockOnFirstGesture } from './audio/controls';
 import { createEffectsDemo } from './effects/effectsDemo';
+import { createWorld } from './world';
+import { addWorldColliders } from './world/colliders';
+import { createWorldScene } from './world/scene';
 
 const SIM_STEP = 1 / 60;
 const MAX_STEPS_PER_FRAME = 5;
@@ -18,6 +21,8 @@ async function boot(): Promise<void> {
   await RAPIER.init();
   const physics = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
   physics.timestep = SIM_STEP;
+  const world = createWorld();
+  addWorldColliders(physics, world.solids);
 
   const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -25,10 +30,12 @@ async function boot(): Promise<void> {
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   container.appendChild(renderer.domElement);
 
-  const scene = createEveningScene();
+  const { scene } = createWorldScene(world.layout);
   const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 500);
-  camera.position.set(0, 1.7, 4);
-  camera.lookAt(0, 1.5, -6);
+  // Static view from the spawn until the player and camera modules land.
+  const { spawn, spawnYaw } = world;
+  camera.position.set(spawn.x, spawn.y + TUNING.player.eyeHeight, spawn.z);
+  camera.rotation.set(0, spawnYaw, 0);
 
   window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
