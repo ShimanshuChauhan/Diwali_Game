@@ -53,8 +53,12 @@ interface Playing {
  * tagged with its `playbackId`, so a stale callback cannot finish a
  * replacement song.
  *
- * Unlock, pause, mute and master gain all come from the audio engine's
- * music output, so muting never touches timing. A load or decode failure
+ * Unlock, mute and master gain come from the audio engine's music output,
+ * so muting never touches timing. Pause and focus loss (`paused`) stop the
+ * source outright instead of trusting the context suspend, which lands
+ * asynchronously: nothing sounds, drifts or ends while the ceremony is
+ * frozen. The first sync after `resumed` starts one fresh source at the
+ * ceremony's elapsed offset. A load or decode failure
  * emits `aartiAudioFailed` and leaves the ceremony as it was: it keeps
  * running on its own clock, and `durationOf` refuses the failed song so the
  * player cannot switch to it until a retry succeeds.
@@ -81,6 +85,8 @@ export class AartiAudio implements AartiAudioModule {
   private currentId: number | null = null;
   /** A playback that is over for audio (ended, transitioned away); stays silent until the id changes. */
   private silencedId: number | null = null;
+  /** The session is paused or lost focus: silent until it resumes. */
+  private suspended = false;
 
   constructor(options: AartiAudioOptions) {
     this.bus = options.bus;
@@ -97,6 +103,12 @@ export class AartiAudio implements AartiAudioModule {
         this.stop();
         this.silencedId = this.currentId;
       }),
+      this.bus.on('paused', () => {
+        this.suspended = true;
+        this.stop();
+      }),
+      this.bus.on('resumed', () => (this.suspended = false)),
+      this.bus.on('sessionStarted', () => (this.suspended = false)),
     );
   }
 
@@ -147,13 +159,19 @@ export class AartiAudio implements AartiAudioModule {
       this.stop();
       return;
     }
+    const buffer = this.buffers.get(snapshot.song);
+    if (this.suspended) {
+      // Frozen with the ceremony; a song chosen meanwhile can still load.
+      this.stop();
+      if (!buffer) this.requestLoad(snapshot.song, snapshot.playbackId);
+      return;
+    }
     const playing = this.playing;
     if (playing && playing.playbackId === snapshot.playbackId && playing.song === snapshot.song) {
       if (!this.drifted(playing, snapshot.elapsed)) return;
     }
 
     const output = this.output();
-    const buffer = this.buffers.get(snapshot.song);
     if (!output || !buffer) {
       // Silent until the gesture unlocks audio or the file arrives, then
       // starts wherever the ceremony has reached by that time.
@@ -164,7 +182,7 @@ export class AartiAudio implements AartiAudioModule {
     this.start(output, buffer, snapshot);
   }
 
-  /** Fresh session: silent, with failed songs retried. Decoded files are kept. */
+  /** Fresh session: silent, with failed songs retried. Decoded files are kept; pause stays the session's. */
   reset(): void {
     this.stop();
     this.currentId = null;
@@ -244,7 +262,7 @@ export class AartiAudio implements AartiAudioModule {
     playing.source.disconnect();
   }
 
-  /** Only a running context advances; while suspended, both clocks are frozen together. */
+  /** Only a running context advances; while it is still resuming or the browser interrupts it, wait. */
   private drifted(playing: Playing, elapsed: number): boolean {
     if (playing.context.state !== 'running') return false;
     const position = playing.offset + (playing.context.currentTime - playing.startTime);

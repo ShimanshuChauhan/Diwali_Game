@@ -86,7 +86,7 @@ subscribe:
 | `neighbourReacted`   | Neighbours   | Audio                          |
 | `qualityChanged`     | Quality      | Renderer, Effects, Audio       |
 | `cameraModeChanged`  | Camera       | UI, player model visibility    |
-| `paused` / `resumed` | Session      | Input, Audio, UI               |
+| `paused` / `resumed` | Session      | Input, Audio, UI, aarti        |
 | `sessionStarted` / `sessionReset` | Session | every `Resettable` module |
 
 Listeners run synchronously; keep them cheap and never emit an event from
@@ -125,6 +125,15 @@ Ownership rules:
   takes its `durationOf`, so a song that failed to load (`aartiAudioFailed`)
   cannot be selected; `layerAllowed` tells household effects not to add a
   bell or claps the recording already contains.
+- **Pause and focus loss** (`paused`, from Escape, a hidden tab or a window
+  blur) stop the fixed step, so ceremony time, the family and any door fade
+  hold still; `Input` releases held keys and the place button, and the
+  ceremony rests the thali. `AartiAudio` stops its source outright rather
+  than trusting the asynchronous context suspend, so nothing sounds or ends
+  while frozen; the first `sync` after `resumed` starts one fresh source at
+  the ceremony's elapsed offset. Returning to the tab never resumes by
+  itself: the player's click (pointer lock, audio unlock) does.
+  `tests/pauseIntegration.test.ts` drives all of these together.
 - **Participant controls** are `applyAartiAction`'s
   (`src/aarti/participation.ts`), ahead of every other consumer: click
   (`place`) circles the thali and `placeReleased` rests it, 1–3 pick a
