@@ -1,4 +1,5 @@
 import type { GameAction } from './actions';
+import type { HomeInteractable } from './homes';
 import type { QualityProfile } from './quality';
 import type {
   Aabb,
@@ -134,9 +135,11 @@ export interface CameraModule extends Resettable {
 
 // ── Interaction and placement ────────────────────────────────────────────
 
+/** Outdoor crackers and diyas, plus the homes expansion's doors, puja, tray, people and return spots. */
 export type Interactable =
   | { readonly kind: 'cracker'; readonly id: CrackerId; readonly position: Vec3 }
-  | { readonly kind: 'diya'; readonly id: DiyaId; readonly position: Vec3 };
+  | { readonly kind: 'diya'; readonly id: DiyaId; readonly position: Vec3 }
+  | HomeInteractable;
 
 export interface PlacementRequest {
   readonly type: CrackerType;

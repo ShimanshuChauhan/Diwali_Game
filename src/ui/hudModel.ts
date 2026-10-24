@@ -9,6 +9,16 @@ import {
   type IgnitionRejection,
   type PlacementRejection,
 } from '../core/types';
+import { CRACKER_BLOCKED_TEXT, ITEM_REJECTION_TEXT } from '../homes/heldItems';
+import { TRANSITION_REJECTION_TEXT } from '../homes/locations';
+import {
+  AARTI_REJECTION_TEXT,
+  GIFT_REJECTION_TEXT,
+  HANDS_BLOCK,
+  homePromptLines,
+  isHomeInteractable,
+  type HomePromptState,
+} from './homePrompts';
 import { CRACKER_LABELS, rejectionText, type RejectionKind } from './text';
 
 /** How long a rejection message stays on screen, in seconds. */
@@ -23,7 +33,7 @@ export interface PromptLine {
 
 /** What the player is looking at this frame, gathered by the game loop. */
 export interface HudContext {
-  /** Nearest usable cracker or diya, from `InteractionModule.findInteractable`. */
+  /** Nearest usable object, from `InteractionModule.findInteractable`. */
   readonly interactable: Interactable | null;
   /** Type of the interactable cracker, for its label. */
   readonly interactableType?: CrackerType;
@@ -31,6 +41,8 @@ export interface HudContext {
   readonly held?: HeldItem | null;
   /** This frame's placement verdict for the selected ground cracker, if aiming. */
   readonly placement?: { readonly ok: boolean; readonly reason: PlacementRejection | null } | null;
+  /** Hands, aarti and doors for the homes prompts; without it the hands count as free. */
+  readonly homes?: HomePromptState;
 }
 
 export interface Rejection {
@@ -50,8 +62,20 @@ function lower(type: CrackerType): string {
  * prompts appear in first- and third-person.
  */
 export function promptLines(selected: CrackerType, context: HudContext): PromptLine[] {
-  const lines: PromptLine[] = [];
   const { interactable } = context;
+  if (interactable && isHomeInteractable(interactable)) {
+    return context.homes ? homePromptLines(interactable, context.homes) : [];
+  }
+  const lines: PromptLine[] = [];
+  const carried = context.homes?.hands;
+  if (carried) {
+    // A plate, gift box or thali in hand: diyas still light, crackers wait.
+    if (interactable?.kind === 'diya') lines.push({ text: 'E: Light diya', blocked: false });
+    else if (interactable?.kind === 'cracker') {
+      lines.push({ text: CRACKER_BLOCKED_TEXT[HANDS_BLOCK[carried.kind]], blocked: true });
+    }
+    return lines;
+  }
   if (interactable?.kind === 'diya') {
     lines.push({ text: 'E: Light diya', blocked: false });
   } else if (interactable?.kind === 'cracker') {
@@ -116,6 +140,11 @@ export class HudModel implements UiModule {
         bus.on('crackerSelected', ({ type }) => this.setSelection(type)),
         bus.on('placementRejected', ({ reason }) => this.showRejection(reason, 'placement')),
         bus.on('ignitionRejected', ({ reason }) => this.showRejection(reason, 'ignition')),
+        bus.on('crackerBlocked', ({ reason }) => this.showMessage(CRACKER_BLOCKED_TEXT[reason])),
+        bus.on('itemRejected', ({ reason }) => this.showMessage(ITEM_REJECTION_TEXT[reason])),
+        bus.on('transitionRejected', ({ reason }) => this.showMessage(TRANSITION_REJECTION_TEXT[reason])),
+        bus.on('aartiRejected', ({ reason }) => this.showMessage(AARTI_REJECTION_TEXT[reason])),
+        bus.on('giftRejected', ({ reason }) => this.showMessage(GIFT_REJECTION_TEXT[reason])),
         bus.on('cameraModeChanged', ({ mode }) => this.setCameraMode(mode)),
         bus.on('paused', () => this.setPaused(true)),
         bus.on('resumed', () => this.setPaused(false)),
@@ -189,7 +218,13 @@ export class HudModel implements UiModule {
   }
 
   showRejection(reason: PlacementRejection | IgnitionRejection, kind: RejectionKind = 'placement'): void {
-    this.currentRejection = { text: rejectionText(reason, kind), remaining: this.rejectionSeconds };
+    this.showMessage(rejectionText(reason, kind));
+  }
+
+  /** Show a refusal in the rejection slot; null shows nothing and keeps the current one. */
+  showMessage(text: string | null): void {
+    if (text === null) return;
+    this.currentRejection = { text, remaining: this.rejectionSeconds };
     this.changed();
   }
 
