@@ -43,6 +43,9 @@ export type AartiSongId = (typeof AARTI_SONG_IDS)[number];
 /** `outbound` starts at the family home; `return` is the neighbour's reply. */
 export type GiftBoxId = 'outbound' | 'return';
 
+/** Who takes the family's gift box and hands back the return box. */
+export const GIFT_RECEIVER: NeighbourHostId = 'uncle';
+
 /** Position and facing the player is placed at, e.g. after a door fade. */
 export interface Placement {
   readonly position: Vec3;
@@ -92,13 +95,15 @@ export type ItemRejection =
   | 'notHolding'
   /** The item has its own designated return spot elsewhere. */
   | 'wrongReturnSpot'
-  | 'outOfReach';
+  | 'outOfReach'
+  /** Mid gift handover: the hands wait for the return box. */
+  | 'midHandover';
 
 /**
  * Why a cracker action (select, place, ignite, ignite held) is blocked while
  * the hands are busy. The UI turns this into a return-or-deliver prompt.
  */
-export type CrackerHandsRejection = 'carryingPlate' | 'carryingGift' | 'holdingThali';
+export type CrackerHandsRejection = 'carryingPlate' | 'carryingGift' | 'holdingThali' | 'midHandover';
 
 /** The cracker actions the hands gate, named in `crackerBlocked`. */
 export type CrackerAction = 'select' | 'place' | 'ignite' | 'igniteHeld';
@@ -241,7 +246,13 @@ export type HouseholdActivity =
   | 'seated'
   | 'serving'
   | 'greeting'
-  | 'idle';
+  | 'idle'
+  /** The gift handover (#66), one step each: taking the box and giving thanks, */
+  | 'receivingGift'
+  /** setting it down and lifting the return box, */
+  | 'settingGiftAside'
+  /** and holding the return box out to the player. */
+  | 'givingGift';
 
 export type Gesture = 'namaste' | 'blessing' | 'hug' | 'tease' | 'wave' | 'clap' | 'offerMithai' | 'cheekPinch';
 
@@ -251,6 +262,7 @@ export type ReactionCause =
   | 'welcome'
   | 'ateSweets'
   | 'sweetsOffered'
+  | 'giftReceived'
   | 'giftExchanged'
   | 'giftAcknowledged';
 
@@ -335,6 +347,15 @@ export interface HeldItemsModule extends Resettable {
    * `itemPickedUp` for `next`.
    */
   deliver(kind: HandItemKind, next?: HandItem): CommandResult<ItemRejection>;
+  /**
+   * Hand the carried `kind` to someone who hands something back. The hands
+   * are empty but spoken for until `receive`: crackers stay blocked
+   * (`midHandover`), nothing else can be taken and no put-away phuljhari
+   * returns. Emits `itemDelivered`.
+   */
+  handOver(kind: HandItemKind): CommandResult<ItemRejection>;
+  /** End a `handOver` with `item` in the hands. Emits `itemPickedUp`. */
+  receive(item: HandItem): CommandResult<ItemRejection>;
   /** Take the sharing plate from the family tray. */
   pickUpPlate(): CommandResult<ItemRejection>;
   /** Put the plate back on the sweets table. */
@@ -351,6 +372,8 @@ export type GiftBoxPlace =
   /** On its designated return spot in `home`. */
   | { readonly kind: 'spot'; readonly home: HomeId }
   | { readonly kind: 'hands' }
+  /** In a neighbour's hands during the handover. */
+  | { readonly kind: 'host'; readonly host: NeighbourHostId }
   /** The return box resting on the family sweets table. */
   | { readonly kind: 'table' }
   /** Outbound box handed over, or return box acknowledged. */
@@ -364,18 +387,40 @@ export interface GiftBoxSnapshot {
 /** `pending` waits for aarti to complete; `done` happens once per session. */
 export type GiftAcknowledgement = 'none' | 'pending' | 'done';
 
-export interface GiftExchangeModule extends Resettable {
+/** The steps of the gift handover, in order. */
+export type GiftHandoverStep =
+  /** The receiver takes the box from the player and thanks them holding it. */
+  | 'receiving'
+  /** Sets it down on the side table and lifts the return box. */
+  | 'settingAside'
+  /** Holds the return box out until it is in the player's hands. */
+  | 'giving';
+
+/** A handover in progress; times are simulation seconds. */
+export interface GiftHandover {
+  readonly host: NeighbourHostId;
+  readonly step: GiftHandoverStep;
+  /** Seconds into the current step. */
+  readonly stepTime: number;
+  /** Seconds since the box left the player's hands. */
+  readonly elapsed: number;
+}
+
+export interface GiftExchangeModule extends Steppable, Resettable {
   boxes(): readonly GiftBoxSnapshot[];
-  /** True once the special neighbour exchange has happened. */
+  /** True once the special neighbour exchange has happened: the return box has been handed over. */
   readonly exchanged: boolean;
+  /** The handover under way, else null. */
+  readonly handover: GiftHandover | null;
   readonly acknowledgement: GiftAcknowledgement;
   /** Pick a box up from its spot. */
   pickUp(box: GiftBoxId): CommandResult<GiftRejection>;
   /** Put a carried box back on its designated spot. */
   putBack(box: GiftBoxId): CommandResult<GiftRejection>;
   /**
-   * At the neighbour: atomically consume the outbound box, record the
-   * exchange and put the return box in the hands. Emits `giftExchanged`.
+   * At the neighbour: hand the outbound box to `GIFT_RECEIVER`, starting the
+   * timed handover that ends with the return box in the hands. Emits
+   * `giftReceived` now and `giftExchanged` when the return box is in hand.
    */
   exchange(): CommandResult<GiftRejection>;
   /**

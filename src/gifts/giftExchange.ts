@@ -1,24 +1,48 @@
 import type { Unsubscribe } from '../core/eventBus';
 import type { GameEventBus } from '../core/events';
-import type {
-  CommandResult,
-  GiftAcknowledgement,
-  GiftBoxId,
-  GiftBoxPlace,
-  GiftBoxSnapshot,
-  GiftExchangeModule,
-  GiftRejection,
-  HeldItemsModule,
-  HomeId,
-  LocationId,
+import {
+  GIFT_RECEIVER,
+  type CommandResult,
+  type GiftAcknowledgement,
+  type GiftBoxId,
+  type GiftBoxPlace,
+  type GiftBoxSnapshot,
+  type GiftExchangeModule,
+  type GiftHandover,
+  type GiftHandoverStep,
+  type GiftRejection,
+  type HeldItemsModule,
+  type HomeId,
+  type LocationId,
 } from '../core/homes';
 import { returnSpotFor } from '../homes/heldItems';
 
 /** The part of the hands the gift boxes go through. `HeldItems` satisfies it. */
-export type GiftHands = Pick<HeldItemsModule, 'hands' | 'take' | 'returnTo' | 'deliver'>;
+export type GiftHands = Pick<HeldItemsModule, 'hands' | 'take' | 'returnTo' | 'deliver' | 'handOver' | 'receive'>;
+
+/**
+ * Seconds each handover step lasts; about four in all, so the moment reads
+ * without holding the player up.
+ */
+export const GIFT_HANDOVER: Readonly<Record<GiftHandoverStep, number>> = {
+  /** Uncle takes the box at arm's length, draws it in and says his thanks holding it. */
+  receiving: 2,
+  /** He lowers it onto his side table and lifts the return box waiting there. */
+  settingAside: 0.8,
+  /** He holds the return box out to the player. */
+  giving: 1,
+};
+
+const NEXT_STEP: Readonly<Record<GiftHandoverStep, GiftHandoverStep | null>> = {
+  receiving: 'settingAside',
+  settingAside: 'giving',
+  giving: null,
+};
+
+type MutableHandover = { -readonly [K in keyof GiftHandover]: GiftHandover[K] };
 
 export interface GiftExchangeOptions {
-  /** Follows `aartiCompleted`; publishes the gift events. */
+  /** Follows `aartiCompleted` and `locationChanged`; publishes the gift events. */
   readonly bus: GameEventBus;
   readonly hands: GiftHands;
   /** Where the player is; without it, every command is allowed anywhere. */
@@ -32,13 +56,22 @@ const OK: CommandResult<GiftRejection> = Object.freeze({ ok: true });
 
 /**
  * The once-per-session gift round trip (issue #66): the outbound box waits
- * on its side table at home from the start; handing it to Uncle or Aunty
- * swaps it for their return box in one step; the return box set on the
+ * on its side table at home from the start; handed to Uncle, it is answered
+ * with the return box through a short handover; the return box set on the
  * family sweets table is acknowledged once, after aarti.
  *
- * - `exchange` is atomic: the outbound box is delivered, the exchange
- *   recorded and the return box placed in the freed hands, before any event
- *   goes out. Repeats are refused with `alreadyExchanged`.
+ * - `exchange` starts the handover: the box goes from the player's hands to
+ *   Uncle's (`host`), the hands stay empty but spoken for, and over
+ *   `GIFT_HANDOVER` he thanks the player holding it, sets it down on his
+ *   side table (`delivered`), lifts the return box (`host`) and holds it out
+ *   until it is in the player's hands, when `giftExchanged` goes out. Each
+ *   move is recorded before its events, so every box is in exactly one
+ *   place at every moment. Repeats, during or after, are refused with
+ *   `alreadyExchanged`.
+ * - Walking out mid-handover completes it at once: the player leaves with
+ *   the return box in hand, so no box is stranded with Uncle. A fresh
+ *   session drops it with everything else. Time is the fixed step from
+ *   `update(dt)`, so pause freezes it.
  * - Either box can go back on its own spot and be picked up again until it
  *   is delivered. Boxes cross doors freely in the hands.
  * - On the table before aarti is over, the acknowledgement is `pending` and
@@ -61,6 +94,7 @@ export class GiftExchange implements GiftExchangeModule {
   private returned: GiftBoxPlace | null = null;
   private ack: GiftAcknowledgement = 'none';
   private aartiDone = false;
+  private running: MutableHandover | null = null;
   private snapshots: readonly GiftBoxSnapshot[] = [];
 
   constructor(options: GiftExchangeOptions) {
@@ -68,16 +102,26 @@ export class GiftExchange implements GiftExchangeModule {
     this.hands = options.hands;
     this.location = options.location ?? (() => null);
     this.refresh();
-    this.unsubscribes.push(this.bus.on('aartiCompleted', () => this.aartiCompleted()));
+    this.unsubscribes.push(
+      this.bus.on('aartiCompleted', () => this.aartiCompleted()),
+      this.bus.on('locationChanged', ({ from }) => {
+        if (from === 'neighbourHome' && this.running) this.finishHandover();
+      }),
+    );
   }
 
-  /** The boxes that exist so far: the outbound one, and the return one after the exchange. */
+  /** The boxes in play so far: the outbound one, and the return one once Uncle lifts it to hand over. */
   boxes(): readonly GiftBoxSnapshot[] {
     return this.snapshots;
   }
 
   get exchanged(): boolean {
-    return this.returned !== null;
+    return this.returned !== null && this.running === null;
+  }
+
+  /** Live and reused while it runs; copy it to keep it. */
+  get handover(): GiftHandover | null {
+    return this.running;
   }
 
   get acknowledgement(): GiftAcknowledgement {
@@ -88,6 +132,7 @@ export class GiftExchange implements GiftExchangeModule {
     const place = this.placeOf(box);
     if (!place) return this.reject('wrongLocation');
     if (place.kind === 'hands') return this.reject('handsFull');
+    if (place.kind === 'host') return this.reject('alreadyExchanged');
     if (place.kind !== 'spot') return this.reject(box === 'outbound' ? 'alreadyExchanged' : 'alreadyDelivered');
     if (!this.at(place.home)) return this.reject('wrongLocation');
     // The hands report their own refusal (`itemRejected`).
@@ -108,22 +153,44 @@ export class GiftExchange implements GiftExchangeModule {
   }
 
   exchange(): CommandResult<GiftRejection> {
-    if (this.exchanged) return this.reject('alreadyExchanged');
+    if (this.exchanged || this.running) return this.reject('alreadyExchanged');
     if (!this.at('neighbourHome')) return this.reject('wrongLocation');
     if (!this.carrying('outbound')) return this.reject('notHolding');
-    // Record first so every listener of the hands' events already sees the swap.
-    this.outbound = { kind: 'delivered' };
-    this.returned = { kind: 'hands' };
+    // Record first so every listener of the hands' events already sees the box with Uncle.
+    this.outbound = { kind: 'host', host: GIFT_RECEIVER };
+    this.running = { host: GIFT_RECEIVER, step: 'receiving', stepTime: 0, elapsed: 0 };
     this.refresh();
-    const swapped = this.hands.deliver('giftBox', { kind: 'giftBox', box: 'return' });
-    if (!swapped.ok) {
+    if (!this.hands.handOver('giftBox').ok) {
       this.outbound = { kind: 'hands' };
-      this.returned = null;
+      this.running = null;
       this.refresh();
       return this.reject('notHolding');
     }
-    this.bus.emit('giftExchanged', {});
+    this.bus.emit('giftReceived', { host: GIFT_RECEIVER });
     return OK;
+  }
+
+  update(dt: number): void {
+    const handover = this.running;
+    if (!handover || !(dt > 0)) return;
+    handover.stepTime += dt;
+    handover.elapsed += dt;
+    while (this.running && this.running.stepTime >= GIFT_HANDOVER[this.running.step]) {
+      const { step, stepTime } = this.running;
+      const next = NEXT_STEP[step];
+      if (!next) {
+        this.finishHandover();
+        break;
+      }
+      this.running.step = next;
+      this.running.stepTime = stepTime - GIFT_HANDOVER[step];
+      // On the side table: the family's box down, the return box up.
+      if (next === 'giving') {
+        this.outbound = { kind: 'delivered' };
+        this.returned = { kind: 'host', host: this.running.host };
+        this.refresh();
+      }
+    }
   }
 
   placeOnTable(): CommandResult<GiftRejection> {
@@ -145,10 +212,11 @@ export class GiftExchange implements GiftExchangeModule {
     return OK;
   }
 
-  /** Fresh session: the outbound box back on its side table, no exchange, nothing pending. Silent. */
+  /** Fresh session: the outbound box back on its side table, no exchange or handover, nothing pending. Silent. */
   reset(): void {
     this.outbound = { kind: 'spot', home: 'familyHome' };
     this.returned = null;
+    this.running = null;
     this.ack = 'none';
     this.aartiDone = false;
     this.refresh();
@@ -163,6 +231,20 @@ export class GiftExchange implements GiftExchangeModule {
   private aartiCompleted(): void {
     this.aartiDone = true;
     if (this.ack === 'pending') this.acknowledge();
+  }
+
+  /** The return box into the player's hands, wherever the handover had got to. */
+  private finishHandover(): void {
+    this.running = null;
+    this.outbound = { kind: 'delivered' };
+    this.returned = { kind: 'hands' };
+    this.refresh();
+    // The hands were kept free for it; should they refuse, the box waits on its console next door rather than vanish.
+    if (!this.hands.receive({ kind: 'giftBox', box: 'return' }).ok) {
+      this.returned = { kind: 'spot', home: 'neighbourHome' };
+      this.refresh();
+    }
+    this.bus.emit('giftExchanged', {});
   }
 
   private acknowledge(): void {

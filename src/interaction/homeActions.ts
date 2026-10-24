@@ -2,6 +2,7 @@ import type { GameAction } from '../core/actions';
 import type { Interactable } from '../core/contracts';
 import {
   FAMILY_MEMBERS,
+  GIFT_RECEIVER,
   type AartiCeremonyModule,
   type CommandResult,
   type FamilyMemberId,
@@ -27,7 +28,7 @@ export interface HomeActionContext {
     HeldItemsModule,
     'hands' | 'eat' | 'pickUpPlate' | 'returnPlate' | 'offer' | 'returnTo'
   >;
-  readonly gifts?: Pick<GiftExchangeModule, 'pickUp' | 'putBack' | 'exchange' | 'placeOnTable'>;
+  readonly gifts?: Pick<GiftExchangeModule, 'pickUp' | 'putBack' | 'exchange' | 'placeOnTable' | 'handover'>;
   readonly household?: Pick<HouseholdModule, 'react'>;
   /** Uncle and Aunty's mithai table next door, never gated on aarti (`NeighbourHosts`). */
   readonly hosts?: { eatMithai(): CommandResult<ItemRejection> };
@@ -57,8 +58,10 @@ export function isFamilyMember(id: HouseholdMemberId): id is FamilyMemberId {
  *   click with free hands takes a plate. Next door, the tray is Uncle and
  *   Aunty's mithai: E eats there at any time and there is no plate to take.
  * - Return spot: E puts the carried box back, or picks the resting one up.
- * - Person: E offers the plate to a family member, gives the gift box to the
- *   neighbours, or greets them.
+ * - Person: E offers the plate to a family member, gives the gift box to
+ *   Uncle (`GIFT_RECEIVER`), or greets the neighbours. While he is handing
+ *   the return box over, E on either of them is used up doing nothing: no
+ *   greeting cuts across the handover, and it cannot be restarted.
  *
  * Refusals are reported by the module that refuses (`transitionRejected`,
  * `aartiRejected`, `itemRejected`, `giftRejected`), which the HUD shows.
@@ -107,7 +110,9 @@ export function applyHomeAction(action: GameAction, target: Interactable | null,
     case 'person':
       if (isFamilyMember(target.id)) {
         ctx.hands?.offer(target.id);
-      } else if (held?.kind === 'giftBox' && held.box === 'outbound' && ctx.gifts) {
+      } else if (ctx.gifts?.handover) {
+        // Watching the handover; nothing to start or interrupt.
+      } else if (target.id === GIFT_RECEIVER && held?.kind === 'giftBox' && held.box === 'outbound' && ctx.gifts) {
         ctx.gifts.exchange();
       } else {
         ctx.household?.react(target.id, 'welcome');

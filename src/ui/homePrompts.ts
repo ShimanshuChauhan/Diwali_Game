@@ -1,16 +1,17 @@
-import type {
-  AartiRejection,
-  AartiSnapshot,
-  CrackerHandsRejection,
-  DoorwayId,
-  DoorwaySnapshot,
-  GiftBoxId,
-  GiftRejection,
-  HandItem,
-  HandItemKind,
-  HomeInteractable,
-  HouseholdMemberId,
-  LocationId,
+import {
+  GIFT_RECEIVER,
+  type AartiRejection,
+  type AartiSnapshot,
+  type CrackerHandsRejection,
+  type DoorwayId,
+  type DoorwaySnapshot,
+  type GiftBoxId,
+  type GiftRejection,
+  type HandItem,
+  type HandItemKind,
+  type HomeInteractable,
+  type HouseholdMemberId,
+  type LocationId,
 } from '../core/homes';
 import { CRACKER_BLOCKED_TEXT, ITEM_REJECTION_TEXT } from '../homes/heldItems';
 import { TRANSITION_REJECTION_TEXT } from '../homes/locations';
@@ -34,6 +35,8 @@ export interface HomePromptState {
   readonly aarti?: AartiSnapshot | null;
   /** The once-per-session neighbour exchange has happened. */
   readonly exchanged?: boolean;
+  /** Uncle is handing the return box over; the neighbours offer nothing meanwhile. */
+  readonly handingOver?: boolean;
   /** Where a door leads, for its wording. */
   readonly doorway?: (id: DoorwayId) => DoorwaySnapshot | undefined;
 }
@@ -130,6 +133,7 @@ export function homePromptLines(target: HomeInteractable, state: HomePromptState
     case 'tray': {
       // Uncle and Aunty's mithai: any time, whatever the hour of the evening.
       if (target.id === 'neighbourHome') {
+        if (state.handingOver) return [no(CRACKER_BLOCKED_TEXT.midHandover)];
         return held ? [no(CRACKER_BLOCKED_TEXT[HANDS_BLOCK[held.kind]])] : [go('E: Have mithai')];
       }
       if (held?.kind === 'sweetsPlate') return [go('E: Put the plate back')];
@@ -158,8 +162,10 @@ export function homePromptLines(target: HomeInteractable, state: HomePromptState
     case 'person': {
       const name = MEMBER_LABELS[target.id];
       if (isFamilyMember(target.id)) return held?.kind === 'sweetsPlate' ? [go(`E: Offer sweets to ${name}`)] : [];
+      if (state.handingOver) return [];
       if (held?.kind === 'giftBox' && held.box === 'outbound' && !state.exchanged) {
-        return [go(`E: Give the ${GIFT_BOX_LABELS.outbound} to ${name}`)];
+        if (target.id === GIFT_RECEIVER) return [go(`E: Give the ${GIFT_BOX_LABELS.outbound} to ${name}`)];
+        return [go(`E: Greet ${name}`), no(`Give the ${GIFT_BOX_LABELS.outbound} to ${MEMBER_LABELS[GIFT_RECEIVER]}`)];
       }
       return [go(`E: Greet ${name}`)];
     }

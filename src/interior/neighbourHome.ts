@@ -29,6 +29,12 @@ export interface NeighbourHomeLayout extends InteriorLayout {
   readonly hosts: Readonly<Record<NeighbourHostId, Placement>>;
   /** Where the return box rests on the console by the door. */
   readonly giftSpot: Placement['position'];
+  /**
+   * Uncle's side table, just west of him: the return box waits on it until
+   * he hands it over, and the family's box is set down on it once received.
+   * `yaw` turns him to face it.
+   */
+  readonly sideTable: { readonly waiting: Placement['position']; readonly received: Placement['position']; readonly yaw: number };
 }
 
 /**
@@ -40,13 +46,14 @@ export interface NeighbourHomeLayout extends InteriorLayout {
  * door, a shoe rack, Ganesh ji on the west wall, and a divan with a low
  * table for guests. The sweets area is the north-east corner: a dining
  * table laid with a tray of mithai and boxes of more, two chairs behind it.
- * A console by the door holds the return gift.
+ * A console by the door holds the return gift; a side table beside Uncle,
+ * the boxes he exchanges.
  *
  *          z = -7.5 ┌──────── north wall ─────────┐
  *                   │▐       ▭ ▭ chairs           │
  *                   │▐ divan   ▭ table ▭ ☺ aunty  │
  *                   │▐ ▭ low table                │
- *                   │      ☺ uncle                │
+ *                   │   ▭ ☺ uncle                 │
  *                   │ ▭ shoes  ░rangoli░  console▭│
  *          z =  0.5 └──────────── ▯ door ─────────┘
  *                 x = -4                         4
@@ -149,6 +156,12 @@ export function createNeighbourHomeLayout(anchor = HOME_ENTRANCES.neighbourHome.
   const giftSpot = b.mat('gift.spot', (consoleTable.minX + consoleTable.maxX) / 2, consoleTable.top, consoleZ, 0.18, 0.01, 'fabricGold');
   b.diya('gift.console.diya', consoleTable.maxX - 0.1, consoleTable.top, consoleTable.minZ + 0.12, true);
 
+  // ── Uncle's side table, an arm's length west of him: the boxes he exchanges ──
+  const sideTable = { minX: -1.52, maxX: -1.1, minZ: -3.24, maxZ: -2.56, top: 0.8 };
+  b.solid('greeting.sideTable', 'furniture', b.box(sideTable.minX, 0, sideTable.minZ, sideTable.maxX, sideTable.top, sideTable.maxZ), 'woodDark');
+  const sideX = sideTable.maxX - 0.16;
+  const sideZ = (sideTable.minZ + sideTable.maxZ) / 2;
+
   // ── Walls: windows, curtains and garlands ─────────────────────────────
   b.deco('window.east', b.box(hw - 0.03, 1.0, -4.4, hw, 2.2, -3.2), 'windowNight');
   for (const s of [-1, 1] as const) {
@@ -223,5 +236,11 @@ export function createNeighbourHomeLayout(anchor = HOME_ENTRANCES.neighbourHome.
     ],
     hosts,
     giftSpot,
+    sideTable: {
+      // Side by side as Uncle faces the table: the return box on his right, the family's box set down on his left.
+      waiting: b.at(sideX, sideTable.top, sideZ - 0.14),
+      received: b.at(sideX, sideTable.top, sideZ + 0.14),
+      yaw: facing(hosts.uncle.position, b.at(sideX, 0, sideZ)),
+    },
   };
 }

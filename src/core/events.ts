@@ -12,6 +12,7 @@ import type {
   ItemAction,
   ItemRejection,
   LocationId,
+  NeighbourHostId,
   TransitionRejection,
 } from './homes';
 import type { QualityProfile } from './quality';
@@ -112,6 +113,8 @@ export interface GameEvents {
   sweetsEaten: Record<string, never>;
   sweetsOffered: { readonly member: FamilyMemberId };
 
+  /** The outbound box is in the receiver's hands; the handover has begun. */
+  giftReceived: { readonly host: NeighbourHostId };
   /** The once-per-session neighbour exchange; the return box is now in hand. */
   giftExchanged: Record<string, never>;
   /** The return box is on the family table; acknowledgement waits for aarti if pending. */

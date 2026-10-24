@@ -3,10 +3,17 @@ import type { GiftBoxId, GiftBoxSnapshot } from '../core/homes';
 import type { Vec3 } from '../core/types';
 import type { InteriorAssets, InteriorMaterial } from '../interior';
 
-/** Where each box can be seen; at most one place per box. */
+/**
+ * Where each box can be seen; at most one place per box. A box in a host's
+ * hands is not drawn here but by the household scene, in those hands.
+ */
 export interface GiftVisibility {
   /** The outbound box on its side table at home. */
   readonly outboundSpot: boolean;
+  /** The outbound box set down on Uncle's side table, kept there once handed over. */
+  readonly outboundReceived: boolean;
+  /** The return box waiting on Uncle's side table until he hands it over. */
+  readonly returnWaiting: boolean;
   /** The return box on Uncle and Aunty's console. */
   readonly returnSpot: boolean;
   /** The return box on the family sweets table, waiting or acknowledged. */
@@ -16,25 +23,32 @@ export interface GiftVisibility {
 }
 
 /**
- * Which box shows where. A delivered outbound box is gone with the
- * neighbours; the acknowledged return box stays on the family table.
+ * Which box shows where. Until Uncle lifts it, the return box (not yet in
+ * `boxes`) waits on his side table; the delivered outbound box is kept
+ * there; the acknowledged return box stays on the family table.
  */
 export function giftVisibility(boxes: readonly GiftBoxSnapshot[]): GiftVisibility {
   let outboundSpot = false;
+  let outboundReceived = false;
+  let returnWaiting = true;
   let returnSpot = false;
   let returnTable = false;
   let held: GiftBoxId | null = null;
   for (const { id, place } of boxes) {
+    if (id === 'return') returnWaiting = false;
     if (place.kind === 'hands') held = id;
-    else if (id === 'outbound') outboundSpot = place.kind === 'spot';
-    else if (place.kind === 'spot') returnSpot = true;
+    else if (place.kind === 'host') continue;
+    else if (id === 'outbound') {
+      outboundSpot = place.kind === 'spot';
+      outboundReceived = place.kind === 'delivered';
+    } else if (place.kind === 'spot') returnSpot = true;
     else returnTable = true;
   }
-  return { outboundSpot, returnSpot, returnTable, held };
+  return { outboundSpot, outboundReceived, returnWaiting, returnSpot, returnTable, held };
 }
 
 /** Box size, metres: a mithai-and-dry-fruits gift box. */
-const BOX = { width: 0.28, height: 0.16, depth: 0.22 } as const;
+export const GIFT_BOX = { width: 0.28, height: 0.16, depth: 0.22 } as const;
 const RIBBON = 0.035;
 
 /** Each box's wrapping, from the shared interior palette. */
@@ -47,22 +61,55 @@ export interface GiftSceneOptions {
   readonly assets: InteriorAssets;
   /** The family home's interior root: the outbound box's spot and the sweets table. */
   readonly familyHome: THREE.Object3D;
-  /** The neighbour home's interior root: the return box's spot. */
+  /** The neighbour home's interior root: the return box's spot and Uncle's side table. */
   readonly neighbourHome: THREE.Object3D;
   /** Where a carried box is drawn; it crosses doors, so it is not part of either home. */
   readonly held: THREE.Object3D;
   /** Surface centres the boxes rest on. */
-  readonly places: { readonly outboundSpot: Vec3; readonly returnSpot: Vec3; readonly table: Vec3 };
+  readonly places: {
+    readonly outboundSpot: Vec3;
+    readonly returnSpot: Vec3;
+    readonly table: Vec3;
+    /** Uncle's side table: the family's box once received, and the return box until handed over. */
+    readonly received: Vec3;
+    readonly waiting: Vec3;
+  };
+}
+
+/**
+ * A wrapped gift box with a crossed ribbon and a bow, base centred on its
+ * origin: four meshes over the interiors' unit box and materials, so it
+ * adds no GPU resources. The household scene uses it for a host's hands.
+ */
+export function buildGiftBox(assets: InteriorAssets, id: GiftBoxId): THREE.Group {
+  const group = new THREE.Group();
+  const { body, ribbon } = WRAPPING[id];
+  const part = (material: InteriorMaterial, w: number, h: number, d: number, y: number) => {
+    const mesh = new THREE.Mesh(assets.geometry, assets.material(material));
+    mesh.scale.set(w, h, d);
+    mesh.position.y = y;
+    group.add(mesh);
+  };
+  const { width, height, depth } = GIFT_BOX;
+  part(body, width, height, depth, height / 2);
+  // Ribbons sit a hair proud of the body so they never z-fight.
+  part(ribbon, RIBBON, height + 0.004, depth + 0.004, height / 2);
+  part(ribbon, width + 0.004, height + 0.004, RIBBON, height / 2);
+  part(ribbon, 0.07, 0.03, 0.05, height + 0.015);
+  return group;
 }
 
 /**
  * The two gift boxes (issue #66), drawn from `GiftExchangeModule.boxes()`:
- * resting on their spots, on the family sweets table, or in the hands.
- * Nothing here decides behaviour. Every mesh reuses the interiors' unit box
- * and materials, so the boxes add no GPU resources of their own.
+ * resting on their spots, on Uncle's side table, on the family sweets
+ * table, or in the player's hands. Nothing here decides behaviour. Every
+ * mesh reuses the interiors' unit box and materials, so the boxes add no
+ * GPU resources of their own.
  */
 export class GiftScene {
   private readonly outboundSpot: THREE.Group;
+  private readonly outboundReceived: THREE.Group;
+  private readonly returnWaiting: THREE.Group;
   private readonly returnSpot: THREE.Group;
   private readonly returnTable: THREE.Group;
   private readonly held: Record<GiftBoxId, THREE.Group>;
@@ -70,6 +117,8 @@ export class GiftScene {
   constructor(options: GiftSceneOptions) {
     const { assets, places } = options;
     this.outboundSpot = this.box(assets, 'outbound', 'gift.outbound.spot', places.outboundSpot, options.familyHome);
+    this.outboundReceived = this.box(assets, 'outbound', 'gift.outbound.received', places.received, options.neighbourHome);
+    this.returnWaiting = this.box(assets, 'return', 'gift.return.waiting', places.waiting, options.neighbourHome);
     this.returnSpot = this.box(assets, 'return', 'gift.return.spot', places.returnSpot, options.neighbourHome);
     this.returnTable = this.box(assets, 'return', 'gift.return.table', places.table, options.familyHome);
     this.held = {
@@ -83,6 +132,8 @@ export class GiftScene {
   frame(boxes: readonly GiftBoxSnapshot[], hold?: { readonly center: Vec3; readonly yaw: number }): void {
     const shown = giftVisibility(boxes);
     this.outboundSpot.visible = shown.outboundSpot;
+    this.outboundReceived.visible = shown.outboundReceived;
+    this.returnWaiting.visible = shown.returnWaiting;
     this.returnSpot.visible = shown.returnSpot;
     this.returnTable.visible = shown.returnTable;
     for (const id of ['outbound', 'return'] as const) {
@@ -96,29 +147,17 @@ export class GiftScene {
   }
 
   dispose(): void {
-    for (const group of [this.outboundSpot, this.returnSpot, this.returnTable, this.held.outbound, this.held.return]) {
+    const { outboundSpot, outboundReceived, returnWaiting, returnSpot, returnTable, held } = this;
+    for (const group of [outboundSpot, outboundReceived, returnWaiting, returnSpot, returnTable, held.outbound, held.return]) {
       group.removeFromParent();
       group.clear();
     }
   }
 
-  /** A wrapped box with a crossed ribbon and a bow, its base centred on `at`. */
+  /** A wrapped box, its base centred on `at`. */
   private box(assets: InteriorAssets, id: GiftBoxId, name: string, at: Vec3 | null, parent: THREE.Object3D): THREE.Group {
-    const group = new THREE.Group();
+    const group = buildGiftBox(assets, id);
     group.name = name;
-    const { body, ribbon } = WRAPPING[id];
-    const part = (material: InteriorMaterial, w: number, h: number, d: number, y: number) => {
-      const mesh = new THREE.Mesh(assets.geometry, assets.material(material));
-      mesh.scale.set(w, h, d);
-      mesh.position.y = y;
-      group.add(mesh);
-    };
-    const { width, height, depth } = BOX;
-    part(body, width, height, depth, height / 2);
-    // Ribbons sit a hair proud of the body so they never z-fight.
-    part(ribbon, RIBBON, height + 0.004, depth + 0.004, height / 2);
-    part(ribbon, width + 0.004, height + 0.004, RIBBON, height / 2);
-    part(ribbon, 0.07, 0.03, 0.05, height + 0.015);
     if (at) group.position.set(at.x, at.y, at.z);
     parent.add(group);
     return group;

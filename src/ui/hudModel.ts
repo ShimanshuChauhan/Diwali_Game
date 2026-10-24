@@ -68,12 +68,11 @@ export function promptLines(selected: CrackerType, context: HudContext): PromptL
   }
   const lines: PromptLine[] = [];
   const carried = context.homes?.hands;
-  if (carried) {
-    // A plate, gift box or thali in hand: diyas still light, crackers wait.
+  // A plate, gift box or thali in hand, or the return gift on its way: diyas still light, crackers wait.
+  const busy = carried ? HANDS_BLOCK[carried.kind] : context.homes?.handingOver ? 'midHandover' : null;
+  if (busy) {
     if (interactable?.kind === 'diya') lines.push({ text: 'E: Light diya', blocked: false });
-    else if (interactable?.kind === 'cracker') {
-      lines.push({ text: CRACKER_BLOCKED_TEXT[HANDS_BLOCK[carried.kind]], blocked: true });
-    }
+    else if (interactable?.kind === 'cracker') lines.push({ text: CRACKER_BLOCKED_TEXT[busy], blocked: true });
     return lines;
   }
   if (interactable?.kind === 'diya') {

@@ -1,14 +1,18 @@
 import type { DialogueCatalogue } from '../household/dialogue';
 
 /**
- * Uncle and Aunty's answer to the gift box (issue #66): touched, a little
- * scolding about the trouble taken, and a return box pressed into the
- * player's hands for the family. One line each, said once per session.
+ * Uncle and Aunty's answer to the gift box (issue #66): Uncle, touched and a
+ * little scolding about the trouble taken, as he takes it; Aunty's warm word
+ * once he has handed the return box over. Neither line hands anything over
+ * itself — Uncle's hands do that (`GiftExchange`) — and neither gesture
+ * holds a plate. One line each, said once per session.
  */
 export const HOST_GIFT_DIALOGUE: DialogueCatalogue = {
-  giftExchanged: {
+  giftReceived: {
     uncle: [{ text: 'Arre, iski kya zaroorat thi, beta! Mummy-Papa ko hamara dher saara pyaar dena.', gesture: 'namaste' }],
-    aunty: [{ text: 'Khaali haath thodi jaane dungi! Yeh dabba ghar le jao — sabke liye hai.', gesture: 'offerMithai' }],
+  },
+  giftExchanged: {
+    aunty: [{ text: 'Mummy se kehna, dabbe mein unki pasand ki kaju katli hai. Shubh Deepawali, beta!', gesture: 'blessing' }],
   },
 };
 
