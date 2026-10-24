@@ -7,7 +7,9 @@ import { DEFAULT_QUALITY, qualityProfile } from './core/quality';
 import { Atmosphere } from './atmosphere';
 import { AudioEngine } from './audio/audioEngine';
 import { unlockOnFirstGesture } from './audio/controls';
+import { DiyaScene, Diyas } from './diyas';
 import { createEffectsDemo } from './effects/effectsDemo';
+import { Interaction } from './interaction';
 import { MovementIntentTracker, PlayerController } from './player';
 import { createDomControls } from './session/domControls';
 import { Input } from './session/input';
@@ -76,6 +78,14 @@ async function boot(): Promise<void> {
   atmosphere.setViewport(renderer.domElement.height, camera);
   window.addEventListener('resize', () => atmosphere.setViewport(renderer.domElement.height, camera));
 
+  const diyas = new Diyas({ sites: world.diyaSites, bus });
+  const diyaScene = new DiyaScene({ scene, diyas, profile: qualityProfile(DEFAULT_QUALITY), bus });
+  const interaction = new Interaction({
+    world,
+    playerPosition: () => player.pose.position,
+    isDiyaUsable: (id) => !diyas.isLit(id),
+  });
+
   const audio = new AudioEngine({ bus });
   unlockOnFirstGesture(window, audio);
   const listenerForward = new THREE.Vector3();
@@ -95,6 +105,11 @@ async function boot(): Promise<void> {
         const { mouseSensitivity, pitchLimit } = TUNING.camera;
         yaw -= action.dx * mouseSensitivity;
         pitch = Math.min(Math.max(pitch - action.dy * mouseSensitivity, -pitchLimit), pitchLimit);
+      } else if (action.type === 'interact') {
+        camera.getWorldDirection(listenerForward);
+        const view = { mode: 'firstPerson', position: camera.position, forward: listenerForward, yaw, pitch } as const;
+        const target = interaction.findInteractable(view);
+        if (target?.kind === 'diya') diyas.light(target.id);
       } else movement.apply(action);
     }
     const delta = timer.getDelta();
@@ -106,6 +121,7 @@ async function boot(): Promise<void> {
       physics.step();
       audio.update(SIM_STEP);
       atmosphere.update(SIM_STEP);
+      diyaScene.update(SIM_STEP);
     }
     if (effectsDemo) {
       const demo = demoLoop.advance(delta);
@@ -117,6 +133,7 @@ async function boot(): Promise<void> {
       camera.rotation.set(pitch, yaw, 0);
     }
     atmosphere.frame();
+    diyaScene.frame(camera.position);
     camera.getWorldDirection(listenerForward);
     audio.setListener({ mode: 'firstPerson', position: camera.position, forward: listenerForward, yaw: 0, pitch: 0 });
     renderer.render(scene, camera);
