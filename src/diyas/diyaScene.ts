@@ -45,7 +45,13 @@ export class DiyaScene {
   private readonly diyas: Diyas;
   private readonly bowlGeometry = new THREE.CylinderGeometry(BOWL.radiusTop, BOWL.radiusBottom, BOWL.height, 10);
   private readonly flameGeometry = createFlameGeometry();
-  private readonly bowlMaterial = new THREE.MeshStandardMaterial({ color: '#a0522d', roughness: 0.9 });
+  private readonly bowlMaterial = new THREE.MeshStandardMaterial({
+    color: '#a0522d',
+    roughness: 0.9,
+    // A faint warm rim so unlit diyas can still be found in the dark.
+    emissive: '#5a2a10',
+    emissiveIntensity: 0.6,
+  });
   private readonly flameMaterial = new THREE.MeshBasicMaterial({ color: FLAME_COLOUR });
   private readonly flames: THREE.InstancedMesh;
   private readonly glow: Float32Array;
