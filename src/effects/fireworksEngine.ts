@@ -5,13 +5,13 @@ import { GRAVITY, ParticlePool, createParticleSpec } from './particlePool';
 import {
   PATTERN_SHAPES,
   SKY_BURST,
+  surgeFactor,
   type CoreSpec,
   type EmitterPreset,
   type GlowLightSpec,
   type NozzleSpec,
   type PatternShape,
   type RimSpec,
-  type SurgeSpec,
   type WanderSpec,
 } from './presets';
 
@@ -1097,12 +1097,6 @@ export class FireworksEngine {
 }
 
 /** Launch-speed multiplier: a soft start, then two out-of-step swells. */
-function surgeFactor(surge: SurgeSpec, age: number): number {
-  const ramp = surge.rampUp > 0 ? Math.min(1, 0.5 + (0.5 * age) / surge.rampUp) : 1;
-  const phase = Math.PI * 2 * surge.frequency * age;
-  return ramp * (1 + surge.amplitude * (0.65 * Math.sin(phase) + 0.35 * Math.sin(phase * 2.3 + 1.7)));
-}
-
 function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t;
 }

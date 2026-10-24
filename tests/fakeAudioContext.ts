@@ -30,6 +30,11 @@ class FakeParam {
     this.value = v;
     return this.record('setTargetAtTime', [v, t, c]);
   }
+  setValueCurveAtTime(values: Float32Array, t: number, duration: number) {
+    if (values.length < 2) throw new RangeError('curve needs at least two values');
+    for (const v of values) if (!Number.isFinite(v)) throw new TypeError('setValueCurveAtTime: non-finite value');
+    return this.record('setValueCurveAtTime', [t, duration]);
+  }
   cancelScheduledValues(t: number) {
     return this.record('cancelScheduledValues', [t]);
   }
@@ -55,6 +60,10 @@ class FakeFilter extends FakeNode {
   type = 'lowpass';
   readonly frequency = new FakeParam(350);
   readonly Q = new FakeParam(1);
+}
+
+class FakeConvolver extends FakeNode {
+  buffer: unknown = null;
 }
 
 class FakeCompressor extends FakeNode {
@@ -155,6 +164,9 @@ export class FakeAudioContext {
   }
   createBiquadFilter(): FakeFilter {
     return new FakeFilter(this);
+  }
+  createConvolver(): FakeConvolver {
+    return new FakeConvolver(this);
   }
   createDynamicsCompressor(): FakeCompressor {
     return new FakeCompressor(this);

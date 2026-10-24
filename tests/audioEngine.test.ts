@@ -136,6 +136,19 @@ describe('AudioEngine voices', () => {
     expect(audio.activeVoices).toBe(CRACKER_TYPES.length + 1);
   });
 
+  it('passes the shell pattern through, so a crossette crackles as it splits', async () => {
+    const rampsPerGain = async (pattern: 'crossette' | 'peony') => {
+      const { bus, ctx, audio } = setup();
+      await audio.unlock();
+      bus.emit('burst', { id: 'r', position: { x: 0, y: 30, z: -10 }, pattern, colours: [0xffffff] });
+      return Math.max(
+        ...ctx.gains.map((g) => g.gain.events.filter((e) => e.method === 'exponentialRampToValueAtTime').length),
+      );
+    };
+    expect(await rampsPerGain('crossette')).toBeGreaterThanOrEqual(20);
+    expect(await rampsPerGain('peony')).toBeLessThan(5);
+  });
+
   it('stays within the voice cap under rapid launches', async () => {
     const { bus, ctx, audio } = setup(qualityProfile('low'));
     await audio.unlock();

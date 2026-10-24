@@ -6,6 +6,7 @@ import { createGameEventBus } from './core/events';
 import { Atmosphere } from './atmosphere';
 import { AudioEngine } from './audio/audioEngine';
 import { unlockOnFirstGesture } from './audio/controls';
+import { createSoundBoard } from './audio/soundBoard';
 import { CameraRig, rapierBoomCaster } from './camera';
 import { CapacityBudget } from './capacity';
 import { aimPoint, applyCrackerAction, Crackers } from './crackers';
@@ -182,6 +183,8 @@ async function boot(): Promise<void> {
       return { mode: rig.mode, position: camera.position, forward: listenerForward, yaw: rig.yaw, pitch: rig.pitch };
     },
   };
+  // Audition the synthesised sounds without starting the game.
+  if (new URLSearchParams(location.search).has('sounds')) createSoundBoard(document.body);
   const effectsDemo = new URLSearchParams(location.search).has('effects-demo')
     ? createEffectsDemo(scene, camera, renderer)
     : null;
