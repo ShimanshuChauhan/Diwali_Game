@@ -27,19 +27,27 @@ export function createHud(parent: HTMLElement, model: HudModel): HudView {
   root.className = 'hud';
   style(root, ['position:fixed', 'inset:0', 'pointer-events:none', 'user-select:none']);
 
+  // A plus sign with a dark outline, readable over both bright bursts and dark walls.
   const crosshair = doc.createElement('div');
-  style(crosshair, [
-    'position:absolute',
-    'left:50%',
-    'top:50%',
-    'width:6px',
-    'height:6px',
-    'margin:-3px 0 0 -3px',
-    'border-radius:50%',
-    'background:#fff',
-    'box-shadow:0 0 0 1.5px rgba(0,0,0,0.6)',
-    'opacity:0.85',
-  ]);
+  style(crosshair, ['position:absolute', 'left:50%', 'top:50%', 'width:0', 'height:0']);
+  const bars: [number, number][] = [
+    [22, 3],
+    [3, 22],
+  ];
+  for (const [width, height] of bars) {
+    const bar = doc.createElement('div');
+    style(bar, [
+      'position:absolute',
+      `width:${width}px`,
+      `height:${height}px`,
+      `margin:${-height / 2}px 0 0 ${-width / 2}px`,
+      'border-radius:2px',
+      'background:#fff',
+      'box-shadow:0 0 0 1.5px rgba(0,0,0,0.7)',
+      'opacity:0.9',
+    ]);
+    crosshair.appendChild(bar);
+  }
 
   const prompts = doc.createElement('div');
   style(prompts, [

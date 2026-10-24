@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import RAPIER from '@dimforge/rapier3d-compat';
-import { crackerForSlot } from './core/actions';
 import { FixedStep } from './core/fixedStep';
 import { TUNING } from './core/tuning';
 import { createGameEventBus } from './core/events';
@@ -9,12 +8,14 @@ import { AudioEngine } from './audio/audioEngine';
 import { unlockOnFirstGesture } from './audio/controls';
 import { CameraRig, rapierBoomCaster } from './camera';
 import { CapacityBudget } from './capacity';
-import { applyCrackerAction, Crackers } from './crackers';
+import { aimPoint, applyCrackerAction, Crackers } from './crackers';
+import { isHandheld } from './core/types';
 import { DiyaScene, Diyas } from './diyas';
 import { createEffectsDemo } from './effects/effectsDemo';
 import { EffectsRenderer } from './effects/effectsRenderer';
 import { FireworksEffects } from './effects/fireworksEffects';
 import { Interaction } from './interaction';
+import { createPlacementGhost } from './interaction/ghost';
 import { NeighbourScene, Neighbours } from './neighbours';
 import { MovementIntentTracker, PlayerCharacter, PlayerController } from './player';
 import { createPerfOverlay, FrameTimer, initialQualityLevel, QualitySettings, type QualityStorage } from './quality';
@@ -153,6 +154,8 @@ async function boot(): Promise<void> {
     isDiyaUsable: (id) => !diyas.isLit(id),
     neighbours: () => neighbours.positions(),
   });
+  const ghost = createPlacementGhost();
+  scene.add(ghost.root);
   const crackerControls = {
     crackers,
     interaction,
@@ -198,8 +201,6 @@ async function boot(): Promise<void> {
     timer.update(time);
     for (const action of input.drainActions()) {
       if (action.type === 'pause') session.pause('user');
-      // Stand-in until the crackers module owns selection and emits this itself.
-      else if (action.type === 'select') bus.emit('crackerSelected', { type: crackerForSlot(action.slot) });
       else if (action.type === 'look') rig.look(action.dx, action.dy);
       else if (action.type === 'toggleCamera') rig.toggleMode();
       else if (action.type === 'interact') {
@@ -241,7 +242,18 @@ async function boot(): Promise<void> {
     camera.getWorldDirection(listenerForward);
     const view = { mode: rig.mode, position: camera.position, forward: listenerForward, yaw: rig.yaw, pitch: rig.pitch };
     audio.setListener(view);
-    hud.setContext({ interactable: interaction.findInteractable(view) });
+    // Ghost and prompt preview where a click would put the selected ground cracker.
+    const selected = crackers.selected;
+    const feet = player.pose.position;
+    const placement =
+      session.paused || isHandheld(selected)
+        ? null
+        : interaction.previewPlacement({ type: selected, playerPosition: feet, target: aimPoint(feet, view.forward) });
+    ghost.update(placement);
+    const interactable = interaction.findInteractable(view);
+    const interactableType =
+      interactable?.kind === 'cracker' ? crackers.list().find((c) => c.id === interactable.id)?.type : undefined;
+    hud.setContext({ interactable, interactableType, held: crackers.held, placement });
     hud.update(delta);
     hudView.sync();
     pipeline.render();

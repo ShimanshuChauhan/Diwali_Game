@@ -92,7 +92,7 @@ export const TUNING: Tuning = {
     collisionMargin: 0.2,
   },
   interaction: {
-    interactRange: 2,
+    interactRange: 2.5,
   },
   placement: {
     reach: 3,
