@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { TUNING } from '../core/tuning';
 import type { CameraMode, Vec3 } from '../core/types';
 
 /**
@@ -95,8 +96,10 @@ export function heldThali(feet: Vec3, yaw: number, motion: ThaliMotion, bob = 0)
 }
 
 /**
- * Where the plate sits in first person: low in the middle of the view, so
- * it stays in sight as the player looks round, circling in the view plane.
+ * Where a plate carried in first person sits: low in the middle of the
+ * view, so it stays in sight as the player looks round, circling in the
+ * view plane. The thali during aarti stays with the body instead
+ * (`participantThali`).
  */
 export function firstPersonThali(camera: THREE.Camera, motion: ThaliMotion, out: THREE.Vector3): THREE.Vector3 {
   const offset = thaliOffset(motion, CIRCLE_RADIUS.firstPerson);
@@ -109,6 +112,34 @@ export function firstPersonThali(camera: THREE.Camera, motion: ThaliMotion, out:
     camera.position.y + e[1]! * right + e[5]! * up - e[9]! * VIEW_HOLD.forward,
     camera.position.z + e[2]! * right + e[6]! * up - e[10]! * VIEW_HOLD.forward,
   );
+}
+
+/**
+ * Where the plate sits while taking part in aarti: held out towards the puja
+ * by the body standing at `feet` and facing `yaw`, never by the view, so
+ * looking round leaves it in front of the mandir and looking back finds it
+ * there. First person keeps the view hold's framing for a level look along
+ * `yaw` (at eye height, which does not bob); third person is the body hold,
+ * where the drawn hand is.
+ */
+export function participantThali(
+  mode: CameraMode,
+  feet: Vec3,
+  yaw: number,
+  motion: ThaliMotion,
+  bob = 0,
+  eyeHeight = TUNING.player.eyeHeight,
+): Vec3 {
+  if (mode === 'thirdPerson') return heldThali(feet, yaw, motion, bob);
+  const offset = thaliOffset(motion, CIRCLE_RADIUS.firstPerson);
+  const right = VIEW_HOLD.right + offset.right;
+  const sin = Math.sin(yaw);
+  const cos = Math.cos(yaw);
+  return {
+    x: feet.x + cos * right - sin * VIEW_HOLD.forward,
+    y: feet.y + eyeHeight + VIEW_HOLD.up + offset.up,
+    z: feet.z - sin * right - cos * VIEW_HOLD.forward,
+  };
 }
 
 const BRASS = '#c9962e';

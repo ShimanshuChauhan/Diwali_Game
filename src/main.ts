@@ -3,8 +3,8 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import { FixedStep } from './core/fixedStep';
 import { TUNING } from './core/tuning';
 import { createGameEventBus } from './core/events';
-import { AartiCeremony, applyAartiAction, holdStill } from './aarti';
-import { firstPersonThali, heldThali, stepThali, Thali, THALI_REST, thaliPalm } from './aarti/thali';
+import { AartiCeremony, applyAartiAction, facePuja, holdStill } from './aarti';
+import { firstPersonThali, heldThali, participantThali, stepThali, Thali, THALI_REST, thaliPalm } from './aarti/thali';
 import { Atmosphere } from './atmosphere';
 import { AartiAudio } from './audio/aarti/aartiAudio';
 import { AudioEngine } from './audio/audioEngine';
@@ -241,9 +241,10 @@ async function boot(): Promise<void> {
     session,
     homesResetHooks({ heldItems, locations, aartiCeremony: ceremony, aartiAudio, household, giftExchange: gifts }),
   );
-  // Participants keep facing the puja as they join it; the view looks round freely.
+  // Participants turn to face the mandir as they join and keep facing it; the view looks round freely.
+  const pujaTarget = familyHome.interactions.find((i) => i.target.kind === 'puja')?.target.position;
   let aartiFacing = 0;
-  bus.on('aartiJoined', () => (aartiFacing = player.pose.yaw));
+  bus.on('aartiJoined', () => (aartiFacing = facePuja(player.pose.position, pujaTarget, player.pose.yaw)));
   // Only while taking part: the songs and the current one's progress. Choosing never resumes or leaves.
   const miniPlayer = new MiniPlayerModel({ bus });
   const miniPlayerPanel = createMiniPlayer(document.body, miniPlayer, (song) => ceremony.selectSong(song));
@@ -465,13 +466,12 @@ async function boot(): Promise<void> {
       camera.position.set(eye.x, eye.y, eye.z);
       camera.lookAt(eye.x + forward.x, eye.y + forward.y, eye.z + forward.z);
       camera.updateMatrixWorld();
-      // Low in view in first person; in the right hand, circling in front of the chest, in third.
+      // Held out towards the mandir by the body, which keeps facing it, not by the view:
+      // low ahead of the eye in first person, in the right hand in front of the chest in third.
       const firstPerson = rig.mode === 'firstPerson';
       thali.update(
-        firstPerson
-          ? firstPersonThali(camera, thaliMotion, thaliView)
-          : heldThali(player.pose.position, player.pose.yaw, thaliMotion, character.bob),
-        firstPerson ? rig.yaw : player.pose.yaw,
+        participantThali(rig.mode, player.pose.position, player.pose.yaw, thaliMotion, character.bob),
+        player.pose.yaw,
         aarti.participating,
         shown,
       );
