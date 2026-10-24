@@ -24,8 +24,8 @@ export const FAMILY_ROOM = {
 /**
  * The family home: one warm living room, entered from the street door in its
  * south wall. The puja corner sits against the north wall on the west side
- * (chowki, mandir shelf with framed deity and idols, thali, diyas, bell and a
- * rangoli in front); the seating and sweets area is on the east side (sofa,
+ * (chowki, a carved wooden mandir with Ganesh and Lakshmi, thali, diyas and
+ * a rangoli in front); the seating and sweets area is on the east side (sofa,
  * armchair, a moodha and the low sweets table with its tray and the sharing
  * plate's spot). A side table by the door holds the gift box.
  *
@@ -72,29 +72,18 @@ export function createFamilyHomeLayout(anchor = HOME_ENTRANCES.familyHome.interi
   const puja = { minX: -3.6, maxX: -1.4, front: northZ + 0.7, top: 0.6 };
   const pujaX = (puja.minX + puja.maxX) / 2;
   b.solid('puja.chowki', 'furniture', b.box(puja.minX, 0, northZ, puja.maxX, puja.top, puja.front), 'wood');
-  // Mandir shelf against the wall: a backboard with a little canopy on top.
-  const shelfFront = northZ + 0.3;
-  b.solid('puja.mandir', 'furniture', b.box(puja.minX + 0.2, puja.top, northZ, puja.maxX - 0.2, 2.3, shelfFront), 'woodDark');
-  b.deco('puja.mandir.canopy', b.box(puja.minX + 0.1, 2.3, northZ, puja.maxX - 0.1, 2.45, shelfFront + 0.04), 'brass');
-  b.deco('puja.frame', b.box(pujaX - 0.5, 1.15, shelfFront, pujaX + 0.5, 2.05, shelfFront + 0.03), 'frame');
-  b.deco('puja.frame.deity', b.box(pujaX - 0.38, 1.25, shelfFront + 0.03, pujaX + 0.38, 1.95, shelfFront + 0.04), 'idol');
-  for (const [i, dx] of [
-    [0, -0.32],
-    [1, 0.32],
-  ] as const) {
-    const x = pujaX + dx;
-    b.deco(`puja.idol.${i}`, b.box(x - 0.1, puja.top, shelfFront, x + 0.1, puja.top + 0.32, shelfFront + 0.16), 'idol');
-  }
+  // A carved wooden mandir on the chowki's back half, against the wall: its
+  // idols, bells and garland are drawn by `mandir.ts`; its body is a solid.
+  const mandir = b.mandir('puja.mandir', pujaX, puja.top, northZ, 1.2, 0.3, 1.12);
+  // A framed deity picture on the wall beside it, as in many homes.
+  b.deco('puja.picture', b.box(puja.maxX + 0.25, 1.35, northZ, puja.maxX + 0.7, 1.9, northZ + 0.03), 'frame');
+  b.deco('puja.picture.deity', b.box(puja.maxX + 0.3, 1.41, northZ + 0.03, puja.maxX + 0.65, 1.84, northZ + 0.035), 'idol');
   // Brass thali at the chowki's front edge, its own diya burning on it.
   const thali = b.at(pujaX, puja.top, puja.front - 0.2);
   b.deco('puja.thali', b.box(pujaX - 0.22, puja.top, puja.front - 0.42, pujaX + 0.22, puja.top + 0.03, puja.front - 0.02), 'brass');
   b.diya('puja.thali.diya', pujaX, puja.top + 0.03, puja.front - 0.22);
   b.diya('puja.diya.west', puja.minX + 0.12, puja.top, puja.front - 0.15);
   b.diya('puja.diya.east', puja.maxX - 0.12, puja.top, puja.front - 0.15);
-  // Bell hanging from the canopy's east end, inside the shelf's footprint.
-  const bellX = puja.maxX - 0.35;
-  b.deco('puja.bell.chain', b.box(bellX - 0.01, 1.85, shelfFront + 0.05, bellX + 0.01, 2.3, shelfFront + 0.07), 'brass');
-  b.deco('puja.bell', b.box(bellX - 0.07, 1.7, shelfFront - 0.01, bellX + 0.07, 1.85, shelfFront + 0.13), 'brass');
   // Rangoli on the floor in front of the chowki, a diya at its heart.
   const rangoliZ = puja.front + 0.75;
   b.deco('puja.rangoli', b.box(pujaX - 0.6, 0, rangoliZ - 0.45, pujaX + 0.6, 0.008, rangoliZ + 0.45), 'rangoliPink');
@@ -220,6 +209,7 @@ export function createFamilyHomeLayout(anchor = HOME_ENTRANCES.familyHome.interi
     decor: b.decor,
     lights: b.lights,
     ambient: { sky: '#ffd9a8', ground: '#5a3220', intensity: 1.1 },
+    mandir,
     interactions: [
       {
         target: { kind: 'door', id: doorwayId('familyHome', 'exit'), position: anchor.door },

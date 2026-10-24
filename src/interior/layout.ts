@@ -63,6 +63,28 @@ export interface InteriorSolid extends InteriorBox {
   readonly kind: InteriorSolidKind;
   /** Its top face is somewhere the player stands. */
   readonly walkable: boolean;
+  /**
+   * Collider only: a dedicated model draws it instead of a box (the mandir,
+   * `mandir.ts`). Physics and the camera still treat it as a solid.
+   */
+  readonly hidden?: boolean;
+}
+
+/**
+ * Where a carved wooden mandir stands, drawn by `mandir.ts` from procedural
+ * geometry rather than boxes. It stands with its back against a north wall
+ * and opens into the room, down +Z. Its body (base, sanctum and cornice) is
+ * the `width` × `height` × `depth` box of a hidden solid with the same id;
+ * only the roof's domes rise above it, and the cornice and garland stand a
+ * few centimetres proud of its front.
+ */
+export interface MandirSite {
+  readonly id: string;
+  /** Centre of its back edge at the foot, on whatever it stands on. */
+  readonly position: Vec3;
+  readonly width: number;
+  readonly depth: number;
+  readonly height: number;
 }
 
 /** A warm point light; few per room, the rest of the glow is emissive. */
@@ -99,11 +121,14 @@ export interface InteriorLayout {
   /** Ambient fill so every corner reads even with one point light. */
   readonly ambient: { readonly sky: string; readonly ground: string; readonly intensity: number };
   readonly interactions: readonly InteriorInteraction[];
+  /** A wooden mandir, if the home has one. */
+  readonly mandir?: MandirSite;
 }
 
 /** A family home adds the anchors the household and sweets presentation use. */
 export interface FamilyHomeLayout extends InteriorLayout {
   readonly home: 'familyHome';
+  readonly mandir: MandirSite;
   /** Where each family member stands, gathered at the puja corner. */
   readonly gathering: Readonly<Record<FamilyMemberId, Placement>>;
   /** Where each family member sits after aarti. */
@@ -156,6 +181,17 @@ export class InteriorBuilder {
 
   solid(id: string, kind: InteriorSolidKind, b: Aabb, material: InteriorMaterial, walkable = false): void {
     this.solids.push({ id, kind, box: b, material, walkable });
+  }
+
+  /**
+   * A wooden mandir standing on a surface at room-local `y`, centred on `x`
+   * with its back at `backZ` and its front towards +Z. Adds its body as a
+   * hidden furniture solid and returns where the model goes.
+   */
+  mandir(id: string, x: number, y: number, backZ: number, width: number, depth: number, height: number): MandirSite {
+    const b = this.box(x - width / 2, y, backZ, x + width / 2, y + height, backZ + depth);
+    this.solids.push({ id, kind: 'furniture', box: b, material: 'woodDark', walkable: false, hidden: true });
+    return { id, position: this.at(x, y, backZ), width, depth, height };
   }
 
   deco(id: string, b: Aabb, material: InteriorMaterial, detail = false): void {
