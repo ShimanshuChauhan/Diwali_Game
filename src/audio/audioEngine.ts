@@ -3,7 +3,7 @@ import type { GameEventBus } from '../core/events';
 import type { Unsubscribe } from '../core/eventBus';
 import { DEFAULT_QUALITY, qualityProfile, type QualityProfile } from '../core/quality';
 import { TUNING, type Tuning } from '../core/tuning';
-import type { CrackerId, NeighbourId, Vec3 } from '../core/types';
+import type { BurstPattern, CrackerId, NeighbourId, Vec3 } from '../core/types';
 import { AmbienceScheduler, AMBIENCE, type DistantPop } from './ambience';
 import {
   ACTIVE_SOUND,
@@ -14,7 +14,15 @@ import {
   STOP_FADE,
   type SoundKind,
 } from './sounds';
-import { createNoiseBank, silence, startMurmur, synthesise, type NoiseBank, type SynthVoice } from './synth';
+import {
+  createLaneEcho,
+  createNoiseBank,
+  silence,
+  startMurmur,
+  synthesise,
+  type NoiseBank,
+  type SynthVoice,
+} from './synth';
 import { VoicePool, type VoiceId } from './voicePool';
 
 /** Metres per second; delays far bursts so the flash leads the boom. */
@@ -22,6 +30,8 @@ const SPEED_OF_SOUND = 343;
 /** Seconds the master gain takes to follow mute/volume changes. */
 const GAIN_SMOOTHING = 0.03;
 const MURMUR_GAIN = 0.22;
+/** How much of the effects ring off the lane's walls. */
+const ECHO_GAIN = 0.32;
 
 export interface AudioEngineOptions {
   readonly bus: GameEventBus;
@@ -56,6 +66,7 @@ interface PlayOptions {
   /** Panner moves here linearly over the voice, e.g. a rising rocket. */
   readonly moveTo?: Vec3;
   readonly distance?: number;
+  readonly pattern?: BurstPattern;
 }
 
 /**
@@ -220,9 +231,9 @@ export class AudioEngine implements AudioModule, Steppable {
         this.playFor(id, ACTIVE_SOUND[type], { position, duration, moveTo });
       }),
       bus.on('crackerFinished', ({ id }) => this.stopCracker(id)),
-      bus.on('burst', ({ position }) => {
+      bus.on('burst', ({ position, pattern }) => {
         const distance = this.listener ? distanceBetween(this.listener.position, position) : 0;
-        this.play('burst', { position, duration: BURST_DURATION, delay: distance / SPEED_OF_SOUND });
+        this.play('burst', { position, duration: BURST_DURATION, delay: distance / SPEED_OF_SOUND, pattern });
       }),
       bus.on('neighbourReacted', ({ id, reaction }) => {
         if (reaction !== 'cheer') return;
@@ -252,6 +263,11 @@ export class AudioEngine implements AudioModule, Steppable {
     limiter.connect(ctx.destination);
     const sfx = ctx.createGain();
     sfx.connect(master);
+    // Effects also ring off the lane's walls.
+    const echo = ctx.createGain();
+    echo.gain.value = ECHO_GAIN;
+    sfx.connect(echo);
+    echo.connect(createLaneEcho(ctx, this.random)).connect(master);
     const ambience = ctx.createGain();
     ambience.connect(master);
     return { ctx, master, sfx, ambience, bank: createNoiseBank(ctx, this.random), murmur: null };
@@ -331,6 +347,7 @@ export class AudioEngine implements AudioModule, Steppable {
       duration: options.duration,
       gain: spec.gain * (options.gain ?? 1),
       distance: options.distance,
+      pattern: options.pattern,
     });
     // Disconnect once the last source finishes so finished voices are collected.
     const last = synth.sources[synth.sources.length - 1];

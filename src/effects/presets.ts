@@ -147,6 +147,17 @@ export interface SurgeSpec {
   readonly rampUp: number;
 }
 
+/**
+ * How strongly a surging stream runs `age` seconds in: it builds up over
+ * `rampUp`, then swells and dips around 1. Shared by the fountain's sparks
+ * and its roar so they rise and fall together.
+ */
+export function surgeFactor(surge: SurgeSpec, age: number): number {
+  const ramp = surge.rampUp > 0 ? Math.min(1, 0.5 + (0.5 * age) / surge.rampUp) : 1;
+  const phase = Math.PI * 2 * surge.frequency * age;
+  return ramp * (1 + surge.amplitude * (0.65 * Math.sin(phase) + 0.35 * Math.sin(phase * 2.3 + 1.7)));
+}
+
 export interface CrackleSpec {
   /** Pops per second (at a count scale of 1 this many on average). */
   readonly rate: number;
