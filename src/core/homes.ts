@@ -388,13 +388,23 @@ export interface GiftExchangeModule extends Resettable {
 
 // ── Interior presentation ────────────────────────────────────────────────
 
-/** Things the player can use inside homes, found by the interaction module. */
+/**
+ * Things the player can use at and inside homes, found by the interaction
+ * module. Every kind has an `id`, unique within its kind: the puja and tray
+ * use their home's id, a return spot `<item>@<home>`.
+ */
 export type HomeInteractable =
   | { readonly kind: 'door'; readonly id: DoorwayId; readonly position: Vec3 }
-  | { readonly kind: 'puja'; readonly position: Vec3 }
-  | { readonly kind: 'tray'; readonly position: Vec3 }
+  | { readonly kind: 'puja'; readonly id: HomeId; readonly position: Vec3 }
+  | { readonly kind: 'tray'; readonly id: HomeId; readonly position: Vec3 }
   | { readonly kind: 'person'; readonly id: HouseholdMemberId; readonly position: Vec3 }
-  | { readonly kind: 'returnSpot'; readonly item: HandItemKind; readonly home: HomeId; readonly position: Vec3 };
+  | {
+      readonly kind: 'returnSpot';
+      readonly id: string;
+      readonly item: HandItemKind;
+      readonly home: HomeId;
+      readonly position: Vec3;
+    };
 
 /**
  * Builds rooms, furniture, figures and warm light from gameplay snapshots.

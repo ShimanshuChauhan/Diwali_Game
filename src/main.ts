@@ -3,6 +3,7 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import { FixedStep } from './core/fixedStep';
 import { TUNING } from './core/tuning';
 import { createGameEventBus } from './core/events';
+import { AartiCeremony } from './aarti';
 import { Atmosphere } from './atmosphere';
 import { AudioEngine } from './audio/audioEngine';
 import { unlockOnFirstGesture } from './audio/controls';
@@ -18,7 +19,7 @@ import { createEffectsDemo } from './effects/effectsDemo';
 import { EffectsRenderer } from './effects/effectsRenderer';
 import { FireworksEffects } from './effects/fireworksEffects';
 import { allowedDuringFade, createFadeOverlay, HeldItems, homesResetHooks, Locations, registerHomesReset } from './homes';
-import { Interaction } from './interaction';
+import { applyHomeAction, Interaction } from './interaction';
 import { createPlacementGhost } from './interaction/ghost';
 import { NeighbourScene, Neighbours } from './neighbours';
 import { MovementIntentTracker, PlayerCharacter, PlayerController } from './player';
@@ -165,7 +166,9 @@ async function boot(): Promise<void> {
   const heldItems = new HeldItems({ bus, crackers });
   // Interiors (#55) move the player to the arrival pose through `onArrive`.
   const locations = new Locations({ bus, hands: heldItems });
-  registerHomesReset(session, homesResetHooks({ heldItems, locations }));
+  const ceremony = new AartiCeremony({ bus, hands: heldItems, location: () => locations.location });
+  registerHomesReset(session, homesResetHooks({ heldItems, locations, aartiCeremony: ceremony }));
+  const doorways = locations.doorways();
   const interaction = new Interaction({
     world,
     crackers: () => crackers.list(),
@@ -173,7 +176,13 @@ async function boot(): Promise<void> {
     playerPosition: () => player.pose.position,
     isDiyaUsable: (id) => !diyas.isLit(id),
     neighbours: () => neighbours.positions(),
+    location: () => locations.location,
+    doorways: () => doorways,
+    hands: () => heldItems.hands,
+    aarti: () => ceremony.snapshot,
   });
+  // Household (#61) and gift exchange (#66) join here as they land.
+  const homeActions = { locations, ceremony, hands: heldItems };
   // Room for the placed cap plus crackers still burning after being lit.
   const props = new CrackerProps(TUNING.caps.maxPlacedCrackers + TUNING.caps.maxLitCrackers);
   scene.add(props.object);
@@ -257,9 +266,11 @@ async function boot(): Promise<void> {
       if (action.type === 'pause') session.pause('user');
       else if (action.type === 'look') rig.look(action.dx, action.dy);
       else if (action.type === 'toggleCamera') rig.toggleMode();
-      else if (action.type === 'interact') {
+      else if (action.type === 'interact' || action.type === 'place') {
+        // Doors, puja, tray, people and return spots first; then diyas and crackers as before.
         const target = interaction.findInteractable(crackerControls.view());
-        if (target?.kind === 'diya') diyas.light(target.id);
+        if (applyHomeAction(action, target, homeActions)) continue;
+        if (action.type === 'interact' && target?.kind === 'diya') diyas.light(target.id);
         else applyCrackerAction(action, crackerControls);
       } else if (!applyCrackerAction(action, crackerControls)) movement.apply(action);
     }
@@ -280,6 +291,7 @@ async function boot(): Promise<void> {
       diyaScene.update(SIM_STEP);
       neighbours.update(SIM_STEP);
       locations.update(SIM_STEP);
+      ceremony.update(SIM_STEP);
     }
     if (effectsDemo) {
       const demo = demoLoop.advance(delta);
@@ -312,16 +324,28 @@ async function boot(): Promise<void> {
     // Ghost and prompt preview where a click would put the selected ground cracker.
     const selected = crackers.selected;
     const feet = player.pose.position;
-    const interactable = interaction.findInteractable(view);
+    const interactable = locations.controlsLocked ? null : interaction.findInteractable(view);
     const interactableType =
       interactable?.kind === 'cracker' ? crackers.list().find((c) => c.id === interactable.id)?.type : undefined;
     const placement =
-      session.paused || isHandheld(selected)
+      session.paused || isHandheld(selected) || heldItems.hands
         ? null
         : interaction.previewPlacement({ type: selected, playerPosition: feet, target: aimPoint(feet, view.forward) });
-    // At an unlit cracker, E comes first: a red ghost over it would only read as an error.
-    ghost.update(interactable?.kind === 'cracker' && !placement?.ok ? null : placement);
-    hud.setContext({ interactable, interactableType, held: crackers.held, placement });
+    // At an unlit cracker or a home target, E comes first: a red ghost over it would only read as an error.
+    ghost.update(interactable && interactable.kind !== 'diya' && !placement?.ok ? null : placement);
+    hud.setContext({
+      interactable,
+      interactableType,
+      held: crackers.held,
+      placement,
+      homes: {
+        hands: heldItems.hands,
+        sparklerLit: crackers.held?.lit ?? false,
+        trayServed: heldItems.trayServed,
+        aarti: ceremony.snapshot,
+        doorway: (id) => locations.doorway(id),
+      },
+    });
     hud.update(delta);
     hudView.sync();
     doorFade.set(locations.fadeOpacity);

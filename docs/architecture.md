@@ -60,6 +60,7 @@ DOM events ─▶ InputModule.drainActions() ─▶ GameAction[]
    place ─▶ InteractionModule.validatePlacement() ─┬─ ok ─▶ CrackersModule.place()
                                                    └─ no ─▶ placementRejected
    interact ─▶ InteractionModule.findInteractable(view)
+                 ├─ door/puja/tray/person/returnSpot ─▶ applyHomeAction() (homes expansion)
                  ├─ cracker ─▶ CrackersModule.ignite(id)
                  └─ diya    ─▶ DiyasModule.light(id)
    toggleCamera ────────────────▶ CameraModule.toggleMode()

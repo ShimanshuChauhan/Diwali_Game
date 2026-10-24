@@ -65,7 +65,7 @@ export const CONTROLS_HELP: readonly (readonly [string, string])[] = [
   ['Mouse', 'Look'],
   ['1–4', 'Select phuljhari · anar · chakri · rocket'],
   ['Click', 'Place the selected ground cracker'],
-  ['E', 'Light a nearby cracker or diya, or the held phuljhari'],
+  ['E', 'Light a nearby cracker or diya, or the held phuljhari; use doors, the puja, sweets and people'],
   ['V', 'Switch first / third person'],
   ['Esc', 'Pause'],
   ['F3', 'Show or hide performance stats'],
