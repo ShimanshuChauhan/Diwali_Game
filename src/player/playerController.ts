@@ -63,9 +63,13 @@ export class PlayerController implements PlayerModule {
   private readonly physics: RAPIER.World;
   private readonly controller: RAPIER.KinematicCharacterController;
   private readonly tuning: Tuning;
-  private readonly bounds: Aabb;
+  private readonly spawnBounds: Aabb;
   private readonly spawn: Vec3;
   private readonly spawnYaw: number;
+  /** Walkable region of the current location; the street's until `teleport` says otherwise. */
+  private bounds: Aabb;
+  /** Where a fall out of the current location lands the player. */
+  private recovery: Vec3;
   private velocity = { x: 0, z: 0 };
   private fallSpeed = 0;
   private current: PlayerPose;
@@ -73,8 +77,10 @@ export class PlayerController implements PlayerModule {
   constructor(options: PlayerControllerOptions) {
     this.physics = options.physics;
     this.tuning = options.tuning ?? TUNING;
+    this.spawnBounds = options.bounds;
     this.bounds = options.bounds;
     this.spawn = options.spawn;
+    this.recovery = options.spawn;
     this.spawnYaw = options.spawnYaw ?? 0;
 
     const { maxStepHeight, maxSlope } = this.tuning.player;
@@ -150,8 +156,23 @@ export class PlayerController implements PlayerModule {
     return (this.current = this.place(this.clampToBounds(feet), intent.yaw, grounded));
   }
 
-  /** Back to spawn, at rest, for a fresh visit. */
+  /**
+   * Put the player at rest at `placement`, e.g. through a door fade, and
+   * keep them inside `bounds` from now on (the room they arrive in). A fall
+   * out of that location recovers to `placement`.
+   */
+  teleport(placement: { readonly position: Vec3; readonly yaw: number }, bounds: Aabb = this.bounds): PlayerPose {
+    this.bounds = bounds;
+    this.recovery = placement.position;
+    this.velocity = { x: 0, z: 0 };
+    this.fallSpeed = 0;
+    return (this.current = this.place(placement.position, placement.yaw, true));
+  }
+
+  /** Back to spawn, at rest, inside the street's bounds, for a fresh visit. */
   reset(): void {
+    this.bounds = this.spawnBounds;
+    this.recovery = this.spawn;
     this.current = this.respawn(this.spawnYaw);
   }
 
@@ -177,7 +198,7 @@ export class PlayerController implements PlayerModule {
   private respawn(yaw: number): PlayerPose {
     this.velocity = { x: 0, z: 0 };
     this.fallSpeed = 0;
-    return this.place(this.spawn, yaw, true);
+    return this.place(this.recovery, yaw, true);
   }
 
   private place(feet: Vec3, yaw: number, grounded: boolean): PlayerPose {
