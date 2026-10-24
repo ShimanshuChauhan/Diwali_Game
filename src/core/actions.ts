@@ -5,7 +5,7 @@ import { CRACKER_TYPES, type CrackerType } from './types';
  * consume these rather than raw DOM events, so they never see a keyboard.
  *
  * Proposed bindings (PRD → Controls): WASD move, Shift run, mouse look,
- * 1–4 select, click place (hold to circle the thali in aarti), E
+ * 1–5 select, click place (hold to circle the thali in aarti), E
  * light/interact, V toggle camera, Escape pause.
  */
 export type GameAction =
@@ -28,9 +28,9 @@ export type GameAction =
 
 export type GameActionType = GameAction['type'];
 
-export type SelectSlot = 1 | 2 | 3 | 4;
+export type SelectSlot = 1 | 2 | 3 | 4 | 5;
 
-/** Maps a number-key slot to its cracker type (1 = phuljhari … 4 = rocket). */
+/** Maps a number-key slot to its cracker type (1 = phuljhari … 5 = ladi). */
 export function crackerForSlot(slot: SelectSlot): CrackerType {
   return CRACKER_TYPES[slot - 1] as CrackerType;
 }

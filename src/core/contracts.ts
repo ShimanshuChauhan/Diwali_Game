@@ -151,6 +151,11 @@ export interface PlacementRequest {
 export interface PlacementPreview {
   readonly type: CrackerType;
   readonly position: Vec3;
+  /**
+   * Which way the cracker lies, radians about +Y like the player's yaw: a
+   * ladi's string runs this way from its fuse. 0 when omitted.
+   */
+  readonly heading?: number;
 }
 
 export type PlacementResult =
@@ -175,6 +180,10 @@ export interface CrackerSnapshot {
   readonly position: Vec3;
   /** Seconds spent in the current state. */
   readonly stateTime: number;
+  /** Which way it lies (see `PlacementPreview.heading`); 0 when omitted. */
+  readonly heading?: number;
+  /** Ladi only: bangers popped so far, from the fuse end. */
+  readonly popped?: number;
 }
 
 export type PlaceResult =

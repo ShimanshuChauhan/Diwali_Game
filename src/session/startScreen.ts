@@ -14,7 +14,7 @@ const CONTROLS: readonly [string, string][] = [
   ['WASD', 'move'],
   ['Shift', 'run'],
   ['Mouse', 'look'],
-  ['1–4', 'phuljhari · anar · chakri · rocket'],
+  ['1–5', 'phuljhari · anar · chakri · rocket · ladi'],
   ['Click', 'place'],
   ['E', 'light / interact'],
   ['V', 'switch camera'],

@@ -15,7 +15,7 @@ describe('key bindings', () => {
     expect(Object.keys(KEY_BINDINGS).sort()).toEqual(
       [
         'KeyW', 'KeyA', 'KeyS', 'KeyD', 'ShiftLeft', 'ShiftRight',
-        'Digit1', 'Digit2', 'Digit3', 'Digit4', 'KeyE', 'KeyV', 'Escape',
+        'Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'KeyE', 'KeyV', 'Escape',
       ].sort(),
     );
   });
@@ -64,10 +64,11 @@ describe('Input action mapping', () => {
     expect(input.drainActions()).toEqual([{ type: 'run', active: false }]);
   });
 
-  it('maps 1–4, E, V and Escape to one-shot actions', () => {
+  it('maps 1–5, E, V and Escape to one-shot actions', () => {
     const input = new Input();
     expect(press(input, 'Digit1')).toEqual([{ type: 'select', slot: 1 }]);
     expect(press(input, 'Digit4')).toEqual([{ type: 'select', slot: 4 }]);
+    expect(press(input, 'Digit5')).toEqual([{ type: 'select', slot: 5 }]);
     expect(press(input, 'KeyE')).toEqual([{ type: 'interact' }]);
     expect(press(input, 'KeyV')).toEqual([{ type: 'toggleCamera' }]);
     expect(press(input, 'Escape')).toEqual([{ type: 'pause' }]);

@@ -132,8 +132,9 @@ describe('AudioEngine voices', () => {
       bus.emit('crackerActive', { id, type, position: { x: i, y: 0, z: 0 } });
     }
     bus.emit('burst', { id: 'c3', position: { x: 3, y: 40, z: 0 }, pattern: 'ring', colours: [0x00ff00] });
-    // Each fuse hiss gives way to its active sound; plus one burst.
-    expect(audio.activeVoices).toBe(CRACKER_TYPES.length + 1);
+    // Each fuse hiss gives way to its active sound (a ladi has none: its sound
+    // is its pops); plus one burst.
+    expect(audio.activeVoices).toBe(CRACKER_TYPES.length - 1 + 1);
   });
 
   it('passes the shell pattern through, so a crossette crackles as it splits', async () => {

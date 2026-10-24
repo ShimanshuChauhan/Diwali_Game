@@ -14,6 +14,7 @@ import type {
   LocationId,
   TransitionRejection,
 } from './homes';
+import type { LadiChain } from './ladi';
 import type { QualityProfile } from './quality';
 import type {
   BurstPattern,
@@ -44,7 +45,13 @@ export interface GameEvents {
   crackerSelected: { readonly type: CrackerType };
   crackerPlaced: { readonly id: CrackerId; readonly type: CrackerType; readonly position: Vec3 };
   placementRejected: { readonly type: CrackerType; readonly reason: PlacementRejection };
-  fuseLit: { readonly id: CrackerId; readonly type: CrackerType; readonly position: Vec3 };
+  fuseLit: {
+    readonly id: CrackerId;
+    readonly type: CrackerType;
+    readonly position: Vec3;
+    /** Which way a ladi's string runs (see `LADI_STRING`); absent for other crackers. */
+    readonly heading?: number;
+  };
   ignitionRejected: { readonly id: CrackerId; readonly reason: IgnitionRejection };
   crackerActive: {
     readonly id: CrackerId;
@@ -52,6 +59,19 @@ export interface GameEvents {
     readonly position: Vec3;
     /** A rocket's path to its burst; absent for other crackers. */
     readonly flight?: RocketFlight;
+    /** A ladi's rolled pops and which way its string runs; absent for other crackers. */
+    readonly ladi?: { readonly chain: LadiChain; readonly heading: number };
+  };
+  /**
+   * One banger of an active ladi going off at `position` (its middle).
+   * `index` counts pops from 0 in chain order; `loud` marks the odd harder bang.
+   */
+  ladiPop: {
+    readonly id: CrackerId;
+    readonly index: number;
+    readonly banger: number;
+    readonly position: Vec3;
+    readonly loud: boolean;
   };
   /** `reclaimed` means removed by the capacity policy before it ran. */
   crackerFinished: {

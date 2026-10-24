@@ -75,7 +75,7 @@ function withCaps(caps: Partial<Tuning['caps']>): Tuning {
 }
 
 describe('cracker definitions', () => {
-  it('defines all four types in key order with tuning timings', () => {
+  it('defines all five types in key order with tuning timings', () => {
     CRACKER_TYPES.forEach((type, i) => {
       const def = CRACKER_DEFINITIONS[type];
       expect(def.slot).toBe(i + 1);
@@ -84,7 +84,7 @@ describe('cracker definitions', () => {
     });
     expect(CRACKER_DEFINITIONS.phuljhari.handheld).toBe(true);
     expect(CRACKER_DEFINITIONS.anar.handheld).toBe(false);
-    expect(new Set(CRACKER_TYPES.map((t) => CRACKER_DEFINITIONS[t].effect.kind)).size).toBe(4);
+    expect(new Set(CRACKER_TYPES.map((t) => CRACKER_DEFINITIONS[t].effect.kind)).size).toBe(5);
   });
 });
 

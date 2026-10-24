@@ -26,8 +26,8 @@ export interface ExclusionZone {
   readonly radius: number;
 }
 
-/** The four cracker types; slot order matches keys 1–4. */
-export const CRACKER_TYPES = ['phuljhari', 'anar', 'chakri', 'rocket'] as const;
+/** The five cracker types; slot order matches keys 1–5. */
+export const CRACKER_TYPES = ['phuljhari', 'anar', 'chakri', 'rocket', 'ladi'] as const;
 export type CrackerType = (typeof CRACKER_TYPES)[number];
 
 /** Crackers held in the hand rather than placed on the ground. */

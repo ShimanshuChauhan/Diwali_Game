@@ -1,3 +1,4 @@
+import { LADI_STRING } from '../core/ladi';
 import { TUNING, type Tuning } from '../core/tuning';
 import { CRACKER_TYPES, isHandheld, type BurstPattern, type CrackerType } from '../core/types';
 
@@ -40,23 +41,40 @@ export interface RocketEffect {
   readonly palettes: readonly (readonly number[])[];
 }
 
+export interface LadiEffect {
+  readonly kind: 'chain';
+  /** Bangers on the string (see `LADI_STRING`); each pops once. */
+  readonly bangers: number;
+  /** String length, metres. */
+  readonly length: number;
+  /** The chain burns for the nominal active duration times a factor in this range. */
+  readonly durationScale: readonly [number, number];
+  /** Chance a banger goes off almost together with the one before (a doublet). */
+  readonly doubletChance: number;
+  /** Chance of a short stumble in the rattle before a banger. */
+  readonly stumbleChance: number;
+  /** Chance a banger is one of the louder ones. */
+  readonly loudChance: number;
+}
+
 export interface CrackerEffects {
   readonly phuljhari: PhuljhariEffect;
   readonly anar: AnarEffect;
   readonly chakri: ChakriEffect;
   readonly rocket: RocketEffect;
+  readonly ladi: LadiEffect;
 }
 
 export interface CrackerDefinition<T extends CrackerType = CrackerType> {
   readonly type: T;
-  /** Number key that selects it (1–4). */
+  /** Number key that selects it (1–5). */
   readonly slot: number;
   readonly label: string;
   /** Held in the hand rather than placed. */
   readonly handheld: boolean;
   /** Fuse burn time before it becomes active, seconds. */
   readonly fuse: number;
-  /** Time spent active before finishing (rocket: nominal ascent), seconds. */
+  /** Time spent active before finishing (rocket: nominal ascent; ladi: nominal chain), seconds. */
   readonly activeDuration: number;
   readonly effect: CrackerEffects[T];
 }
@@ -85,6 +103,7 @@ const LABELS: Readonly<Record<CrackerType, string>> = {
   anar: 'Anar',
   chakri: 'Chakri',
   rocket: 'Rocket',
+  ladi: 'Ladi',
 };
 
 function effectsFor(tuning: Tuning): CrackerEffects {
@@ -101,10 +120,19 @@ function effectsFor(tuning: Tuning): CrackerEffects {
       palette: ROCKET_PALETTE,
       palettes: ROCKET_PALETTES,
     },
+    ladi: {
+      kind: 'chain',
+      bangers: LADI_STRING.bangers,
+      length: LADI_STRING.length,
+      durationScale: [0.85, 1.15],
+      doubletChance: 0.12,
+      stumbleChance: 0.07,
+      loudChance: 0.12,
+    },
   };
 }
 
-/** Build the four definitions from a tuning (the central one by default). */
+/** Build the five definitions from a tuning (the central one by default). */
 export function crackerDefinitions(tuning: Tuning = TUNING): CrackerDefinitions {
   const effects = effectsFor(tuning);
   const define = <T extends CrackerType>(type: T): CrackerDefinition<T> => ({
@@ -121,6 +149,7 @@ export function crackerDefinitions(tuning: Tuning = TUNING): CrackerDefinitions 
     anar: define('anar'),
     chakri: define('chakri'),
     rocket: define('rocket'),
+    ladi: define('ladi'),
   };
 }
 

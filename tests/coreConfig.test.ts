@@ -5,17 +5,18 @@ import { TUNING } from '../src/core/tuning';
 import { CRACKER_TYPES, isHandheld } from '../src/core/types';
 
 describe('select slots', () => {
-  it('maps keys 1–4 to phuljhari, anar, chakri, rocket', () => {
-    expect([1, 2, 3, 4].map((slot) => crackerForSlot(slot as 1 | 2 | 3 | 4))).toEqual([
+  it('maps keys 1–5 to phuljhari, anar, chakri, rocket, ladi', () => {
+    expect([1, 2, 3, 4, 5].map((slot) => crackerForSlot(slot as 1 | 2 | 3 | 4 | 5))).toEqual([
       'phuljhari',
       'anar',
       'chakri',
       'rocket',
+      'ladi',
     ]);
   });
 
-  it('accepts only slots 1–4', () => {
-    expect([0, 1, 4, 5, 2.5].map(isSelectSlot)).toEqual([false, true, true, false, false]);
+  it('accepts only slots 1–5', () => {
+    expect([0, 1, 4, 5, 6, 2.5].map(isSelectSlot)).toEqual([false, true, true, true, false, false]);
   });
 
   it('treats only the phuljhari as handheld', () => {

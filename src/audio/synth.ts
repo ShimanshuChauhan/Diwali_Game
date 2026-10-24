@@ -84,6 +84,13 @@ export interface SynthParams {
   readonly distance?: number;
   /** Bursts: the shell's pattern, which shapes its tail. */
   readonly pattern?: BurstPattern;
+  /** Ladi pops: seconds after `t0` (ascending) and relative loudness, 0–1. */
+  readonly pops?: readonly LadiPopSound[];
+}
+
+export interface LadiPopSound {
+  readonly at: number;
+  readonly level: number;
 }
 
 type Recipe = (b: VoiceBuilder, p: SynthParams) => void;
@@ -423,6 +430,34 @@ const RECIPES: Record<SoundKind, Recipe> = {
       fizz.gain.linearRampToValueAtTime(0, from + 1.4);
       b.chain(b.noise(b.bank.crackle, from, from + 1.4), b.filter('bandpass', 3000, 0.8), fizz, b.output);
     }
+  },
+
+  /**
+   * A batch of a near ladi's bangers going off: each pop a hard paper crack
+   * with a short, papery body, at exactly the times given, over the faint
+   * fizz of the fuse running between them. The lane's echo smears the
+   * rattle into the familiar "tadatadatada".
+   */
+  ladiPops(b, p) {
+    b.output.gain.value = p.gain;
+    const pops = p.pops ?? [];
+    const crack = b.gain(0);
+    const body = b.gain(0);
+    crack.gain.setValueAtTime(0.0001, b.t0);
+    body.gain.setValueAtTime(0.0001, b.t0);
+    for (const pop of pops) {
+      const at = b.t0 + pop.at;
+      crack.gain.setValueAtTime(0.0001, at);
+      crack.gain.exponentialRampToValueAtTime(Math.max(0.0002, pop.level), at + 0.0015);
+      crack.gain.exponentialRampToValueAtTime(0.0001, at + 0.03 + 0.015 * pop.level);
+      body.gain.setValueAtTime(0.0001, at);
+      body.gain.exponentialRampToValueAtTime(Math.max(0.0002, 0.55 * pop.level), at + 0.003);
+      body.gain.exponentialRampToValueAtTime(0.0001, at + 0.06 + 0.04 * pop.level);
+    }
+    b.chain(b.noise(b.bank.white), b.filter('highpass', 1400, 0.7), crack, b.output);
+    b.chain(b.noise(b.bank.white), b.filter('bandpass', 850, 0.9), body, b.output);
+    const fizz = b.gain(0.05);
+    b.chain(b.noise(b.bank.sizzle, b.t0, b.end, 0.8), b.filter('bandpass', 4500, 0.8), fizz, b.output);
   },
 
   /** A small cracker going off far across town: a short crack with a little echo. */

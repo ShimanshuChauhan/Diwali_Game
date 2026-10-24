@@ -125,8 +125,9 @@ export const TUNING: Tuning = {
     crackerSpacing: 0.6,
   },
   crackers: {
-    fuse: { phuljhari: 0.5, anar: 2.5, chakri: 2, rocket: 3 },
-    activeDuration: { phuljhari: 30, anar: 8, chakri: 6, rocket: 1.8 },
+    fuse: { phuljhari: 0.5, anar: 2.5, chakri: 2, rocket: 3, ladi: 1.5 },
+    // Ladi: the nominal time its string takes to pop through; each one rolls its own.
+    activeDuration: { phuljhari: 30, anar: 8, chakri: 6, rocket: 1.8, ladi: 4 },
     rocketApexHeight: 30,
   },
   caps: {
