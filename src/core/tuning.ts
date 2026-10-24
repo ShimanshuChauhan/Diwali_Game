@@ -56,8 +56,15 @@ export interface Tuning {
     readonly maxPlacedCrackers: number;
     /** Crackers whose fuse is burning or that are active at once. */
     readonly maxLitCrackers: number;
-    /** Unlit placed crackers older than this may be reclaimed. */
+    /** Unlit placed crackers older than this are reclaimed as abandoned. */
     readonly unlitReclaimAfter: number;
+    /**
+     * When the placed cap is full, the oldest unlit cracker at least this
+     * old is reclaimed to make room for a new one.
+     */
+    readonly reclaimWhenFullAfter: number;
+    /** Most abandoned crackers reclaimed in one step, so removal is gradual. */
+    readonly maxReclaimsPerStep: number;
   };
   readonly neighbours: {
     /** Distance within which a neighbour reacts to a firework. */
@@ -105,6 +112,8 @@ export const TUNING: Tuning = {
     maxPlacedCrackers: 12,
     maxLitCrackers: 6,
     unlitReclaimAfter: 120,
+    reclaimWhenFullAfter: 20,
+    maxReclaimsPerStep: 1,
   },
   neighbours: {
     reactionRadius: 25,

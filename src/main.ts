@@ -9,6 +9,7 @@ import { Atmosphere } from './atmosphere';
 import { AudioEngine } from './audio/audioEngine';
 import { unlockOnFirstGesture } from './audio/controls';
 import { CameraRig, rapierBoomCaster } from './camera';
+import { CapacityBudget } from './capacity';
 import { applyCrackerAction, Crackers, handPositionFor } from './crackers';
 import { DiyaScene, Diyas } from './diyas';
 import { createEffectsDemo } from './effects/effectsDemo';
@@ -108,10 +109,17 @@ async function boot(): Promise<void> {
     },
   });
   const listenerForward = new THREE.Vector3();
-  const crackers = new Crackers({ bus, handPosition: () => handPositionFor(player.pose.position, rig.yaw) });
+  // `capacity.stats` holds the resource counters for the perf overlay.
+  const capacity = new CapacityBudget({ crackers: () => crackers, bus, quality, voices: () => audio.activeVoices });
+  const crackers = new Crackers({
+    bus,
+    admission: capacity,
+    handPosition: () => handPositionFor(player.pose.position, rig.yaw),
+  });
   const interaction = new Interaction({
     world,
     crackers: () => crackers.list(),
+    hasRoom: () => capacity.hasRoom(),
     playerPosition: () => player.pose.position,
     isDiyaUsable: (id) => !diyas.isLit(id),
   });
@@ -155,6 +163,7 @@ async function boot(): Promise<void> {
       player.move(movement.intent(rig.yaw), SIM_STEP);
       physics.step();
       crackers.update(SIM_STEP);
+      capacity.update(SIM_STEP);
       audio.update(SIM_STEP);
       atmosphere.update(SIM_STEP);
       diyaScene.update(SIM_STEP);
