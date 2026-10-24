@@ -3,6 +3,7 @@ import type { Interactable } from '../core/contracts';
 import {
   FAMILY_MEMBERS,
   type AartiCeremonyModule,
+  type CommandResult,
   type FamilyMemberId,
   type GiftBoxId,
   type GiftExchangeModule,
@@ -10,6 +11,7 @@ import {
   type HomeId,
   type HouseholdMemberId,
   type HouseholdModule,
+  type ItemRejection,
   type LocationsModule,
 } from '../core/homes';
 
@@ -27,6 +29,8 @@ export interface HomeActionContext {
   >;
   readonly gifts?: Pick<GiftExchangeModule, 'pickUp' | 'putBack' | 'exchange' | 'placeOnTable'>;
   readonly household?: Pick<HouseholdModule, 'react'>;
+  /** Uncle and Aunty's mithai table next door, never gated on aarti (`NeighbourHosts`). */
+  readonly hosts?: { eatMithai(): CommandResult<ItemRejection> };
 }
 
 const FAMILY: readonly HouseholdMemberId[] = FAMILY_MEMBERS;
@@ -50,7 +54,8 @@ export function isFamilyMember(id: HouseholdMemberId): id is FamilyMemberId {
  * - Door: E asks for the transition.
  * - Puja: E joins or rejoins aarti.
  * - Tray: E puts the plate back, sets the return box on the table, or eats;
- *   click with free hands takes a plate.
+ *   click with free hands takes a plate. Next door, the tray is Uncle and
+ *   Aunty's mithai: E eats there at any time and there is no plate to take.
  * - Return spot: E puts the carried box back, or picks the resting one up.
  * - Person: E offers the plate to a family member, gives the gift box to the
  *   neighbours, or greets them.
@@ -69,7 +74,7 @@ export function applyHomeAction(action: GameAction, target: Interactable | null,
 
   if (action.type === 'place') {
     if (target.kind !== 'tray' || held) return false;
-    ctx.hands?.pickUpPlate();
+    if (target.id === 'familyHome') ctx.hands?.pickUpPlate();
     return true;
   }
 
@@ -84,7 +89,8 @@ export function applyHomeAction(action: GameAction, target: Interactable | null,
       ctx.ceremony?.join();
       return true;
     case 'tray':
-      if (held?.kind === 'sweetsPlate') ctx.hands?.returnPlate();
+      if (target.id === 'neighbourHome') ctx.hosts?.eatMithai();
+      else if (held?.kind === 'sweetsPlate') ctx.hands?.returnPlate();
       else if (held?.kind === 'giftBox' && held.box === 'return') ctx.gifts?.placeOnTable();
       else ctx.hands?.eat();
       return true;

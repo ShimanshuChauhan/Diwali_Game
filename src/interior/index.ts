@@ -20,5 +20,6 @@ export {
   type InteriorSolid,
   type InteriorSolidKind,
 } from './layout';
-export { familyHomeSpots } from './spots';
+export { createNeighbourHomeLayout, NEIGHBOUR_ROOM, type NeighbourHomeLayout } from './neighbourHome';
+export { familyHomeSpots, neighbourHomeSpots } from './spots';
 export { LocationPresenter, type LocationPresenterOptions, type LocationPresenterStats } from './presenter';

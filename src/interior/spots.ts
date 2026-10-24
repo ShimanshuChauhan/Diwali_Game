@@ -1,5 +1,10 @@
 import type { HomeSpotSet } from '../interaction';
-import type { FamilyHomeLayout } from './layout';
+import type { FamilyHomeLayout, InteriorLayout } from './layout';
+import type { NeighbourHomeLayout } from './neighbourHome';
+
+type Target = InteriorLayout['interactions'][number]['target'];
+
+const find = (layout: InteriorLayout, match: (target: Target) => boolean) => layout.interactions.find((i) => match(i.target));
 
 /**
  * The interaction module's puja, tray and gift-box anchors, taken from the
@@ -7,11 +12,17 @@ import type { FamilyHomeLayout } from './layout';
  * to join, the tray is the sweets table, the gift spot is the side table.
  */
 export function familyHomeSpots(layout: FamilyHomeLayout): HomeSpotSet {
-  const find = (match: (target: FamilyHomeLayout['interactions'][number]['target']) => boolean) =>
-    layout.interactions.find((i) => match(i.target));
   return {
-    puja: find((t) => t.kind === 'puja')?.stand.position,
-    tray: find((t) => t.kind === 'tray')?.target.position,
-    giftSpot: find((t) => t.kind === 'returnSpot' && t.item === 'giftBox')?.target.position,
+    puja: find(layout, (t) => t.kind === 'puja')?.stand.position,
+    tray: find(layout, (t) => t.kind === 'tray')?.target.position,
+    giftSpot: find(layout, (t) => t.kind === 'returnSpot' && t.item === 'giftBox')?.target.position,
+  };
+}
+
+/** The neighbour's mithai table and the return box's console; there is no puja next door. */
+export function neighbourHomeSpots(layout: NeighbourHomeLayout): HomeSpotSet {
+  return {
+    tray: find(layout, (t) => t.kind === 'tray')?.target.position,
+    giftSpot: find(layout, (t) => t.kind === 'returnSpot' && t.item === 'giftBox')?.target.position,
   };
 }
