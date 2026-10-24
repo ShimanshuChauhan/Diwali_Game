@@ -7,7 +7,9 @@ import { DEFAULT_QUALITY, qualityProfile } from './core/quality';
 import { Atmosphere } from './atmosphere';
 import { AudioEngine } from './audio/audioEngine';
 import { unlockOnFirstGesture } from './audio/controls';
+import { applyCrackerAction, Crackers, handPositionFor } from './crackers';
 import { createEffectsDemo } from './effects/effectsDemo';
+import { Interaction } from './interaction';
 import { MovementIntentTracker, PlayerController } from './player';
 import { createDomControls } from './session/domControls';
 import { Input } from './session/input';
@@ -79,6 +81,22 @@ async function boot(): Promise<void> {
   const audio = new AudioEngine({ bus });
   unlockOnFirstGesture(window, audio);
   const listenerForward = new THREE.Vector3();
+  const crackers = new Crackers({ bus, handPosition: () => handPositionFor(player.pose.position, yaw) });
+  const interaction = new Interaction({
+    world,
+    crackers: () => crackers.list(),
+    playerPosition: () => player.pose.position,
+  });
+  const crackerControls = {
+    crackers,
+    interaction,
+    bus,
+    pose: () => player.pose,
+    view: () => {
+      camera.getWorldDirection(listenerForward);
+      return { mode: 'firstPerson' as const, position: camera.position, forward: listenerForward, yaw, pitch };
+    },
+  };
   const effectsDemo = new URLSearchParams(location.search).has('effects-demo')
     ? createEffectsDemo(scene, camera, renderer)
     : null;
@@ -95,7 +113,7 @@ async function boot(): Promise<void> {
         const { mouseSensitivity, pitchLimit } = TUNING.camera;
         yaw -= action.dx * mouseSensitivity;
         pitch = Math.min(Math.max(pitch - action.dy * mouseSensitivity, -pitchLimit), pitchLimit);
-      } else movement.apply(action);
+      } else if (!applyCrackerAction(action, crackerControls)) movement.apply(action);
     }
     const delta = timer.getDelta();
     // The game sim freezes while paused; the effects stress demo runs on
@@ -104,6 +122,7 @@ async function boot(): Promise<void> {
     for (let i = 0; i < steps; i++) {
       player.move(movement.intent(yaw), SIM_STEP);
       physics.step();
+      crackers.update(SIM_STEP);
       audio.update(SIM_STEP);
       atmosphere.update(SIM_STEP);
     }
