@@ -129,6 +129,18 @@ describe('cracker sound recipes', () => {
     expect(ramp.args[1]).toBe(2);
   });
 
+  it('bursts with a one-shot blast recording, varied in pitch, not a looping noise', () => {
+    const ctx = new FakeAudioContext();
+    const audio = ctx.asAudioContext();
+    const bank = createNoiseBank(audio, seeded(1));
+    synthesise(audio, bank, 'burst', audio.createGain(), { t0: 0, duration: 3.2, gain: 1, pattern: 'peony' });
+    const blasts = ctx.sources.filter((source) => bank.blasts.includes(source.buffer as AudioBuffer));
+    expect(blasts).toHaveLength(1);
+    expect(blasts[0]!.loop).toBe(false);
+    expect(blasts[0]!.playbackRate.value).toBeGreaterThan(0.85);
+    expect(blasts[0]!.playbackRate.value).toBeLessThan(1.15);
+  });
+
   it('rattles a ladi off as a long run of quick pops', () => {
     const pops = gainEvents('distantLadi', 3 + 1.2)
       .map(attacks)

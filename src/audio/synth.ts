@@ -1,5 +1,6 @@
 import type { BurstPattern } from '../core/types';
 import { FOUNTAIN, surgeFactor } from '../effects/presets';
+import { fillBlast, randomBlastShape } from './blast';
 import { fillBrown, fillCrackle, fillLaneImpulse, fillWhite } from './noise';
 import { LADI_TAIL, STOP_FADE, type SoundKind } from './sounds';
 
@@ -21,7 +22,13 @@ export interface NoiseBank {
   readonly crackle: AudioBuffer;
   /** Dense, tiny clicks: the frying sizzle of a phuljhari. */
   readonly sizzle: AudioBuffer;
+  /** Shell bursts, each shaped a little differently; see `blast.ts`. */
+  readonly blasts: readonly AudioBuffer[];
 }
+
+/** Burst variants made per context, so no two bursts in a row sound alike. */
+const BLAST_VARIANTS = 6;
+const BLAST_SECONDS = 3.2;
 
 const BANK_SECONDS = 2;
 
@@ -36,6 +43,11 @@ export function createNoiseBank(ctx: BaseAudioContext, random: () => number = Ma
     brown: make((data) => fillBrown(data, random)),
     crackle: make((data) => fillCrackle(data, ctx.sampleRate, 90, random)),
     sizzle: make((data) => fillCrackle(data, ctx.sampleRate, 1400, random, 0.0006)),
+    blasts: Array.from({ length: BLAST_VARIANTS }, () => {
+      const buffer = ctx.createBuffer(1, Math.round(ctx.sampleRate * BLAST_SECONDS), ctx.sampleRate);
+      fillBlast(buffer.getChannelData(0), ctx.sampleRate, random, randomBlastShape(random));
+      return buffer;
+    }),
   };
 }
 
@@ -125,6 +137,21 @@ class VoiceBuilder {
     source.start(start, Math.random() * buffer.duration);
     // An endless bed (the murmur) has no scheduled stop.
     if (Number.isFinite(stop)) source.stop(stop);
+    this.sources.push(source);
+    return source;
+  }
+
+  /**
+   * One shell burst, played once from `at`, pitched by `rate` (around 1)
+   * so a reused variant still sounds new.
+   */
+  blast(at: number, rate: number): AudioBufferSourceNode {
+    const blasts = this.bank.blasts;
+    const source = this.ctx.createBufferSource();
+    source.buffer = blasts[Math.floor(Math.random() * blasts.length)] ?? null;
+    source.playbackRate.value = rate;
+    source.start(at);
+    source.stop(Math.min(this.end, at + BLAST_SECONDS / rate));
     this.sources.push(source);
     return source;
   }
@@ -361,25 +388,9 @@ const RECIPES: Record<SoundKind, Recipe> = {
    */
   burst(b, p) {
     b.output.gain.value = p.gain;
-    // The crack: a very short, bright transient.
-    const crack = b.gain(0);
-    b.hit(crack.gain, 0.6, b.t0, 0.06);
-    b.chain(b.noise(b.bank.white, b.t0, b.t0 + 0.1), b.filter('highpass', 700, 0.7), crack, b.output);
-    // The boom: low noise closing down as it decays.
-    const boom = b.gain(0);
-    b.hit(boom.gain, 0.75, b.t0, 1.3);
-    const body = b.filter('lowpass', 1200, 0.8);
-    body.frequency.setValueAtTime(1200, b.t0);
-    body.frequency.exponentialRampToValueAtTime(180, b.t0 + 0.9);
-    b.chain(b.noise(b.bank.brown, b.t0, b.t0 + 1.5), body, boom, b.output);
-    // A deep rumble felt in the chest, unpitched so it never sounds like a drum.
-    const rumble = b.gain(0);
-    rumble.gain.setValueAtTime(0, b.t0);
-    rumble.gain.linearRampToValueAtTime(0.45, b.t0 + 0.03);
-    rumble.gain.exponentialRampToValueAtTime(0.0001, b.t0 + 1.6);
-    b.chain(b.noise(b.bank.white, b.t0, b.t0 + 1.7), b.filter('lowpass', 260, 0.5), rumble, b.output);
-    // Echoes off the lane's houses.
-    b.bang(b.t0 + 0.12, 0.35, 40, 3);
+    // The burst itself: a shock wave and its echoes off the lane (see `blast.ts`).
+    const body = b.gain(1);
+    b.chain(b.blast(b.t0, 0.9 + Math.random() * 0.2), b.filter('lowpass', 11000, 0.5), body, b.output);
 
     const pattern = p.pattern ?? 'peony';
     if (pattern === 'crossette') {
@@ -475,10 +486,11 @@ const RECIPES: Record<SoundKind, Recipe> = {
     b.chain(b.noise(b.bank.crackle), b.filter('lowpass', muffle(p.distance, 2500), 0.6), wash, b.output);
   },
 
-  /** A shell bursting over another part of town: a crack, a long roll, sometimes a crackle. */
+  /** A shell bursting over another part of town: the same blast, duller with distance, sometimes a crackle. */
   distantShell(b, p) {
     b.output.gain.value = p.gain;
-    b.bang(b.t0, 1, p.distance, 5);
+    const body = b.gain(1);
+    b.chain(b.blast(b.t0, 0.85 + Math.random() * 0.25), b.filter('lowpass', muffle(p.distance, 7000), 0.5), body, b.output);
     if (Math.random() < 0.45) {
       const crackle = b.gain(0);
       const from = b.t0 + 0.35;
