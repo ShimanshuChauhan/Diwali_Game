@@ -7,6 +7,7 @@ import { DEFAULT_QUALITY, qualityProfile } from './core/quality';
 import { Atmosphere } from './atmosphere';
 import { AudioEngine } from './audio/audioEngine';
 import { unlockOnFirstGesture } from './audio/controls';
+import { CameraRig, rapierBoomCaster } from './camera';
 import { createEffectsDemo } from './effects/effectsDemo';
 import { MovementIntentTracker, PlayerController } from './player';
 import { createDomControls } from './session/domControls';
@@ -42,10 +43,6 @@ async function boot(): Promise<void> {
   const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 500);
   const player = new PlayerController({ physics, bounds: world.bounds, spawn: world.spawn, spawnYaw: world.spawnYaw });
   const movement = new MovementIntentTracker();
-  // Minimal first-person look until the camera module lands.
-  let yaw = world.spawnYaw;
-  let pitch = 0;
-  camera.rotation.order = 'YXZ';
 
   window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
@@ -55,11 +52,12 @@ async function boot(): Promise<void> {
 
   const bus = createGameEventBus();
   const session = new Session({ bus });
+  const obstacles = rapierBoomCaster(physics, { margin: TUNING.camera.collisionMargin, exclude: player.collider });
+  const rig = new CameraRig({ obstacles, bus, spawnYaw: world.spawnYaw });
   bus.on('sessionReset', () => {
     player.reset();
     movement.reset();
-    yaw = world.spawnYaw;
-    pitch = 0;
+    rig.reset();
   });
   const input = new Input({ bus, enabled: false });
   const controls = createDomControls({
@@ -91,18 +89,16 @@ async function boot(): Promise<void> {
     timer.update(time);
     for (const action of input.drainActions()) {
       if (action.type === 'pause') session.pause('user');
-      else if (action.type === 'look') {
-        const { mouseSensitivity, pitchLimit } = TUNING.camera;
-        yaw -= action.dx * mouseSensitivity;
-        pitch = Math.min(Math.max(pitch - action.dy * mouseSensitivity, -pitchLimit), pitchLimit);
-      } else movement.apply(action);
+      else if (action.type === 'look') rig.look(action.dx, action.dy);
+      else if (action.type === 'toggleCamera') rig.toggleMode();
+      else movement.apply(action);
     }
     const delta = timer.getDelta();
     // The game sim freezes while paused; the effects stress demo runs on
     // its own bus and keeps real time so it needs no click to start.
     const { steps } = loop.advance(session.paused ? 0 : delta);
     for (let i = 0; i < steps; i++) {
-      player.move(movement.intent(yaw), SIM_STEP);
+      player.move(movement.intent(rig.yaw), SIM_STEP);
       physics.step();
       audio.update(SIM_STEP);
       atmosphere.update(SIM_STEP);
@@ -112,13 +108,13 @@ async function boot(): Promise<void> {
       for (let i = 0; i < demo.steps; i++) effectsDemo.update(SIM_STEP);
       effectsDemo.frame(delta);
     } else {
-      const feet = player.pose.position;
-      camera.position.set(feet.x, feet.y + TUNING.player.eyeHeight, feet.z);
-      camera.rotation.set(pitch, yaw, 0);
+      const view = rig.update(player.pose, delta);
+      camera.position.set(view.position.x, view.position.y, view.position.z);
+      camera.lookAt(view.position.x + view.forward.x, view.position.y + view.forward.y, view.position.z + view.forward.z);
     }
     atmosphere.frame();
     camera.getWorldDirection(listenerForward);
-    audio.setListener({ mode: 'firstPerson', position: camera.position, forward: listenerForward, yaw: 0, pitch: 0 });
+    audio.setListener({ mode: rig.mode, position: camera.position, forward: listenerForward, yaw: 0, pitch: 0 });
     renderer.render(scene, camera);
   });
 
