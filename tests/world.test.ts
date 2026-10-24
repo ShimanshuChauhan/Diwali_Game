@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { TUNING } from '../src/core/tuning';
 import type { Vec3 } from '../src/core/types';
+import { atmosphereBudget } from '../src/atmosphere/budget';
+import { planDecorations } from '../src/atmosphere/decorations';
+import { qualityProfile } from '../src/core/quality';
+import { HOME_ENTRANCES } from '../src/homes/doorways';
 import { createWorld, LAYOUT } from '../src/world';
+import { ENTERABLE_HOUSES } from '../src/world/layout';
 
 const world = createWorld();
 const { layout } = world;
@@ -313,6 +318,71 @@ describe('street and house detail', () => {
     for (const d of layout.decor.filter((d) => d.id.startsWith('paving.'))) {
       expect(d.box.max.y, d.id).toBeGreaterThan(0);
       expect(d.box.max.y, d.id).toBeLessThan(0.01);
+    }
+  });
+});
+
+describe('enterable homes stand out', () => {
+  const houses = layout.solids.filter((s) => s.kind === 'house').map((s) => s.id.slice(0, -'.body'.length));
+  const decor = new Set(layout.decor.map((d) => d.id));
+  /** Decor that marks an open, enterable door. */
+  const ENTRANCE_PARTS = ['.door.', '.marigold.', '.nameplate', '.doormat'];
+  const entranceDecor = (house: string) =>
+    layout.decor.filter((d) => ENTRANCE_PARTS.some((part) => d.id.startsWith(`${house}${part}`)));
+  /** Ground distance from a box's footprint to a point. */
+  const footprintDistance = (b: { min: Vec3; max: Vec3 }, p: Vec3) =>
+    Math.hypot(Math.max(b.min.x - p.x, 0, p.x - b.max.x), Math.max(b.min.z - p.z, 0, p.z - b.max.z));
+
+  it('marks exactly the homes the player can enter', () => {
+    const entrances = Object.values(HOME_ENTRANCES).map((e) => e.house);
+    expect([...ENTERABLE_HOUSES].sort()).toEqual([...entrances].sort());
+    for (const house of ENTERABLE_HOUSES) expect(houses, house).toContain(house);
+  });
+
+  it('opens the enterable doors on a lit room, garlanded and name-plated; the rest stay shut', () => {
+    for (const house of houses) {
+      const open = ENTERABLE_HOUSES.includes(house);
+      expect(decor.has(`${house}.door`), house).toBe(!open);
+      for (const part of ['door.glow', 'door.leaf.left', 'door.leaf.right', 'nameplate', 'nameplate.face', 'doormat']) {
+        expect(decor.has(`${house}.${part}`), `${house}.${part}`).toBe(open);
+      }
+      expect(layout.decor.some((d) => d.id.startsWith(`${house}.marigold.`)), house).toBe(open);
+    }
+    expect(layout.decor.find((d) => d.id === 'house.lane.w0.door.glow')?.material).toBe('doorGlow');
+  });
+
+  it('adds no colliders at the doors', () => {
+    for (const house of ENTERABLE_HOUSES) {
+      const solids = layout.solids.filter((s) => ENTRANCE_PARTS.some((part) => s.id.startsWith(`${house}${part}`)));
+      expect(solids, house).toEqual([]);
+      const zone = world.doorways.find((d) => d.id === `${house}.doorway`)!;
+      expect(world.isClear(v(zone.centre.x, 1, zone.centre.z), 0.3), house).toBe(true);
+    }
+  });
+
+  it('keeps the new decor flush with the facade or flat, and clear of diyas and rangoli', () => {
+    const rangolis = planDecorations(layout, atmosphereBudget(qualityProfile('low'))).rangolis;
+    for (const house of ENTERABLE_HOUSES) {
+      const body = layout.solids.find((s) => s.id === `${house}.body`)!.box;
+      const parts = entranceDecor(house);
+      expect(parts.length, house).toBeGreaterThan(10);
+      for (const { id, box } of parts) {
+        const flat = box.max.y <= 0.02;
+        // Upright parts stand within a hand's breadth of the wall, well short of the doorway zone's centre.
+        const fromWall = Math.max(0, ...[box.min, box.max].map((p) => footprintDistance(body, p)));
+        if (!flat) expect(fromWall, id).toBeLessThan(0.25);
+        for (const site of world.diyaSites) expect(footprintDistance(box, site.position), `${id} / ${site.id}`).toBeGreaterThan(0.2);
+        for (const r of rangolis) expect(footprintDistance(box, r.centre), `${id} / ${r.id}`).toBeGreaterThan(r.radius);
+      }
+    }
+  });
+
+  it('keeps the name plate under any balcony and the garland over the door frame', () => {
+    for (const house of ENTERABLE_HOUSES) {
+      const plate = layout.decor.find((d) => d.id === `${house}.nameplate`)!.box;
+      const balcony = layout.solids.find((s) => s.id === `${house}.balcony`);
+      if (balcony) expect(plate.max.y, house).toBeLessThan(balcony.box.min.y);
+      expect(plate.min.y, house).toBeGreaterThan(LAYOUT.doorHeight + 0.2);
     }
   });
 });

@@ -78,6 +78,8 @@ export interface Tuning {
     readonly fadeDuration: number;
     /** Range for E at a door. */
     readonly doorRange: number;
+    /** Range from which looking at an enterable street door hints that it opens. */
+    readonly doorHintRange: number;
     /** Range to join aarti at the puja corner. */
     readonly pujaRange: number;
     /** Range to eat from or return the plate to the sweets tray. */
@@ -142,7 +144,8 @@ export const TUNING: Tuning = {
   },
   homes: {
     fadeDuration: 0.6,
-    doorRange: 1.5,
+    doorRange: 2,
+    doorHintRange: 8,
     pujaRange: 2,
     trayRange: 1.5,
     personRange: 1.8,

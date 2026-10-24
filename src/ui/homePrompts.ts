@@ -36,6 +36,8 @@ export interface HomePromptState {
   readonly exchanged?: boolean;
   /** Where a door leads, for its wording. */
   readonly doorway?: (id: DoorwayId) => DoorwaySnapshot | undefined;
+  /** The home whose open street door the player looks at from a few metres off. */
+  readonly doorHint?: LocationId | null;
 }
 
 /** How prompts name the household; names are content choices of #61 and #65. */
@@ -57,8 +59,17 @@ export const GIFT_BOX_LABELS: Readonly<Record<GiftBoxId, string>> = {
 /** Where each door leads, by destination. */
 export const DOOR_PROMPTS: Readonly<Record<LocationId, string>> = {
   outdoors: 'E: Step outside',
-  familyHome: 'E: Go inside',
+  familyHome: 'E: Enter home',
   neighbourHome: 'E: Visit Uncle and Aunty',
+};
+
+/**
+ * A quiet line while the player looks at an enterable home's open door from
+ * a few metres off, naming whose it is; walking up turns it into the E prompt.
+ */
+export const DOOR_HINTS: Readonly<Record<Exclude<LocationId, 'outdoors'>, string>> = {
+  familyHome: 'Your home: the door is open',
+  neighbourHome: "Uncle and Aunty's home: the door is open",
 };
 
 /** Why each carried item keeps the player from joining aarti. */
@@ -99,6 +110,11 @@ export const GIFT_REJECTION_TEXT: Readonly<Record<GiftRejection, string>> = {
 
 const go = (text: string): PromptLine => ({ text, blocked: false });
 const no = (text: string): PromptLine => ({ text, blocked: true });
+
+/** The hint line for `home`'s open door, if the player is looking at one. */
+export function doorHintLine(home: LocationId | null | undefined): PromptLine | null {
+  return home && home !== 'outdoors' ? { text: DOOR_HINTS[home], blocked: false, hint: true } : null;
+}
 
 /** True for the targets this module words, rather than the cracker prompts. */
 export function isHomeInteractable(target: { readonly kind: string }): target is HomeInteractable {

@@ -514,6 +514,9 @@ async function boot(): Promise<void> {
     const selected = crackers.selected;
     const feet = player.pose.position;
     const interactable = locations.controlsLocked ? null : interaction.findInteractable(view);
+    // From a few metres off, an open street door names whose home it is.
+    const doorHint =
+      interactable || locations.controlsLocked || !outdoors ? null : (interaction.findDoorHint(view)?.destination ?? null);
     const interactableType =
       interactable?.kind === 'cracker' ? crackers.list().find((c) => c.id === interactable.id)?.type : undefined;
     const placement =
@@ -534,6 +537,7 @@ async function boot(): Promise<void> {
         aarti,
         exchanged: gifts.exchanged,
         doorway: (id) => locations.doorway(id),
+        doorHint,
       },
     });
     hud.update(delta);
