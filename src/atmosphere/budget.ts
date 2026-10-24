@@ -23,6 +23,15 @@ export interface AtmosphereBudget {
   readonly particlesPerShell: number;
   /** Mean seconds between distant launches. */
   readonly distantInterval: number;
+  /** Buildings in the distant town, nearest first. */
+  readonly townBuildings: number;
+  /** Chance each window slot in the town is lit. */
+  readonly townWindowChance: number;
+  /** Town buildings, nearest first, with fairy lights round the roof. */
+  readonly townRoofLights: number;
+  /** Street lamps along the town's roads. */
+  readonly townLamps: number;
+  readonly townTrees: number;
 }
 
 const BUDGETS: Readonly<Record<QualityLevel, Omit<AtmosphereBudget, 'level'>>> = {
@@ -35,6 +44,11 @@ const BUDGETS: Readonly<Record<QualityLevel, Omit<AtmosphereBudget, 'level'>>> =
     maxDistantShells: 2,
     particlesPerShell: 40,
     distantInterval: 2.5,
+    townBuildings: 80,
+    townWindowChance: 0.3,
+    townRoofLights: 10,
+    townLamps: 40,
+    townTrees: 25,
   },
   medium: {
     bulbSpacing: 0.45,
@@ -45,6 +59,11 @@ const BUDGETS: Readonly<Record<QualityLevel, Omit<AtmosphereBudget, 'level'>>> =
     maxDistantShells: 4,
     particlesPerShell: 70,
     distantInterval: 1.5,
+    townBuildings: 160,
+    townWindowChance: 0.42,
+    townRoofLights: 28,
+    townLamps: 100,
+    townTrees: 60,
   },
   high: {
     bulbSpacing: 0.3,
@@ -55,6 +74,11 @@ const BUDGETS: Readonly<Record<QualityLevel, Omit<AtmosphereBudget, 'level'>>> =
     maxDistantShells: 6,
     particlesPerShell: 110,
     distantInterval: 1,
+    townBuildings: 280,
+    townWindowChance: 0.5,
+    townRoofLights: 60,
+    townLamps: 200,
+    townTrees: 110,
   },
 };
 

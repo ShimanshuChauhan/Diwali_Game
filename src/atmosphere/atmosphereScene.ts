@@ -3,14 +3,17 @@ import type { Unsubscribe } from '../core/eventBus';
 import type { GameEventBus } from '../core/events';
 import type { QualityProfile } from '../core/quality';
 import type { WorldLayout } from '../world/layout';
+import { EVENING_LIGHT } from '../world/scene';
 import { atmosphereBudget, MAX_DISTANT_PARTICLES, type AtmosphereBudget } from './budget';
 import { KANDIL_HALF, planDecorations, type DecorationPlan, type Rangoli } from './decorations';
 import { DistantFireworks, type DistantStats } from './distantFireworks';
+import { planTown, TOWN_TANK, type TownFacing, type TownPlan } from './town';
 
 /**
  * The evening atmosphere on top of the world scene: fairy lights, akash
- * kandils and rangoli, stars and a warm horizon haze, distant fireworks,
- * and the fog and exposure grade that ties them together. Every cost scales
+ * kandils and rangoli, the lit town round the colony, stars and a warm
+ * horizon haze, distant fireworks, and the fog and exposure grade that ties
+ * them together. Every cost scales
  * with the quality profile; changing quality rebuilds the decorations once
  * (never per frame).
  */
@@ -31,6 +34,46 @@ const HORIZON_RADIUS = 185;
 const HORIZON_HEIGHT = 40;
 const HORIZON_GLOW = new THREE.Color('#ff7a3a').multiplyScalar(0.35);
 const STAR_RADIUS = 190;
+
+/** Warm lamplight washing the temple, added on top of the evening light. */
+const TEMPLE_WASH = new THREE.Color('#ff9a50').multiplyScalar(0.18);
+
+/** Town windows read as lamp-lit rooms, a touch below the colony's own. */
+const TOWN_WINDOW_GLOW = 0.9;
+const TOWN_WINDOW_SIZE = { width: 0.8, height: 1 } as const;
+const FACING_YAW: Readonly<Record<TownFacing, number>> = {
+  '+z': 0,
+  '-z': Math.PI,
+  '+x': Math.PI / 2,
+  '-x': -Math.PI / 2,
+};
+
+/** Soft glowing points for town lights, sized in metres and dimmed with distance. */
+const TOWN_LIGHT_VERTEX = /* glsl */ `
+  attribute vec3 aColour;
+  attribute float aSize;
+  uniform float uPixelsPerMetre;
+  varying vec3 vColour;
+  void main() {
+    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+    float distance = -mvPosition.z;
+    vColour = aColour * mix(1.0, 0.4, clamp((distance - 30.0) / 150.0, 0.0, 1.0));
+    gl_Position = projectionMatrix * mvPosition;
+    gl_PointSize = clamp(aSize * uPixelsPerMetre / max(0.1, distance), 1.5, 36.0);
+  }
+`;
+
+const TOWN_LIGHT_FRAGMENT = /* glsl */ `
+  varying vec3 vColour;
+  void main() {
+    vec2 p = gl_PointCoord * 2.0 - 1.0;
+    float r2 = dot(p, p);
+    if (r2 > 1.0) discard;
+    gl_FragColor = vec4(vColour * exp(-r2 * 2.5) * 1.6, 1.0);
+    #include <tonemapping_fragment>
+    #include <colorspace_fragment>
+  }
+`;
 
 const SPARK_VERTEX = /* glsl */ `
   attribute vec4 aColour;
@@ -65,6 +108,12 @@ export interface AtmosphereStats {
   /** Point lights the atmosphere adds to the scene. */
   readonly lights: number;
   readonly stars: number;
+  readonly town: {
+    readonly buildings: number;
+    readonly windows: number;
+    readonly lights: number;
+    readonly trees: number;
+  };
   readonly distant: Readonly<DistantStats>;
 }
 
@@ -85,6 +134,7 @@ export class Atmosphere {
 
   private budget: AtmosphereBudget;
   private plan: DecorationPlan;
+  private town: TownPlan;
   private readonly layout: WorldLayout;
   private readonly random: () => number;
   private readonly unsubscribe: Unsubscribe[] = [];
@@ -109,6 +159,28 @@ export class Atmosphere {
   });
   private readonly horizon: THREE.Mesh;
 
+  // The town, shared across rebuilds. It sits far from every lamp and
+  // firework light, so its evening light is baked into vertex colours and it
+  // draws unlit rather than evaluating every point light per pixel.
+  private readonly townBoxGeometry = bakeEveningLight(new THREE.BoxGeometry(1, 1, 1));
+  private readonly townTempleGeometry = bakeEveningLight(new THREE.BoxGeometry(1, 1, 1), TEMPLE_WASH);
+  private readonly townTankGeometry = bakeEveningLight(
+    new THREE.CylinderGeometry(TOWN_TANK.radius, TOWN_TANK.radius, TOWN_TANK.height, 8).translate(0, TOWN_TANK.height / 2, 0),
+  );
+  private readonly townCanopyGeometry = bakeEveningLight(new THREE.IcosahedronGeometry(1, 0));
+  private readonly townWindowGeometry = new THREE.PlaneGeometry(TOWN_WINDOW_SIZE.width, TOWN_WINDOW_SIZE.height);
+  private readonly townMaterial = new THREE.MeshBasicMaterial({ vertexColors: true });
+  private readonly townTankMaterial = new THREE.MeshBasicMaterial({ color: '#1c1c1e', vertexColors: true });
+  private readonly townWindowMaterial = new THREE.MeshBasicMaterial();
+  private readonly townLightMaterial = new THREE.ShaderMaterial({
+    vertexShader: TOWN_LIGHT_VERTEX,
+    fragmentShader: TOWN_LIGHT_FRAGMENT,
+    uniforms: { uPixelsPerMetre: { value: 600 } },
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    transparent: true,
+  });
+
   // Rebuilt when quality changes.
   private decor = new THREE.Group();
   private stars: THREE.Points | null = null;
@@ -125,6 +197,7 @@ export class Atmosphere {
     this.object.name = 'atmosphere';
     this.budget = atmosphereBudget(options.profile);
     this.plan = planDecorations(this.layout, this.budget);
+    this.town = planTown(this.layout, this.budget);
 
     const scene = options.scene;
     scene.fog = new THREE.Fog(FOG_COLOUR.clone(), FOG_NEAR, FOG_FAR);
@@ -191,6 +264,12 @@ export class Atmosphere {
       rangolis: this.plan.rangolis.length,
       lights: this.plan.litKandils.length,
       stars: this.stars ? this.stars.geometry.getAttribute('position').count : 0,
+      town: {
+        buildings: this.town.buildings,
+        windows: this.town.windows.length,
+        lights: this.town.lights.length,
+        trees: this.town.trees.length,
+      },
       distant: this.distant.stats,
     };
   }
@@ -200,6 +279,7 @@ export class Atmosphere {
     const budget = atmosphereBudget(profile);
     this.budget = budget;
     this.plan = planDecorations(this.layout, budget);
+    this.town = planTown(this.layout, budget);
     this.build();
     this.distant.setBudget(budget);
   }
@@ -228,7 +308,9 @@ export class Atmosphere {
   /** Scale spark sizes for the current viewport. Call on resize. */
   setViewport(heightPixels: number, camera: THREE.PerspectiveCamera): void {
     const fov = THREE.MathUtils.degToRad(camera.fov);
-    this.sparkMaterial.uniforms.uPixelsPerMetre!.value = heightPixels / (2 * Math.tan(fov / 2));
+    const pixelsPerMetre = heightPixels / (2 * Math.tan(fov / 2));
+    this.sparkMaterial.uniforms.uPixelsPerMetre!.value = pixelsPerMetre;
+    this.townLightMaterial.uniforms.uPixelsPerMetre!.value = pixelsPerMetre;
   }
 
   dispose(): void {
@@ -240,6 +322,23 @@ export class Atmosphere {
     this.glowMaterial.dispose();
     this.rangoliMaterial.dispose();
     this.starMaterial.dispose();
+    for (const geometry of [
+      this.townBoxGeometry,
+      this.townTempleGeometry,
+      this.townTankGeometry,
+      this.townCanopyGeometry,
+      this.townWindowGeometry,
+    ]) {
+      geometry.dispose();
+    }
+    for (const material of [
+      this.townMaterial,
+      this.townTankMaterial,
+      this.townWindowMaterial,
+      this.townLightMaterial,
+    ]) {
+      material.dispose();
+    }
     this.horizon.geometry.dispose();
     (this.horizon.material as THREE.Material).dispose();
     this.sparkGeometry.dispose();
@@ -289,7 +388,87 @@ export class Atmosphere {
     this.stars = createStars(this.budget.stars, this.starMaterial, this.random);
     decor.add(this.stars);
 
+    this.buildTown(decor);
+
     this.object.add(decor);
+  }
+
+  /** The town's walls, temple, tanks, windows, trees and lights: six draw calls. */
+  private buildTown(decor: THREE.Group): void {
+    const { boxes, tanks, windows, trees, lights } = this.town;
+    const colour = new THREE.Color();
+    const matrix = new THREE.Matrix4();
+    const position = new THREE.Vector3();
+    const scale = new THREE.Vector3();
+    const rotation = new THREE.Quaternion();
+    const up = new THREE.Vector3(0, 1, 0);
+
+    for (const lit of [false, true]) {
+      const group = boxes.filter((b) => (b.lit ?? false) === lit);
+      const geometry = lit ? this.townTempleGeometry : this.townBoxGeometry;
+      const walls = new THREE.InstancedMesh(geometry, this.townMaterial, Math.max(1, group.length));
+      walls.name = lit ? 'atmosphere.town.temple' : 'atmosphere.town.walls';
+      walls.count = group.length;
+      group.forEach(({ box, colour: hex }, i) => {
+        position.set((box.min.x + box.max.x) / 2, (box.min.y + box.max.y) / 2, (box.min.z + box.max.z) / 2);
+        scale.set(box.max.x - box.min.x, box.max.y - box.min.y, box.max.z - box.min.z);
+        walls.setMatrixAt(i, matrix.compose(position, rotation.identity(), scale));
+        walls.setColorAt(i, colour.setHex(hex));
+      });
+      finishInstances(walls);
+      decor.add(walls);
+    }
+
+    const tankMesh = new THREE.InstancedMesh(this.townTankGeometry, this.townTankMaterial, Math.max(1, tanks.length));
+    tankMesh.name = 'atmosphere.town.tanks';
+    tankMesh.count = tanks.length;
+    tanks.forEach((t, i) => tankMesh.setMatrixAt(i, matrix.makeTranslation(t.x, t.y, t.z)));
+    finishInstances(tankMesh);
+    decor.add(tankMesh);
+
+    const panes = new THREE.InstancedMesh(this.townWindowGeometry, this.townWindowMaterial, Math.max(1, windows.length));
+    panes.name = 'atmosphere.town.windows';
+    panes.count = windows.length;
+    windows.forEach((w, i) => {
+      scale.set((w.width ?? TOWN_WINDOW_SIZE.width) / TOWN_WINDOW_SIZE.width, (w.height ?? TOWN_WINDOW_SIZE.height) / TOWN_WINDOW_SIZE.height, 1);
+      rotation.setFromAxisAngle(up, FACING_YAW[w.facing]);
+      position.set(w.position.x, w.position.y, w.position.z);
+      panes.setMatrixAt(i, matrix.compose(position, rotation, scale));
+      panes.setColorAt(i, colour.setHex(w.colour).multiplyScalar(TOWN_WINDOW_GLOW));
+    });
+    finishInstances(panes);
+    decor.add(panes);
+
+    const canopies = new THREE.InstancedMesh(this.townCanopyGeometry, this.townMaterial, Math.max(1, trees.length));
+    canopies.name = 'atmosphere.town.trees';
+    canopies.count = trees.length;
+    rotation.identity();
+    trees.forEach((t, i) => {
+      position.set(t.position.x, t.height * 0.62, t.position.z);
+      scale.set(t.radius, t.height * 0.42, t.radius);
+      canopies.setMatrixAt(i, matrix.compose(position, rotation, scale));
+      canopies.setColorAt(i, colour.setHex(t.colour));
+    });
+    finishInstances(canopies);
+    decor.add(canopies);
+
+    const positions = new Float32Array(lights.length * 3);
+    const colours = new Float32Array(lights.length * 3);
+    const sizes = new Float32Array(lights.length);
+    lights.forEach((l, i) => {
+      positions.set([l.position.x, l.position.y, l.position.z], i * 3);
+      colour.setHex(l.colour);
+      colours.set([colour.r, colour.g, colour.b], i * 3);
+      sizes[i] = l.size;
+    });
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute('aColour', new THREE.BufferAttribute(colours, 3));
+    geometry.setAttribute('aSize', new THREE.BufferAttribute(sizes, 1));
+    const glow = new THREE.Points(geometry, this.townLightMaterial);
+    glow.name = 'atmosphere.town.lights';
+    glow.frustumCulled = false;
+    decor.add(glow);
   }
 
   private clearDecor(): void {
@@ -304,6 +483,34 @@ export class Atmosphere {
     this.decor.name = 'atmosphere.decor';
     this.stars = null;
   }
+}
+
+/**
+ * Bakes the evening's hemisphere fill and moonlight into `geometry`'s vertex
+ * colours, as a rough, non-metallic standard material would receive them
+ * (Lambert: irradiance over pi), plus an optional flat `wash`. Scaled boxes
+ * keep axis-aligned normals, so the bake holds for every instance.
+ */
+export function bakeEveningLight(geometry: THREE.BufferGeometry, wash?: THREE.Color): THREE.BufferGeometry {
+  const light = EVENING_LIGHT;
+  const sky = new THREE.Color(light.sky).multiplyScalar(light.ambient);
+  const ground = new THREE.Color(light.ground).multiplyScalar(light.ambient);
+  const moon = new THREE.Color(light.moon).multiplyScalar(light.moonIntensity);
+  const toMoon = new THREE.Vector3(light.moonPosition.x, light.moonPosition.y, light.moonPosition.z).normalize();
+  const normals = geometry.getAttribute('normal');
+  const normal = new THREE.Vector3();
+  const colour = new THREE.Color();
+  const colours = new Float32Array(normals.count * 3);
+  for (let i = 0; i < normals.count; i++) {
+    normal.fromBufferAttribute(normals, i);
+    colour.copy(ground).lerp(sky, normal.y * 0.5 + 0.5);
+    colour.add(moon.clone().multiplyScalar(Math.max(0, normal.dot(toMoon))));
+    colour.multiplyScalar(1 / Math.PI);
+    if (wash) colour.add(wash);
+    colours.set([colour.r, colour.g, colour.b], i * 3);
+  }
+  geometry.setAttribute('color', new THREE.BufferAttribute(colours, 3));
+  return geometry;
 }
 
 function finishInstances(mesh: THREE.InstancedMesh): void {
