@@ -111,11 +111,12 @@ them in later issues.
 
 Ownership rules:
 
-- **Time** is the ceremony's: it advances in `update(dt)` on the fixed step,
-  which stops while paused, so song, ceremony and family freeze together.
-  Audio follows `AartiSnapshot` (playing only while `participating`) and
-  never completes the ceremony; callbacks tagged with an old `playbackId`
-  are ignored.
+- **Time** is the ceremony's (`src/aarti/ceremony.ts`): it advances in
+  `update(dt)` on the fixed step, which stops while paused, so song,
+  ceremony and family freeze together. Audio follows `AartiSnapshot`
+  (playing only while `participating`) and never drives the clock; it may
+  only report the current recording's natural end (`playbackEnded`), and
+  callbacks tagged with an old `playbackId` are ignored.
 - **Hands** are `HeldItemsModule`'s (`src/homes/heldItems.ts`): the
   ceremony `reserveThali`s, gift exchange `take`s boxes, `returnTo`s them
   to their designated spots and `deliver`s them (swapping outbound for
