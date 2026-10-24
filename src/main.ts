@@ -2,6 +2,11 @@ import * as THREE from 'three';
 import RAPIER from '@dimforge/rapier3d-compat';
 import { FixedStep } from './core/fixedStep';
 import { createEveningScene } from './core/eveningScene';
+import { createGameEventBus } from './core/events';
+import { createDomControls } from './session/domControls';
+import { Input } from './session/input';
+import { Session } from './session/session';
+import { createStartScreen } from './session/startScreen';
 
 const SIM_STEP = 1 / 60;
 const MAX_STEPS_PER_FRAME = 5;
@@ -32,12 +37,28 @@ async function boot(): Promise<void> {
     renderer.setSize(window.innerWidth, window.innerHeight);
   });
 
+  const bus = createGameEventBus();
+  const session = new Session({ bus });
+  const input = new Input({ bus, enabled: false });
+  const controls = createDomControls({
+    input,
+    session,
+    bus,
+    element: renderer.domElement,
+    doc: document,
+    win: window,
+  });
+  createStartScreen({ parent: document.body, bus, onStart: () => controls.requestStart() });
+
   const loop = new FixedStep({ step: SIM_STEP, maxSteps: MAX_STEPS_PER_FRAME });
   const timer = new THREE.Timer();
 
   renderer.setAnimationLoop((time) => {
     timer.update(time);
-    const { steps } = loop.advance(timer.getDelta());
+    for (const action of input.drainActions()) {
+      if (action.type === 'pause') session.pause('user');
+    }
+    const { steps } = loop.advance(session.paused ? 0 : timer.getDelta());
     for (let i = 0; i < steps; i++) {
       physics.step();
     }
