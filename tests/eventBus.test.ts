@@ -106,6 +106,19 @@ describe('EventBus', () => {
     expect(listener).not.toHaveBeenCalled();
   });
 
+  it('counts listeners across every event', () => {
+    const bus = new EventBus<TestEvents>();
+    expect(bus.totalListenerCount()).toBe(0);
+    const offPing = bus.on('ping', () => undefined);
+    bus.on('ping', () => undefined);
+    bus.on('pong', () => undefined);
+    expect(bus.totalListenerCount()).toBe(3);
+    offPing();
+    expect(bus.totalListenerCount()).toBe(2);
+    bus.clear();
+    expect(bus.totalListenerCount()).toBe(0);
+  });
+
   it('carries typed game events', () => {
     const bus = createGameEventBus();
     const placed = vi.fn();

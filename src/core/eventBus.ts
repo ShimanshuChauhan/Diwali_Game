@@ -51,6 +51,13 @@ export class EventBus<Events extends object> {
     return this.listeners.get(event)?.size ?? 0;
   }
 
+  /** Listeners across every event, e.g. to check repeated visits do not leak subscriptions. */
+  totalListenerCount(): number {
+    let total = 0;
+    for (const set of this.listeners.values()) total += set.size;
+    return total;
+  }
+
   /** Remove every listener, e.g. when a session is torn down. */
   clear(): void {
     this.listeners.clear();

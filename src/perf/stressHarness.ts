@@ -45,7 +45,8 @@ export function stressPlanFromQuery(search: string): StressPlan | null {
   };
 }
 
-function viewportFrom(value: string | null): StressPlan['viewport'] {
+/** `1600x900` as a fixed canvas size, `window` to follow the window, 1280×720 otherwise. */
+export function viewportFrom(value: string | null): StressPlan['viewport'] {
   if (value === 'window') return null;
   const match = /^(\d+)x(\d+)$/.exec(value ?? '');
   const width = Number(match?.[1]);
@@ -64,6 +65,19 @@ export function stressLimits(level: QualityLevel): Record<CapacityResource, numb
     dynamicLights: profile.maxDynamicLights,
     audioVoices: profile.maxAudioVoices,
   };
+}
+
+/** The scripted worst-case play on the lane in front of the spawn, as the stress test runs it. */
+export function createStressScenario(
+  crackers: StressCrackers,
+  validatePlacement: (request: PlacementRequest) => PlacementResult,
+): StressScenario {
+  return new StressScenario({
+    crackers,
+    validatePlacement,
+    groundSites: stressSites(validatePlacement, 'anar', GROUND_AREA),
+    rocketSites: stressSites(validatePlacement, 'rocket', ROCKET_AREA, ROCKET_SPACING),
+  });
 }
 
 export interface StressHarnessOptions {
@@ -94,13 +108,8 @@ export interface StressHarness {
  * browser automation (see docs/performance.md).
  */
 export function createStressHarness(options: StressHarnessOptions): StressHarness {
-  const { validatePlacement, crackers, plan } = options;
-  const scenario = new StressScenario({
-    crackers,
-    validatePlacement,
-    groundSites: stressSites(validatePlacement, 'anar', GROUND_AREA),
-    rocketSites: stressSites(validatePlacement, 'rocket', ROCKET_AREA, ROCKET_SPACING),
-  });
+  const { plan } = options;
+  const scenario = createStressScenario(options.crackers, options.validatePlacement);
   const run = new StressRun({
     plan,
     setLevel: options.setLevel,

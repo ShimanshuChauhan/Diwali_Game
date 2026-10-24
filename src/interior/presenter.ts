@@ -78,15 +78,15 @@ export class LocationPresenter implements InteriorPresentationModule {
   }
 
   /**
-   * Show each interior in turn and hand it to `warm`, e.g. to compile its
-   * shaders before the first visit, then restore the shown location. Not
-   * counted as switches.
+   * Show each location in turn, the street first, and hand it to `warm`,
+   * e.g. to draw it once before the first visit; then restore the shown
+   * location. Not counted as switches.
    */
-  preload(warm: (home: HomeId) => void): void {
+  preload(warm: (location: LocationId) => void): void {
     const shown = this.active;
-    for (const home of this.interiors.keys()) {
-      this.show(home);
-      warm(home);
+    for (const location of ['outdoors', ...this.interiors.keys()] as const) {
+      this.show(location);
+      warm(location);
     }
     this.show(shown);
   }
