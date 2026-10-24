@@ -1,11 +1,16 @@
 import { crackerForSlot, type GameAction } from '../core/actions';
 import type { CameraView, InteractionModule, PlayerPose } from '../core/contracts';
 import type { GameEventBus } from '../core/events';
+import { TUNING } from '../core/tuning';
 import { isHandheld, type Vec3 } from '../core/types';
 import type { Crackers } from './crackers';
 
-/** How far ahead of the feet a click aims a ground cracker, metres. */
-export const PLACE_AHEAD = 1.5;
+/**
+ * Range of ground distances the view can aim a cracker at, metres. The far
+ * limit stays inside the interact range so a new cracker can be lit at once.
+ */
+export const PLACE_NEAREST = 0.8;
+export const PLACE_FARTHEST = 2.2;
 
 /** Held phuljhari offset from the feet: forward, up. */
 const HAND_FORWARD = 0.45;
@@ -19,8 +24,20 @@ export interface CrackerControlContext {
   readonly view: () => CameraView;
 }
 
-/** Ground point a click aims at: straight ahead of the player along `forward`. */
-export function aimPoint(feet: Vec3, forward: Vec3, distance = PLACE_AHEAD): Vec3 {
+/**
+ * Ground distance the view aims at: where a ray from eye height along
+ * `forward` meets the ground, so looking down places closer and looking
+ * ahead places farther. Level or upward views aim at the far limit.
+ */
+export function aimDistance(forward: Vec3, eyeHeight = TUNING.player.eyeHeight): number {
+  const level = Math.hypot(forward.x, forward.z);
+  if (forward.y >= 0) return PLACE_FARTHEST;
+  const distance = (eyeHeight * level) / -forward.y;
+  return Math.min(PLACE_FARTHEST, Math.max(PLACE_NEAREST, distance));
+}
+
+/** Ground point a click aims at: ahead of the player along `forward`, at `aimDistance`. */
+export function aimPoint(feet: Vec3, forward: Vec3, distance = aimDistance(forward)): Vec3 {
   const len = Math.hypot(forward.x, forward.z) || 1;
   return { x: feet.x + (forward.x / len) * distance, y: feet.y, z: feet.z + (forward.z / len) * distance };
 }

@@ -1,8 +1,10 @@
 export {
+  aimDistance,
   aimPoint,
   applyCrackerAction,
   handPositionFor,
-  PLACE_AHEAD,
+  PLACE_FARTHEST,
+  PLACE_NEAREST,
   type CrackerControlContext,
 } from './controls';
 export { Crackers, type CrackerAdmission, type CrackersOptions } from './crackers';

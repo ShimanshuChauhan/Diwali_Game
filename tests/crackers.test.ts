@@ -4,7 +4,10 @@ import { createGameEventBus, type GameEventBus, type GameEventName, type GameEve
 import { TUNING, type Tuning } from '../src/core/tuning';
 import { CRACKER_TYPES, type CrackerType, type Vec3 } from '../src/core/types';
 import {
+  aimDistance,
   aimPoint,
+  PLACE_FARTHEST,
+  PLACE_NEAREST,
   applyCrackerAction,
   BURST_PATTERNS,
   CRACKER_DEFINITIONS,
@@ -427,7 +430,7 @@ describe('cracker actions', () => {
     crackers.select('chakri');
     applyCrackerAction({ type: 'place' }, ctx);
     expect(ctx.requests).toEqual([aimPoint(v(0, 0, 0), v(0, 0, -1))]);
-    expect(crackers.list()).toMatchObject([{ type: 'chakri', state: 'placed', position: v(0, 0, -1.5) }]);
+    expect(crackers.list()).toMatchObject([{ type: 'chakri', state: 'placed', position: v(0, 0, -PLACE_FARTHEST) }]);
   });
 
   it('reports validation failures as placement rejections', () => {
@@ -459,5 +462,36 @@ describe('cracker actions', () => {
   it('passes other actions through', () => {
     const { crackers, bus } = setup();
     expect(applyCrackerAction({ type: 'move', forward: 1, right: 0 }, controlContext(crackers, bus))).toBe(false);
+  });
+});
+
+describe('aiming', () => {
+  const eye = 1.6;
+
+  it('aims where the view meets the ground', () => {
+    // 45 degrees down from 1.6 m reaches the ground 1.6 m ahead.
+    expect(aimDistance(v(0, -Math.SQRT1_2, -Math.SQRT1_2), eye)).toBeCloseTo(1.6);
+  });
+
+  it('aims at the far limit when looking level or up', () => {
+    expect(aimDistance(v(0, 0, -1), eye)).toBe(PLACE_FARTHEST);
+    expect(aimDistance(v(0, 0.5, -0.8), eye)).toBe(PLACE_FARTHEST);
+    expect(aimDistance(v(0, -0.2, -0.98), eye)).toBe(PLACE_FARTHEST);
+  });
+
+  it('keeps the farthest aim inside the interact range so new crackers can be lit at once', () => {
+    expect(PLACE_FARTHEST).toBeLessThan(TUNING.interaction.interactRange);
+  });
+
+  it('never aims closer than the near limit when looking straight down', () => {
+    expect(aimDistance(v(0, -1, 0), eye)).toBe(PLACE_NEAREST);
+  });
+
+  it('turning the view moves the aim point, so new spots are reachable without walking', () => {
+    const down = -Math.SQRT1_2;
+    const left = aimPoint(v(0, 0, 0), v(-Math.SQRT1_2, down, 0));
+    const ahead = aimPoint(v(0, 0, 0), v(0, down, -Math.SQRT1_2));
+    expect(left.x).toBeLessThan(-1);
+    expect(ahead.z).toBeLessThan(-1);
   });
 });
