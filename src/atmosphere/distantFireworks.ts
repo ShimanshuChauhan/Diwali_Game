@@ -22,6 +22,10 @@ export interface DistantFireworksOptions {
   readonly minBurstHeight: number;
   readonly maxBurstHeight: number;
   readonly random?: () => number;
+  /** Called as each shell launches from the ground at `x, z`, to burst at `height` after `rise` seconds. */
+  readonly onLaunch?: (x: number, z: number, height: number, rise: number) => void;
+  /** Called with each shell's position as it bursts, e.g. to play its boom. */
+  readonly onBurst?: (x: number, y: number, z: number) => void;
 }
 
 export const DISTANT_DEFAULTS: Omit<DistantFireworksOptions, 'capacity'> = {
@@ -196,6 +200,7 @@ export class DistantFireworks {
     shell.z = o.centreZ + Math.sin(angle) * radius;
     shell.colour = PALETTE[Math.floor(this.random() * PALETTE.length)]!;
     this.stats.launched++;
+    o.onLaunch?.(shell.x, shell.z, height, rise);
     // The riser: one warm spark climbing from the ground to the burst point.
     this.spawn(shell.x, 0, shell.z, 0, height / rise, 0, rise, 0xffc870, RISER_SIZE);
   }
@@ -209,6 +214,7 @@ export class DistantFireworks {
 
   private burst(shell: Shell): void {
     shell.bursting = true;
+    this.options.onBurst?.(shell.x, shell.y, shell.z);
     shell.timer = BURST_LIFE.max;
     const n = Math.min(this.budget.particlesPerShell, this.capacity - this.count);
     // A second colour on some shells for variety.

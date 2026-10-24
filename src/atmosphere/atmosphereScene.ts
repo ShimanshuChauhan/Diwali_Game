@@ -136,7 +136,17 @@ export class Atmosphere {
     this.horizon = createHorizonGlow();
     this.object.add(this.horizon);
 
-    this.distant = new DistantFireworks({ capacity: MAX_DISTANT_PARTICLES, random: this.random });
+    const bus = options.bus;
+    this.distant = new DistantFireworks({
+      capacity: MAX_DISTANT_PARTICLES,
+      random: this.random,
+      // Let the audio whistle and boom each shell the player sees on the horizon.
+      onLaunch: bus
+        ? (x, z, height, rise) =>
+            bus.emit('distantLaunch', { position: { x, y: 0, z }, apex: { x, y: height, z }, rise })
+        : undefined,
+      onBurst: bus ? (x, y, z) => bus.emit('distantBurst', { position: { x, y, z } }) : undefined,
+    });
     const d = this.distant;
     this.sparkAttributes = [
       new THREE.BufferAttribute(d.positions, 3).setUsage(THREE.DynamicDrawUsage),
