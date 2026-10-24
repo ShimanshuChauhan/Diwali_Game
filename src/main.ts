@@ -17,7 +17,7 @@ import { DiyaScene, Diyas } from './diyas';
 import { createEffectsDemo } from './effects/effectsDemo';
 import { EffectsRenderer } from './effects/effectsRenderer';
 import { FireworksEffects } from './effects/fireworksEffects';
-import { HeldItems, homesResetHooks, registerHomesReset } from './homes';
+import { allowedDuringFade, createFadeOverlay, HeldItems, homesResetHooks, Locations, registerHomesReset } from './homes';
 import { Interaction } from './interaction';
 import { createPlacementGhost } from './interaction/ghost';
 import { NeighbourScene, Neighbours } from './neighbours';
@@ -121,6 +121,7 @@ async function boot(): Promise<void> {
   createStartScreen({ parent: document.body, bus, onStart: () => controls.requestStart(), showWhenPaused: false });
   const hud = new HudModel({ bus });
   const hudView = createHud(document.body, hud);
+  const doorFade = createFadeOverlay(document.body);
 
   const atmosphere = new Atmosphere({ scene, layout: world.layout, profile: quality.profile, renderer, bus });
   atmosphere.setViewport(renderer.domElement.height, camera);
@@ -162,7 +163,9 @@ async function boot(): Promise<void> {
   });
   const crackers = new Crackers({ bus, admission: capacity, handPosition });
   const heldItems = new HeldItems({ bus, crackers });
-  registerHomesReset(session, homesResetHooks({ heldItems }));
+  // Interiors (#55) move the player to the arrival pose through `onArrive`.
+  const locations = new Locations({ bus, hands: heldItems });
+  registerHomesReset(session, homesResetHooks({ heldItems, locations }));
   const interaction = new Interaction({
     world,
     crackers: () => crackers.list(),
@@ -250,6 +253,7 @@ async function boot(): Promise<void> {
   renderer.setAnimationLoop((time) => {
     timer.update(time);
     for (const action of input.drainActions()) {
+      if (locations.controlsLocked && !allowedDuringFade(action)) continue;
       if (action.type === 'pause') session.pause('user');
       else if (action.type === 'look') rig.look(action.dx, action.dy);
       else if (action.type === 'toggleCamera') rig.toggleMode();
@@ -264,7 +268,8 @@ async function boot(): Promise<void> {
     // its own bus and keeps real time so it needs no click to start.
     const { steps } = loop.advance(session.paused ? 0 : delta);
     for (let i = 0; i < steps; i++) {
-      player.move(movement.intent(rig.yaw), SIM_STEP);
+      const intent = movement.intent(rig.yaw);
+      player.move(locations.controlsLocked ? { ...intent, forward: 0, right: 0 } : intent, SIM_STEP);
       physics.step();
       stress?.update(SIM_STEP);
       crackers.update(SIM_STEP);
@@ -274,6 +279,7 @@ async function boot(): Promise<void> {
       atmosphere.update(SIM_STEP);
       diyaScene.update(SIM_STEP);
       neighbours.update(SIM_STEP);
+      locations.update(SIM_STEP);
     }
     if (effectsDemo) {
       const demo = demoLoop.advance(delta);
@@ -318,6 +324,7 @@ async function boot(): Promise<void> {
     hud.setContext({ interactable, interactableType, held: crackers.held, placement });
     hud.update(delta);
     hudView.sync();
+    doorFade.set(locations.fadeOpacity);
     pipeline.render();
     frames.record(delta);
     perfOverlay.frame(delta);
