@@ -21,8 +21,17 @@ import { DiyaScene, Diyas } from './diyas';
 import { createEffectsDemo } from './effects/effectsDemo';
 import { EffectsRenderer } from './effects/effectsRenderer';
 import { FireworksEffects } from './effects/fireworksEffects';
+import { FAMILY_GIFT_DIALOGUE, GiftExchange, GiftReactions, GiftScene, HOST_GIFT_DIALOGUE } from './gifts';
 import { allowedDuringFade, createFadeOverlay, HeldItems, homesResetHooks, Locations, registerHomesReset } from './homes';
-import { createSubtitles, Household, Households, HouseholdScene, NeighbourHosts, subtitlesFor } from './household';
+import {
+  createSubtitles,
+  HOST_DIALOGUE,
+  Household,
+  Households,
+  HouseholdScene,
+  NeighbourHosts,
+  subtitlesFor,
+} from './household';
 import { applyHomeAction, HOME_SPOTS, Interaction } from './interaction';
 import {
   addInteriorColliders,
@@ -207,14 +216,22 @@ async function boot(): Promise<void> {
   bus.on('locationChanged', ({ to }) => {
     if (to === 'familyHome') for (const song of AARTI_SONG_IDS) aartiAudio.load(song).catch(() => undefined);
   });
-  const family = new Household({ bus, layout: familyHome, dialogue: FAMILY_SWEETS_DIALOGUE });
-  const hosts = new NeighbourHosts({ bus, layout: neighbourHome, hands: heldItems });
+  const family = new Household({ bus, layout: familyHome, dialogue: { ...FAMILY_SWEETS_DIALOGUE, ...FAMILY_GIFT_DIALOGUE } });
+  const hosts = new NeighbourHosts({
+    bus,
+    layout: neighbourHome,
+    hands: heldItems,
+    dialogue: { ...HOST_DIALOGUE, ...HOST_GIFT_DIALOGUE },
+  });
   const household = new Households([family, hosts]);
   const sweetsReactions = new SweetsReactions({ bus, household: family });
   session.register(sweetsReactions);
+  const gifts = new GiftExchange({ bus, hands: heldItems, location: () => locations.location });
+  const giftReactions = new GiftReactions({ bus, household, location: () => locations.location });
+  session.register(giftReactions);
   registerHomesReset(
     session,
-    homesResetHooks({ heldItems, locations, aartiCeremony: ceremony, aartiAudio, household }),
+    homesResetHooks({ heldItems, locations, aartiCeremony: ceremony, aartiAudio, household, giftExchange: gifts }),
   );
   // Participants keep facing the puja as they join it; the view looks round freely.
   let aartiFacing = 0;
@@ -235,10 +252,10 @@ async function boot(): Promise<void> {
     hands: () => heldItems.hands,
     aarti: () => ceremony.snapshot,
     members: () => household.members(),
+    gifts: () => gifts.boxes(),
     spots: { ...HOME_SPOTS, familyHome: familyHomeSpots(familyHome), neighbourHome: neighbourHomeSpots(neighbourHome) },
   });
-  // Gift exchange (#66) joins here when it lands.
-  const homeActions = { locations, ceremony, hands: heldItems, household, hosts };
+  const homeActions = { locations, ceremony, hands: heldItems, gifts, household, hosts };
   // Room for the placed cap plus crackers still burning after being lit.
   const props = new CrackerProps(TUNING.caps.maxPlacedCrackers + TUNING.caps.maxLitCrackers);
   scene.add(props.object);
@@ -286,6 +303,13 @@ async function boot(): Promise<void> {
   const neighbourHomeScene = buildInteriorScene(neighbourHome, interiorAssets);
   scene.add(neighbourHomeScene.root);
   const hostsScene = new HouseholdScene({ household: hosts, layout: neighbourHome, parent: neighbourHomeScene.root, assets: interiorAssets });
+  const giftScene = new GiftScene({
+    assets: interiorAssets,
+    familyHome: familyHomeScene.root,
+    neighbourHome: neighbourHomeScene.root,
+    held: scene,
+    places: { outboundSpot: familyHomeSpots(familyHome).giftSpot!, returnSpot: neighbourHome.giftSpot, table: familyHome.giftTable },
+  });
   const subtitles = createSubtitles(document.body);
   // In hand in either location, like the phuljhari, so it is not part of the street.
   const thali = new Thali();
@@ -379,6 +403,7 @@ async function boot(): Promise<void> {
       ceremony.update(SIM_STEP);
       household.update(SIM_STEP);
       sweetsReactions.update(SIM_STEP);
+      giftReactions.update(SIM_STEP);
     }
     const aarti = ceremony.snapshot;
     aartiAudio.sync(aarti);
@@ -391,9 +416,10 @@ async function boot(): Promise<void> {
     } else {
       const shown = session.paused ? 0 : delta;
       thaliMotion = aarti.participating ? stepThali(thaliMotion, aarti.circling, shown) : THALI_REST;
-      // The sharing plate is carried in the thali's rest hold.
+      // The sharing plate and a gift box are carried in the thali's rest hold.
       const carryingPlate = heldItems.hands?.kind === 'sweetsPlate';
-      character.holdAt(aarti.participating || carryingPlate ? thaliPalm(thaliMotion, thaliPalmTarget) : null);
+      const carrying = carryingPlate || heldItems.hands?.kind === 'giftBox';
+      character.holdAt(aarti.participating || carrying ? thaliPalm(thaliMotion, thaliPalmTarget) : null);
       character.update(player.pose, player.speed, rig.mode, shown);
       const { position: eye, forward } = rig.update(player.pose, delta);
       camera.position.set(eye.x, eye.y, eye.z);
@@ -417,6 +443,7 @@ async function boot(): Promise<void> {
         { served: heldItems.trayServed, carrying: carryingPlate },
         { center: plateCenter, yaw: firstPerson ? rig.yaw : player.pose.yaw },
       );
+      giftScene.frame(gifts.boxes(), { center: plateCenter, yaw: firstPerson ? rig.yaw : player.pose.yaw });
       const held = crackers.held;
       const direction =
         rig.mode === 'firstPerson' ? firstPersonStick(camera, stickDirection) : heldStick(player.pose.yaw, stickDirection);
@@ -465,6 +492,7 @@ async function boot(): Promise<void> {
         sparklerLit: crackers.held?.lit ?? false,
         trayServed: heldItems.trayServed,
         aarti,
+        exchanged: gifts.exchanged,
         doorway: (id) => locations.doorway(id),
       },
     });
