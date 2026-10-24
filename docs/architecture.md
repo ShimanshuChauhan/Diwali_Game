@@ -130,6 +130,15 @@ Ownership rules:
   player moved through `onArrive` at the midpoint. A carried plate blocks
   leaving the family home; gift boxes pass. Crackers and capacity keep
   stepping wherever the player is, so outdoor lifecycles carry on.
+- **Interiors** are `src/interior/`'s: each home is a box layout
+  (`familyHome.ts`) whose colliders join the street's physics world once at
+  boot, and whose meshes share one `InteriorAssets` geometry and material
+  set. `onArrive` teleports the player into the room's bounds and faces the
+  camera; `LocationPresenter` then shows only the active location by
+  visibility (nothing is built or disposed per visit) and the loop skips the
+  street's per-frame presentation while indoors. Layouts also carry the
+  anchors later issues build on: interaction stands, family gathering
+  places and seats, the thali and the gift spots.
 - **Gift progression** is `GiftExchangeModule`'s. It listens for
   `aartiCompleted` to release a pending acknowledgement.
 - Household state progresses whether or not its home is the active

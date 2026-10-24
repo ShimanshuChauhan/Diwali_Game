@@ -171,6 +171,17 @@ export class CameraRig implements CameraModule {
     return this.view(position, forward);
   }
 
+  /**
+   * Look along `yaw`, level, e.g. at a door fade's arrival pose. The mode is
+   * kept; the third-person boom is re-resolved from scratch at the new spot.
+   */
+  face(yaw: number): void {
+    if (!Number.isFinite(yaw)) return;
+    this.currentYaw = wrapAngle(yaw);
+    this.currentPitch = 0;
+    this.boom = -1;
+  }
+
   /** Back to the default mode and the spawn facing for a fresh visit. */
   reset(): void {
     this.currentYaw = this.spawnYaw;

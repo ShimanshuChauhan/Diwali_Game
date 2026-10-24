@@ -19,6 +19,14 @@ import { EffectsRenderer } from './effects/effectsRenderer';
 import { FireworksEffects } from './effects/fireworksEffects';
 import { allowedDuringFade, createFadeOverlay, HeldItems, homesResetHooks, Locations, registerHomesReset } from './homes';
 import { Interaction } from './interaction';
+import {
+  addInteriorColliders,
+  buildInteriorScene,
+  createFamilyHomeLayout,
+  doorInReach,
+  InteriorAssets,
+  LocationPresenter,
+} from './interior';
 import { createPlacementGhost } from './interaction/ghost';
 import { NeighbourScene, Neighbours } from './neighbours';
 import { MovementIntentTracker, PlayerCharacter, PlayerController } from './player';
@@ -57,6 +65,8 @@ async function boot(): Promise<void> {
   physics.timestep = SIM_STEP;
   const world = createWorld();
   addWorldColliders(physics, world.solids);
+  const familyHome = createFamilyHomeLayout();
+  addInteriorColliders(physics, familyHome);
   physics.step(); // put the static colliders in the broad phase before the player queries it
 
   const stressPlan = stressPlanFromQuery(location.search);
@@ -163,8 +173,14 @@ async function boot(): Promise<void> {
   });
   const crackers = new Crackers({ bus, admission: capacity, handPosition });
   const heldItems = new HeldItems({ bus, crackers });
-  // Interiors (#55) move the player to the arrival pose through `onArrive`.
-  const locations = new Locations({ bus, hands: heldItems });
+  const locations = new Locations({
+    bus,
+    hands: heldItems,
+    onArrive: (arrival, to) => {
+      player.teleport(arrival, to === 'familyHome' ? familyHome.bounds : world.bounds);
+      rig.face(arrival.yaw);
+    },
+  });
   registerHomesReset(session, homesResetHooks({ heldItems, locations }));
   const interaction = new Interaction({
     world,
@@ -210,6 +226,20 @@ async function boot(): Promise<void> {
     window.addEventListener('resize', () => effectsView.setViewport(renderer.domElement.height, camera));
     bus.on('qualityChanged', () => effectsView.syncLightCount());
   }
+
+  // Everything added so far, bar the player's own body and phuljhari, is the street.
+  const outdoor = scene.children.filter((child) => child !== character.object && child !== sparkler.object);
+  const interiorAssets = new InteriorAssets();
+  const familyHomeScene = buildInteriorScene(familyHome, interiorAssets);
+  scene.add(familyHomeScene.root);
+  const presenter = new LocationPresenter({
+    outdoor,
+    interiors: [familyHomeScene],
+    profile: quality.profile,
+    fade: (opacity) => doorFade.set(opacity),
+  });
+  bus.on('qualityChanged', ({ profile }) => presenter.applyQuality(profile));
+  presenter.preload(() => renderer.compile(scene, camera));
 
   // `?stress` runs the scripted performance test (docs/performance.md).
   const stress = stressPlan
@@ -259,7 +289,13 @@ async function boot(): Promise<void> {
       else if (action.type === 'toggleCamera') rig.toggleMode();
       else if (action.type === 'interact') {
         const target = interaction.findInteractable(crackerControls.view());
-        if (target?.kind === 'diya') diyas.light(target.id);
+        const door = target
+          ? null
+          : doorInReach(locations.doorwaysHere(), player.pose.position, TUNING.homes.doorRange, (d) =>
+              d.destination === 'outdoors' ? true : presenter.has(d.destination),
+            );
+        if (door) locations.requestTransition(door.id);
+        else if (target?.kind === 'diya') diyas.light(target.id);
         else applyCrackerAction(action, crackerControls);
       } else if (!applyCrackerAction(action, crackerControls)) movement.apply(action);
     }
@@ -281,6 +317,8 @@ async function boot(): Promise<void> {
       neighbours.update(SIM_STEP);
       locations.update(SIM_STEP);
     }
+    presenter.activate(locations.location);
+    const outdoors = presenter.active === 'outdoors';
     if (effectsDemo) {
       const demo = demoLoop.advance(delta);
       for (let i = 0; i < demo.steps; i++) effectsDemo.update(SIM_STEP);
@@ -302,9 +340,12 @@ async function boot(): Promise<void> {
     }
     effects?.setViewpoint(camera.position);
     effectsView?.sync();
-    atmosphere.frame();
-    diyaScene.frame(camera.position);
-    neighbourScene.frame(session.paused ? 0 : delta);
+    // Only the shown location's presentation runs; their simulations keep stepping above.
+    if (outdoors) {
+      atmosphere.frame();
+      diyaScene.frame(camera.position);
+      neighbourScene.frame(session.paused ? 0 : delta);
+    } else presenter.frame(session.paused ? 0 : delta);
     camera.getWorldDirection(listenerForward);
     const view = { mode: rig.mode, position: camera.position, forward: listenerForward, yaw: rig.yaw, pitch: rig.pitch };
     audio.setListener(view);
@@ -316,7 +357,7 @@ async function boot(): Promise<void> {
     const interactableType =
       interactable?.kind === 'cracker' ? crackers.list().find((c) => c.id === interactable.id)?.type : undefined;
     const placement =
-      session.paused || isHandheld(selected)
+      session.paused || !outdoors || isHandheld(selected)
         ? null
         : interaction.previewPlacement({ type: selected, playerPosition: feet, target: aimPoint(feet, view.forward) });
     // At an unlit cracker, E comes first: a red ghost over it would only read as an error.
@@ -324,7 +365,7 @@ async function boot(): Promise<void> {
     hud.setContext({ interactable, interactableType, held: crackers.held, placement });
     hud.update(delta);
     hudView.sync();
-    doorFade.set(locations.fadeOpacity);
+    presenter.setFade(locations.fadeOpacity);
     pipeline.render();
     frames.record(delta);
     perfOverlay.frame(delta);
