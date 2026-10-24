@@ -13,6 +13,7 @@ import { applyCrackerAction, Crackers, handPositionFor } from './crackers';
 import { DiyaScene, Diyas } from './diyas';
 import { createEffectsDemo } from './effects/effectsDemo';
 import { Interaction } from './interaction';
+import { NeighbourScene, Neighbours } from './neighbours';
 import { MovementIntentTracker, PlayerController } from './player';
 import { createDomControls } from './session/domControls';
 import { Input } from './session/input';
@@ -84,7 +85,10 @@ async function boot(): Promise<void> {
   const diyas = new Diyas({ sites: world.diyaSites, bus });
   const diyaScene = new DiyaScene({ scene, diyas, profile: qualityProfile(DEFAULT_QUALITY), bus });
 
-  const audio = new AudioEngine({ bus });
+  const neighbours = new Neighbours({ areas: world.neighbourAreas, bus });
+  const neighbourScene = new NeighbourScene({ scene, neighbours });
+
+  const audio = new AudioEngine({ bus, neighbourPosition: (id) => neighbours.positionOf(id) });
   unlockOnFirstGesture(window, audio);
   // Stand-in quality setting until the quality module lands.
   let quality = qualityProfile(DEFAULT_QUALITY);
@@ -114,6 +118,7 @@ async function boot(): Promise<void> {
     crackers: () => crackers.list(),
     playerPosition: () => player.pose.position,
     isDiyaUsable: (id) => !diyas.isLit(id),
+    neighbours: () => neighbours.positions(),
   });
   const crackerControls = {
     crackers,
@@ -158,6 +163,7 @@ async function boot(): Promise<void> {
       audio.update(SIM_STEP);
       atmosphere.update(SIM_STEP);
       diyaScene.update(SIM_STEP);
+      neighbours.update(SIM_STEP);
     }
     if (effectsDemo) {
       const demo = demoLoop.advance(delta);
@@ -170,6 +176,7 @@ async function boot(): Promise<void> {
     }
     atmosphere.frame();
     diyaScene.frame(camera.position);
+    neighbourScene.frame(session.paused ? 0 : delta);
     camera.getWorldDirection(listenerForward);
     const view = { mode: rig.mode, position: camera.position, forward: listenerForward, yaw: rig.yaw, pitch: rig.pitch };
     audio.setListener(view);
