@@ -481,7 +481,7 @@ export class FireworksEngine {
     if (preset.crackle) this.crackle(index, emitter, preset, dt);
   }
 
-  /** Short-lived white-hot sparks at a fountain's mouth (anar). */
+  /** Short-lived white-hot sparks at a fountain's mouth or a rocket's head. */
   private emitNozzle(index: number, emitter: EmitterSlot, preset: EmitterPreset, nozzle: NozzleSpec, dt: number): void {
     emitter.glowCarry += nozzle.rate * this.countScale * dt;
     const n = Math.floor(emitter.glowCarry);
@@ -494,6 +494,11 @@ export class FireworksEngine {
       this.coneDirection(preset, 0, dir);
       const speed = lerp(nozzle.speed.min, nozzle.speed.max, this.random());
       this.fillSpec(index, emitter, preset, dir[0]! * speed, dir[1]! * speed, dir[2]! * speed, 0, 1);
+      // Ride with a moving source (a rocket's head) instead of lagging behind it.
+      const follow = 1 - preset.inherit;
+      spec.vx += emitter.vx * follow;
+      spec.vy += emitter.vy * follow;
+      spec.vz += emitter.vz * follow;
       spec.y = emitter.y + nozzle.height;
       spec.life = lerp(nozzle.life.min, nozzle.life.max, this.random());
       spec.r0 = hot[0]! * nozzle.brightness;

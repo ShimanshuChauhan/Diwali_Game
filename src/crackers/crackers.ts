@@ -264,7 +264,11 @@ export class Crackers implements CrackersModule {
         if (record.stateTime < fuse) return;
         record.stateTime -= fuse;
         record.state = 'active';
-        this.bus.emit('crackerActive', { id: record.id, type: record.type, position: { ...record.position } });
+        const variant = record.variant;
+        const flight = variant
+          ? { ascent: variant.ascent, apexHeight: variant.apexHeight, drift: variant.drift }
+          : undefined;
+        this.bus.emit('crackerActive', { id: record.id, type: record.type, position: { ...record.position }, flight });
       } else if (record.state === 'active') {
         if (record.stateTime < record.activeDuration) return;
         record.stateTime -= record.activeDuration;
@@ -282,7 +286,7 @@ export class Crackers implements CrackersModule {
     if (variant) {
       this.bus.emit('burst', {
         id,
-        position: { x: position.x, y: position.y + variant.apexHeight, z: position.z },
+        position: { x: position.x + variant.drift.x, y: position.y + variant.apexHeight, z: position.z + variant.drift.z },
         pattern: variant.pattern,
         colours: variant.colours,
       });

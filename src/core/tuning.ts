@@ -106,7 +106,7 @@ export const TUNING: Tuning = {
   crackers: {
     fuse: { phuljhari: 0.5, anar: 2.5, chakri: 2, rocket: 3 },
     activeDuration: { phuljhari: 30, anar: 8, chakri: 6, rocket: 1.8 },
-    rocketApexHeight: 40,
+    rocketApexHeight: 30,
   },
   caps: {
     maxPlacedCrackers: 12,

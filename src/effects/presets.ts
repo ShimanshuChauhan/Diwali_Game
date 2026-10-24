@@ -70,7 +70,7 @@ export interface EmitterPreset {
   readonly brightness?: number;
   /** Brief bright sprite at the heart of a burst: the bang. */
   readonly core?: CoreSpec;
-  /** White-hot sparks hugging the mouth of a ground fountain (anar). */
+  /** White-hot sparks at a fountain's mouth (anar) or a rocket's head. */
   readonly nozzle?: NozzleSpec;
 }
 
@@ -175,26 +175,41 @@ export interface WanderSpec {
 const UP = { x: 0, y: 1, z: 0 } as const;
 const DOWN = { x: 0, y: -1, z: 0 } as const;
 
-/** Rocket exhaust: short warm sparks left behind the rising rocket. */
+/**
+ * Rocket exhaust: a white-hot head riding the rocket, and fine golden
+ * streaks thrown back from it that droop and fade to embers, so the climb
+ * draws a soft, falling trail rather than a straight line.
+ */
 export const ROCKET_TRAIL: EmitterPreset = {
   kind: 'stream',
   count: 0,
-  rate: 260,
+  rate: 380,
   duration: Infinity,
-  speed: { min: 0.5, max: 2.5 },
-  life: { min: 0.35, max: 0.8 },
+  speed: { min: 1.5, max: 4 },
+  life: { min: 0.45, max: 1 },
   direction: DOWN,
-  spread: 0.35,
+  spread: 0.45,
   spin: 0,
-  gravity: 0.25,
-  drag: 1.5,
-  size0: 0.22,
-  size1: 0.05,
+  gravity: 0.7,
+  drag: 1.6,
+  size0: 0.12,
+  size1: 0.03,
   flicker: 0.5,
-  fade: 0.2,
-  endColour: 0x802000,
-  inherit: 0.15,
-  colours: [0xffc870, 0xffe2a8],
+  fade: 0.25,
+  endColour: 0x902808,
+  inherit: 0.1,
+  colours: [0xffc870, 0xffe2a8, 0xffa040],
+  tail: { count: 1, step: 0.25, fade: 0.6 },
+  brightness: 1.4,
+  nozzle: {
+    rate: 90,
+    speed: { min: 0, max: 0.4 },
+    life: { min: 0.05, max: 0.09 },
+    size: 0.32,
+    height: 0,
+    colour: 0xfff4d6,
+    brightness: 3,
+  },
 };
 
 /** Fuse sparkle: a few tiny sparks while the fuse burns. */
@@ -350,7 +365,7 @@ export const SKY_BURST: EmitterPreset = {
   count: 200,
   rate: 0,
   duration: 0,
-  speed: { min: 19, max: 23 },
+  speed: { min: 16, max: 19.5 },
   life: { min: 2.6, max: 3.4 },
   direction: UP,
   spread: Math.PI,
@@ -363,10 +378,10 @@ export const SKY_BURST: EmitterPreset = {
   fade: 0.9,
   inherit: 0,
   colours: [0xff4f6d, 0xffd34f, 0x4fb6ff],
-  flash: { peak: 3000, range: 70, duration: 0.6 },
+  flash: { peak: 700, range: 55, duration: 0.5 },
   tail: { count: 6, step: 0.028, fade: 0.72 },
   brightness: 1.35,
-  core: { size: 9, life: 0.22, colour: 0xfff6e0, brightness: 3 },
+  core: { size: 3.5, life: 0.14, colour: 0xfff6e0, brightness: 1.8 },
 };
 
 /** Per-pattern changes applied on top of `SKY_BURST`. */

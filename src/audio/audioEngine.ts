@@ -205,10 +205,18 @@ export class AudioEngine implements AudioModule, Steppable {
       bus.on('fuseLit', ({ id, type, position }) => {
         this.playFor(id, 'fuseHiss', { position, duration: crackers.fuse[type] });
       }),
-      bus.on('crackerActive', ({ id, type, position }) => {
+      bus.on('crackerActive', ({ id, type, position, flight }) => {
         this.stopCracker(id);
-        const duration = crackers.activeDuration[type];
-        const moveTo = type === 'rocket' ? { ...position, y: position.y + crackers.rocketApexHeight } : undefined;
+        const duration = flight?.ascent ?? crackers.activeDuration[type];
+        // The whistle rises to where the rocket will burst.
+        const moveTo =
+          type === 'rocket'
+            ? {
+                x: position.x + (flight?.drift.x ?? 0),
+                y: position.y + (flight?.apexHeight ?? crackers.rocketApexHeight),
+                z: position.z + (flight?.drift.z ?? 0),
+              }
+            : undefined;
         this.playFor(id, ACTIVE_SOUND[type], { position, duration, moveTo });
       }),
       bus.on('crackerFinished', ({ id }) => this.stopCracker(id)),
