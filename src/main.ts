@@ -3,6 +3,9 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import { FixedStep } from './core/fixedStep';
 import { createEveningScene } from './core/eveningScene';
 import { createGameEventBus } from './core/events';
+import { AudioEngine } from './audio/audioEngine';
+import { unlockOnFirstGesture } from './audio/controls';
+import { createEffectsDemo } from './effects/effectsDemo';
 import { createDomControls } from './session/domControls';
 import { Input } from './session/input';
 import { Session } from './session/session';
@@ -50,7 +53,15 @@ async function boot(): Promise<void> {
   });
   createStartScreen({ parent: document.body, bus, onStart: () => controls.requestStart() });
 
+  const audio = new AudioEngine({ bus });
+  unlockOnFirstGesture(window, audio);
+  const listenerForward = new THREE.Vector3();
+  const effectsDemo = new URLSearchParams(location.search).has('effects-demo')
+    ? createEffectsDemo(scene, camera, renderer)
+    : null;
+
   const loop = new FixedStep({ step: SIM_STEP, maxSteps: MAX_STEPS_PER_FRAME });
+  const demoLoop = new FixedStep({ step: SIM_STEP, maxSteps: MAX_STEPS_PER_FRAME });
   const timer = new THREE.Timer();
 
   renderer.setAnimationLoop((time) => {
@@ -58,10 +69,21 @@ async function boot(): Promise<void> {
     for (const action of input.drainActions()) {
       if (action.type === 'pause') session.pause('user');
     }
-    const { steps } = loop.advance(session.paused ? 0 : timer.getDelta());
+    const delta = timer.getDelta();
+    // The game sim freezes while paused; the effects stress demo runs on
+    // its own bus and keeps real time so it needs no click to start.
+    const { steps } = loop.advance(session.paused ? 0 : delta);
     for (let i = 0; i < steps; i++) {
       physics.step();
+      audio.update(SIM_STEP);
     }
+    if (effectsDemo) {
+      const demo = demoLoop.advance(delta);
+      for (let i = 0; i < demo.steps; i++) effectsDemo.update(SIM_STEP);
+      effectsDemo.frame(delta);
+    }
+    camera.getWorldDirection(listenerForward);
+    audio.setListener({ mode: 'firstPerson', position: camera.position, forward: listenerForward, yaw: 0, pitch: 0 });
     renderer.render(scene, camera);
   });
 
