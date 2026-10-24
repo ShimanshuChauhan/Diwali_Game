@@ -1,9 +1,20 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { createGameEventBus } from '../src/core/events';
-import { FAMILY_MEMBERS, type FamilyMemberId, type Gesture } from '../src/core/homes';
-import { gesturePose, Household, HouseholdScene, householdPose, seatHeight, type HouseholdMemberView } from '../src/household';
-import { createFamilyHomeLayout, InteriorAssets } from '../src/interior';
+import { FAMILY_MEMBERS, type FamilyMemberId, type Gesture, type HouseholdActivity } from '../src/core/homes';
+import { TUNING } from '../src/core/tuning';
+import {
+  gesturePose,
+  holdsPlate,
+  Household,
+  HouseholdScene,
+  householdPose,
+  NeighbourHosts,
+  seatHeight,
+  type HouseholdMemberView,
+} from '../src/household';
+import { createFamilyHomeLayout, createNeighbourHomeLayout, InteriorAssets } from '../src/interior';
+import { PLATE_RADIUS } from '../src/sweets/sweetsScene';
 import { Figure } from '../src/people/figure';
 import { FAMILY_LOOKS } from '../src/household/looks';
 
@@ -37,6 +48,12 @@ function hands(root: THREE.Object3D): THREE.Vector3[] {
     out.push(o.parent!.localToWorld(new THREE.Vector3(0, -0.27, 0)));
   });
   return out;
+}
+
+/** True for a mesh on one of the household's mithai plates. */
+function onPlate(o: THREE.Object3D): boolean {
+  for (let p: THREE.Object3D | null = o; p; p = p.parent) if (p.name === 'household.plate') return true;
+  return false;
 }
 
 function headY(root: THREE.Object3D): number {
@@ -73,15 +90,21 @@ describe('household presentation', () => {
     for (const id of FAMILY_MEMBERS) expect(figure(id)).toBeDefined();
     let meshes = 0;
     const materials = new Set<THREE.Material>();
+    const plateGeometries = new Set<THREE.BufferGeometry>();
     parent.traverse((o) => {
-      if (o instanceof THREE.Mesh) {
-        meshes++;
-        materials.add(o.material as THREE.Material);
+      if (!(o instanceof THREE.Mesh)) return;
+      if (onPlate(o)) {
+        plateGeometries.add(o.geometry);
+        return;
       }
+      meshes++;
+      materials.add(o.material as THREE.Material);
     });
     // About a dozen draw calls a person, all on the figures' one material, plus the bell.
     expect(meshes).toBeLessThanOrEqual(FAMILY_MEMBERS.length * 12 + 1);
     expect(materials.size).toBeLessThanOrEqual(2);
+    // Every member's plate is drawn from one set of shapes: the disc, a ladoo and a barfi.
+    expect(plateGeometries.size).toBe(3);
   });
 
   it('tells the grandparents and the child apart at a glance', () => {
@@ -223,5 +246,108 @@ describe('household gestures read from the silhouette (legible on Low)', () => {
     expect(seated.bob).toBe(-0.4);
     expect(seated.leftKnee).toBeGreaterThan(1);
     expect(seated.rightArm).toBeGreaterThan(1);
+  });
+});
+
+describe('a plate of mithai in the hands of whoever offers it', () => {
+  const GESTURES: Gesture[] = ['namaste', 'blessing', 'hug', 'tease', 'wave', 'clap', 'offerMithai', 'cheekPinch'];
+  const plateOf = (root: THREE.Object3D) => root.getObjectByName('household.plate')!;
+
+  /** The plate rests level on top of both hands, centred between them, with both palms under its disc. */
+  function expectOnHands(root: THREE.Object3D): void {
+    const plate = plateOf(root);
+    const [left, right] = hands(root);
+    const scale = root.scale.x;
+    const at = plate.getWorldPosition(new THREE.Vector3());
+    const between = left!.clone().add(right!).multiplyScalar(0.5);
+    const top = Math.max(left!.y, right!.y);
+    expect(Math.hypot(at.x - between.x, at.z - between.z)).toBeLessThan(0.05 * scale);
+    expect(at.y).toBeGreaterThan(top);
+    expect(at.y).toBeLessThan(top + 0.08 * scale);
+    expect(left!.distanceTo(right!)).toBeLessThan(PLATE_RADIUS * 2 * scale);
+    const up = new THREE.Vector3(0, 1, 0).applyQuaternion(plate.getWorldQuaternion(new THREE.Quaternion()));
+    expect(up.y).toBeGreaterThan(0.999);
+  }
+
+  it('holds one exactly while the arms offer mithai: an offering line, or serving the tray between lines', () => {
+    const view = (activity: HouseholdActivity, gesture?: Gesture) => ({
+      activity,
+      line: gesture ? { member: 'mother' as const, text: 'Lo beta', gesture, duration: 3 } : null,
+    });
+    const activities: HouseholdActivity[] = ['gathered', 'idle', 'praying', 'clapping', 'ringingBell', 'serving', 'seated', 'greeting'];
+    for (const activity of activities) {
+      expect(holdsPlate(view(activity, 'offerMithai')), activity).toBe(true);
+      for (const gesture of GESTURES.filter((g) => g !== 'offerMithai')) {
+        expect(holdsPlate(view(activity, gesture)), `${activity} ${gesture}`).toBe(false);
+      }
+      expect(holdsPlate(view(activity)), activity).toBe(activity === 'serving');
+    }
+  });
+
+  it('keeps the decision renderer-free, beside the poses and dialogue it follows', () => {
+    const sources = import.meta.glob<string>(
+      ['../src/household/poses.ts', '../src/household/*ialogue.ts', '../src/household/hosts.ts', '../src/sweets/dialogue.ts'],
+      { query: '?raw', import: 'default', eager: true },
+    );
+    expect(Object.keys(sources).length).toBe(5);
+    for (const [file, source] of Object.entries(sources)) expect(source, file).not.toMatch(/from\s+['"](three|@dimforge\/)/);
+  });
+
+  it("puts the plate in Mummy's hands as she serves and offers mithai after aarti, then away", () => {
+    const { household, figure, step, startAarti, completeAarti } = setup();
+    const mother = figure('mother');
+    let offering = 0;
+    let spoke = false;
+    startAarti();
+    step(1);
+    expect(plateOf(mother).visible).toBe(false);
+    completeAarti();
+    for (let i = 0; i < 400; i++) {
+      step(0.1);
+      for (const view of household.views()) expect(plateOf(figure(view.id as FamilyMemberId)).visible, view.id).toBe(holdsPlate(view));
+      if (!plateOf(mother).visible) continue;
+      offering++;
+      spoke ||= household.views().find((v) => v.id === 'mother')!.line?.gesture === 'offerMithai';
+      expectOnHands(mother);
+    }
+    expect(offering).toBeGreaterThan(0);
+    expect(spoke).toBe(true);
+    // Seated with empty hands again; a seated offer brings the plate back over her lap, and it goes with the line.
+    expect(plateOf(mother).visible).toBe(false);
+    expect(household.react('mother', 'welcome')?.gesture).toBe('offerMithai');
+    step(0.5);
+    expect(plateOf(mother).visible).toBe(true);
+    expectOnHands(mother);
+    step(TUNING.homes.dialogueDuration);
+    expect(plateOf(mother).visible).toBe(false);
+  });
+
+  it("puts the plate in Aunty's hands as she offers mithai next door, and takes it away when she is done", () => {
+    const bus = createGameEventBus();
+    const home = createNeighbourHomeLayout();
+    const hosts = new NeighbourHosts({ bus, layout: home, location: 'neighbourHome' });
+    const parent = new THREE.Group();
+    const scene = new HouseholdScene({ household: hosts, layout: home, parent, assets: new InteriorAssets() });
+    const aunty = parent.getObjectByName('household.aunty')!;
+    const uncle = parent.getObjectByName('household.uncle')!;
+    const frame = () => {
+      hosts.update(STEP);
+      scene.frame(STEP, home.arrival.position);
+      parent.updateMatrixWorld(true);
+    };
+    const offering = () => hosts.views().find((v) => v.id === 'aunty')!.line?.gesture === 'offerMithai';
+    for (let i = 0; i < 600 && !offering(); i++) {
+      frame();
+      expect(plateOf(aunty).visible).toBe(offering());
+    }
+    expect(offering()).toBe(true);
+    expect(plateOf(aunty).visible).toBe(true);
+    expect(plateOf(uncle).visible).toBe(false);
+    expectOnHands(aunty);
+    for (let i = 0; i < Math.round(TUNING.homes.dialogueDuration / STEP) + 2; i++) frame();
+    expect(offering()).toBe(false);
+    expect(plateOf(aunty).visible).toBe(false);
+    scene.dispose();
+    hosts.dispose();
   });
 });

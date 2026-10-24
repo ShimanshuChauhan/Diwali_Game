@@ -37,8 +37,32 @@ const NAMASTE: Upper = {
  */
 export function householdPose(view: HouseholdMemberView, t: number, options: PoseOptions = {}): FigurePose {
   const lower = lowerBody(view, t, options);
-  const upper = view.line ? gesturePose(view.line.gesture, t) : upperBody(view.activity, view, t);
+  const gesture = shownGesture(view);
+  const upper = gesture ? gesturePose(gesture, t) : upperBody(view.activity, view, t);
   return { ...lower, ...upper, lean: (upper.lean ?? 0) + (options.stoop ?? 0) };
+}
+
+type GestureView = Pick<HouseholdMemberView, 'line' | 'activity'>;
+
+/**
+ * The gesture the upper body is showing: the spoken line's, else the one an
+ * activity is made of (serving the tray offers its mithai, greeting folds
+ * the hands), or null while an activity moves the arms its own way.
+ */
+export function shownGesture(view: GestureView): Gesture | null {
+  if (view.line) return view.line.gesture;
+  if (view.activity === 'serving') return 'offerMithai';
+  if (view.activity === 'greeting') return 'namaste';
+  return null;
+}
+
+/**
+ * True while `view` holds out a plate of mithai: exactly while the arms are
+ * in the `offerMithai` gesture, so the plate comes and goes with the pose,
+ * never left in hands doing something else nor missing from an offer.
+ */
+export function holdsPlate(view: GestureView): boolean {
+  return shownGesture(view) === 'offerMithai';
 }
 
 function lowerBody(view: HouseholdMemberView, t: number, options: PoseOptions): Lower {
@@ -81,12 +105,8 @@ function upperBody(activity: HouseholdActivity, view: HouseholdMemberView, t: nu
         rightSpread: 0.15 + shake * 0.5,
       };
     }
-    case 'serving':
-      return gesturePose('offerMithai', t);
     case 'seated':
       return view.talking ? seatedTalk(t) : seatedListen(t);
-    case 'greeting':
-      return gesturePose('namaste', t);
     case 'gathered':
     case 'idle':
     default: {
@@ -187,8 +207,8 @@ export function gesturePose(gesture: Gesture, t: number): Upper {
     case 'clap':
       return clapping(t);
     case 'offerMithai':
-      // Both hands forward over the tray, offering.
-      return { lean: 0.15, headPitch: -0.15, leftArm: 1.05, rightArm: 1.05, leftElbow: 0.55, rightElbow: 0.55, leftSpread: -0.15, rightSpread: -0.15 };
+      // Both hands forward, forearms level and close together, holding up a plate of mithai.
+      return { lean: 0.15, headPitch: -0.15, leftArm: 0.8, rightArm: 0.8, leftElbow: 0.8, rightElbow: 0.8, leftSpread: -0.25, rightSpread: -0.25 };
     case 'cheekPinch':
       return { lean: 0.1, leftArm: 0.1, leftElbow: 0.3, leftSpread: 0.08, rightArm: 1.3, rightElbow: 0.9, rightSpread: -0.1 };
   }

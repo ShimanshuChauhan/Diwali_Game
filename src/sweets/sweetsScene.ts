@@ -79,7 +79,7 @@ export function trayPieces(tray: Aabb): SweetPiece[] {
 export const SWEETS_MATERIALS = ['sweets', 'sweetsPink', 'plate'] as const satisfies readonly InteriorMaterial[];
 
 /** Sharing plate radius, metres; a steel thali for sweets. */
-const PLATE_RADIUS = 0.12;
+export const PLATE_RADIUS = 0.12;
 const PLATE_THICKNESS = 0.012;
 const LADOO_RADIUS = 0.032;
 /** Kaju-katli-style barfi: a flat diamond. */
@@ -91,6 +91,59 @@ const PLATE_PIECES: readonly SweetPiece[] = [
   { kind: 'barfi', position: { x: 0.04, y: PLATE_THICKNESS, z: -0.04 } },
   { kind: 'barfi', position: { x: -0.03, y: PLATE_THICKNESS, z: -0.05 } },
 ];
+
+/**
+ * The shapes of the sweets and the steel plate, built once and shared by
+ * every tray piece and plate drawn from them: the family's sharing plate
+ * and the plates a household holds out when offering mithai alike.
+ */
+export class SweetGeometry {
+  /** A round ladoo resting on its base. */
+  readonly ladoo: THREE.BufferGeometry = new THREE.SphereGeometry(LADOO_RADIUS, 12, 8).translate(0, LADOO_RADIUS * 0.85, 0);
+  /** A barfi diamond resting on its base. */
+  readonly barfi: THREE.BufferGeometry = new THREE.BoxGeometry(BARFI.side, BARFI.height, BARFI.side)
+    .rotateY(Math.PI / 4)
+    .translate(0, BARFI.height / 2, 0);
+  /** The plate's disc, its base on the origin. */
+  readonly disc: THREE.BufferGeometry = new THREE.CylinderGeometry(PLATE_RADIUS, PLATE_RADIUS * 0.9, PLATE_THICKNESS, 24).translate(
+    0,
+    PLATE_THICKNESS / 2,
+    0,
+  );
+
+  dispose(): void {
+    this.ladoo.dispose();
+    this.barfi.dispose();
+    this.disc.dispose();
+  }
+}
+
+/** The interior material each kind of sweet is drawn with. */
+export function sweetMaterials(assets: InteriorAssets): Record<SweetKind, THREE.Material> {
+  return { ladoo: assets.material('sweets'), barfi: assets.material('sweetsPink') };
+}
+
+/**
+ * A steel plate with two ladoos and two barfi on it, standing on the base of
+ * its disc: five small meshes over `geometry` and the interior's shared
+ * materials, so a plate makes no GPU resources of its own. `sweets` holds
+ * just the pieces, to show the plate bare.
+ */
+export function buildSweetPlate(
+  geometry: SweetGeometry,
+  assets: InteriorAssets,
+): { readonly plate: THREE.Group; readonly sweets: THREE.Group } {
+  const plate = new THREE.Group();
+  const sweets = new THREE.Group();
+  const materials = sweetMaterials(assets);
+  plate.add(new THREE.Mesh(geometry.disc, assets.material('plate')), sweets);
+  for (const piece of PLATE_PIECES) {
+    const mesh = new THREE.Mesh(geometry[piece.kind], materials[piece.kind]);
+    mesh.position.set(piece.position.x, piece.position.y, piece.position.z);
+    sweets.add(mesh);
+  }
+  return { plate, sweets };
+}
 
 export interface SweetsSceneOptions {
   /** The family home; its `sweets.tray` and `sweets.plateSpot` decor place the sweets. */
@@ -109,7 +162,7 @@ export interface SweetsSceneOptions {
  * the player's hands. Each bite takes a piece off the tray that grows
  * straight back; supply is unlimited. Nothing here decides behaviour.
  *
- * Built once at boot from shared geometry and the interior's materials: the
+ * Built once at boot from `SweetGeometry` and the interior's materials: the
  * tray is two instanced meshes, the plate five small meshes.
  */
 export class SweetsScene {
@@ -119,10 +172,10 @@ export class SweetsScene {
   private readonly pieces: readonly SweetPiece[];
   /** Index in `pieces` of each piece's instance in its kind's mesh. */
   private readonly instanceOf: readonly number[];
-  private readonly plate = new THREE.Group();
-  private readonly plateSweets = new THREE.Group();
+  private readonly plate: THREE.Group;
+  private readonly plateSweets: THREE.Group;
   private readonly platePlace: Vec3;
-  private readonly geometries: THREE.BufferGeometry[] = [];
+  private readonly shapes = new SweetGeometry();
   private readonly unsubscribes: Unsubscribe[] = [];
   private readonly matrix = new THREE.Matrix4();
   private readonly position = new THREE.Vector3();
@@ -139,15 +192,8 @@ export class SweetsScene {
       if (!found) throw new Error(`family home has no ${id}`);
       return found.box;
     };
-    const ladoo = this.geometry(new THREE.SphereGeometry(LADOO_RADIUS, 12, 8).translate(0, LADOO_RADIUS * 0.85, 0));
-    const barfi = this.geometry(
-      new THREE.BoxGeometry(BARFI.side, BARFI.height, BARFI.side).rotateY(Math.PI / 4).translate(0, BARFI.height / 2, 0),
-    );
-    const geometryOf: Record<SweetKind, THREE.BufferGeometry> = { ladoo, barfi };
-    const materialOf: Record<SweetKind, THREE.Material> = {
-      ladoo: options.assets.material('sweets'),
-      barfi: options.assets.material('sweetsPink'),
-    };
+    const { ladoo, barfi } = this.shapes;
+    const materialOf = sweetMaterials(options.assets);
 
     this.pieces = trayPieces(decor('sweets.tray'));
     this.bitten = this.pieces.map(() => Infinity);
@@ -167,17 +213,8 @@ export class SweetsScene {
     // The sharing plate: a steel disc with a few sweets on top.
     const spot = decor('sweets.plateSpot');
     this.platePlace = { x: (spot.min.x + spot.max.x) / 2, y: spot.max.y, z: (spot.min.z + spot.max.z) / 2 };
+    ({ plate: this.plate, sweets: this.plateSweets } = buildSweetPlate(this.shapes, options.assets));
     this.plate.name = 'sweets.plate';
-    const disc = new THREE.Mesh(
-      this.geometry(new THREE.CylinderGeometry(PLATE_RADIUS, PLATE_RADIUS * 0.9, PLATE_THICKNESS, 24).translate(0, PLATE_THICKNESS / 2, 0)),
-      options.assets.material('plate'),
-    );
-    this.plate.add(disc, this.plateSweets);
-    for (const piece of PLATE_PIECES) {
-      const mesh = new THREE.Mesh(geometryOf[piece.kind], materialOf[piece.kind]);
-      mesh.position.set(piece.position.x, piece.position.y, piece.position.z);
-      this.plateSweets.add(mesh);
-    }
     this.object.add(this.plate);
 
     this.unsubscribes.push(options.bus.on('sweetsEaten', () => this.bite()));
@@ -210,7 +247,7 @@ export class SweetsScene {
   dispose(): void {
     for (const unsubscribe of this.unsubscribes.splice(0)) unsubscribe();
     for (const mesh of Object.values(this.tray)) mesh.dispose();
-    for (const geometry of this.geometries) geometry.dispose();
+    this.shapes.dispose();
     this.object.removeFromParent();
     this.object.clear();
   }
@@ -240,10 +277,5 @@ export class SweetsScene {
     const s = Math.max(size, 1e-3);
     mesh.setMatrixAt(this.instanceOf[index]!, this.matrix.compose(this.position.set(x, y, z), this.rotation, this.scale.set(s, s, s)));
     mesh.instanceMatrix.needsUpdate = true;
-  }
-
-  private geometry<G extends THREE.BufferGeometry>(geometry: G): G {
-    this.geometries.push(geometry);
-    return geometry;
   }
 }
