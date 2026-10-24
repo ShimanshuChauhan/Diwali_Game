@@ -68,4 +68,5 @@ export const CONTROLS_HELP: readonly (readonly [string, string])[] = [
   ['E', 'Light a nearby cracker or diya, or the held phuljhari'],
   ['V', 'Switch first / third person'],
   ['Esc', 'Pause'],
+  ['F3', 'Show or hide performance stats'],
 ];
