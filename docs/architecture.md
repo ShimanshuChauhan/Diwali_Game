@@ -60,6 +60,7 @@ DOM events ─▶ InputModule.drainActions() ─▶ GameAction[]
    place ─▶ InteractionModule.validatePlacement() ─┬─ ok ─▶ CrackersModule.place()
                                                    └─ no ─▶ placementRejected
    interact ─▶ InteractionModule.findInteractable(view)
+                 ├─ door/puja/tray/person/returnSpot ─▶ applyHomeAction() (homes expansion)
                  ├─ cracker ─▶ CrackersModule.ignite(id)
                  └─ diya    ─▶ DiyasModule.light(id)
    toggleCamera ────────────────▶ CameraModule.toggleMode()
@@ -117,6 +118,13 @@ Ownership rules:
   (playing only while `participating`) and never drives the clock; it may
   only report the current recording's natural end (`playbackEnded`), and
   callbacks tagged with an old `playbackId` are ignored.
+- **Recorded playback** is `AartiAudio`'s (`src/audio/aarti/aartiAudio.ts`):
+  the loop calls `sync(snapshot)` each frame and it keeps at most one
+  source on `AudioEngine.musicOutput` (shared unlock, pause, mute and master
+  gain), seeking only when `playbackId` changes or it drifts. The ceremony
+  takes its `durationOf`, so a song that failed to load (`aartiAudioFailed`)
+  cannot be selected; `layerAllowed` tells household effects not to add a
+  bell or claps the recording already contains.
 - **Hands** are `HeldItemsModule`'s (`src/homes/heldItems.ts`): the
   ceremony `reserveThali`s, gift exchange `take`s boxes, `returnTo`s them
   to their designated spots and `deliver`s them (swapping outbound for
@@ -138,7 +146,9 @@ Ownership rules:
   visibility (nothing is built or disposed per visit) and the loop skips the
   street's per-frame presentation while indoors. Layouts also carry the
   anchors later issues build on: interaction stands, family gathering
-  places and seats, the thali and the gift spots.
+  places and seats, the thali and the gift spots; `familyHomeSpots` hands
+  the puja, tray and gift spots to the interaction module. Doors are only
+  offered for homes whose interior is built.
 - **Gift progression** is `GiftExchangeModule`'s. It listens for
   `aartiCompleted` to release a pending acknowledgement.
 - Household state progresses whether or not its home is the active

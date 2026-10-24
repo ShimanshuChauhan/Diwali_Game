@@ -1,5 +1,4 @@
 export { addInteriorColliders } from './colliders';
-export { doorInReach } from './doors';
 export { createFamilyHomeLayout, FAMILY_ROOM } from './familyHome';
 export {
   buildInteriorScene,
@@ -21,4 +20,5 @@ export {
   type InteriorSolid,
   type InteriorSolidKind,
 } from './layout';
+export { familyHomeSpots } from './spots';
 export { LocationPresenter, type LocationPresenterOptions, type LocationPresenterStats } from './presenter';

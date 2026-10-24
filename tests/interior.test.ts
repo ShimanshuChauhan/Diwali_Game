@@ -3,19 +3,20 @@ import * as THREE from 'three';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { CameraView, PlayerPose } from '../src/core/contracts';
 import { createGameEventBus } from '../src/core/events';
-import type { DoorwaySnapshot, HomeInteractable, Placement } from '../src/core/homes';
+import type { HomeInteractable, Placement } from '../src/core/homes';
 import { QUALITY_LEVELS, qualityProfile } from '../src/core/quality';
 import { TUNING } from '../src/core/tuning';
 import type { Aabb, CameraMode, Vec3 } from '../src/core/types';
 import { CameraRig, rapierBoomCaster } from '../src/camera';
 import { doorwayId, HOME_ENTRANCES, homeDoorways, Locations } from '../src/homes';
+import { HOME_SPOTS, Interaction } from '../src/interaction';
 import {
   addInteriorColliders,
   buildInteriorScene,
   createFamilyHomeLayout,
-  doorInReach,
   facing,
   FAMILY_ROOM,
+  familyHomeSpots,
   flicker,
   INTERIOR_MATERIALS,
   InteriorAssets,
@@ -297,10 +298,8 @@ describe('family home: walking in, around and out', () => {
       expect(walkTo(waypoint), `reach ${JSON.stringify(waypoint)} from ${JSON.stringify(player.pose.position)}`).toBe(true);
       expect(player.pose.position.y).toBeCloseTo(0, 1);
     }
-    const door = doorInReach(locations.doorwaysHere(), player.pose.position, doorRange);
-    expect(door?.id).toBe(doorwayId('familyHome', 'exit'));
-
-    go(door!.id);
+    expect(flat(player.pose.position, home.door)).toBeLessThan(doorRange);
+    go(doorwayId('familyHome', 'exit'));
     expect(locations.location).toBe('outdoors');
     expect(flat(player.pose.position, street.position)).toBeLessThan(0.05);
     // Back on the street, under its bounds again: walking east down the lane works.
@@ -663,27 +662,40 @@ describe('location presenter', () => {
   });
 });
 
-describe('door in reach', () => {
-  const doorways = homeDoorways();
-  const outside = doorways.filter((d) => d.location === 'outdoors');
+describe('family home spots for interaction routing', () => {
+  const spots = familyHomeSpots(home);
+  const doorways = homeDoorways().filter((d) => d.location === 'familyHome');
+  const at = (kind: HomeInteractable['kind']) => home.interactions.find((i) => i.target.kind === kind)!;
 
-  it('finds the street door the player stands at', () => {
-    const at = HOME_ENTRANCES.familyHome.street.door;
-    expect(doorInReach(outside, v(at.x + 0.5, 0, at.z), doorRange)?.id).toBe(doorwayId('familyHome', 'enter'));
-    expect(doorInReach(outside, v(at.x + doorRange + 0.1, 0, at.z), doorRange)).toBeNull();
+  function interactionAt(feet: Vec3) {
+    return new Interaction({
+      world,
+      playerPosition: () => feet,
+      location: () => 'familyHome',
+      doorways: () => doorways,
+      spots: { ...HOME_SPOTS, familyHome: spots },
+    });
+  }
+
+  const viewFrom = ({ position, yaw }: Placement): CameraView => ({
+    mode: 'firstPerson',
+    position: v(position.x, position.y + eyeHeight, position.z),
+    forward: v(-Math.sin(yaw), 0, -Math.cos(yaw)),
+    yaw,
+    pitch: 0,
   });
 
-  it('skips doors whose destination is refused', () => {
-    const at = HOME_ENTRANCES.neighbourHome.street.door;
-    const noNeighbour = (d: DoorwaySnapshot) => d.destination !== 'neighbourHome';
-    expect(doorInReach(outside, at, doorRange)?.id).toBe(doorwayId('neighbourHome', 'enter'));
-    expect(doorInReach(outside, at, doorRange, noNeighbour)).toBeNull();
+  it('takes the puja, tray and gift spots from the built room', () => {
+    expect(spots.puja).toEqual(at('puja').stand.position);
+    expect(spots.tray).toEqual(at('tray').target.position);
+    const gift = home.interactions.find((i) => i.target.kind === 'returnSpot' && i.target.item === 'giftBox')!;
+    expect(spots.giftSpot).toEqual(gift.target.position);
   });
 
-  it('picks the nearest of several', () => {
-    const a: DoorwaySnapshot = { ...outside[0]!, id: 'a', position: v(0, 0, 0) };
-    const b: DoorwaySnapshot = { ...outside[0]!, id: 'b', position: v(1, 0, 0) };
-    expect(doorInReach([a, b], v(0.8, 0, 0), doorRange)?.id).toBe('b');
-    expect(doorInReach([a, b], v(0.2, 0, 0), doorRange)?.id).toBe('a');
-  });
+  for (const kind of ['puja', 'tray', 'door'] as const) {
+    it(`offers the ${kind} from its stand in the room`, () => {
+      const { stand } = at(kind);
+      expect(interactionAt(stand.position).findInteractable(viewFrom(stand))).toMatchObject({ kind });
+    });
+  }
 });

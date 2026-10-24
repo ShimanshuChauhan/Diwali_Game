@@ -217,22 +217,22 @@ export function createFamilyHomeLayout(anchor = HOME_ENTRANCES.familyHome.interi
         marker: 'door',
       },
       {
-        target: { kind: 'puja', position: pujaTarget },
+        target: { kind: 'puja', id: 'familyHome', position: pujaTarget },
         stand: { position: b.at(pujaX, 0, puja.front + 1.2), yaw: NORTH },
         marker: 'puja.chowki',
       },
       {
-        target: { kind: 'tray', position: trayTarget },
+        target: { kind: 'tray', id: 'familyHome', position: trayTarget },
         stand: { position: trayStand, yaw: facing(trayStand, trayTarget) },
         marker: 'sweets.tray',
       },
       {
-        target: { kind: 'returnSpot', item: 'sweetsPlate', home: 'familyHome', position: plate },
+        target: { kind: 'returnSpot', id: 'sweetsPlate@familyHome', item: 'sweetsPlate', home: 'familyHome', position: plate },
         stand: { position: plateStand, yaw: facing(plateStand, plate) },
         marker: 'sweets.plateSpot',
       },
       {
-        target: { kind: 'returnSpot', item: 'giftBox', home: 'familyHome', position: giftSpot },
+        target: { kind: 'returnSpot', id: 'giftBox@familyHome', item: 'giftBox', home: 'familyHome', position: giftSpot },
         stand: { position: giftStand, yaw: facing(giftStand, giftSpot) },
         marker: 'gift.spot',
       },

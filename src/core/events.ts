@@ -99,6 +99,8 @@ export interface GameEvents {
   /** Once per session, whether or not the player is participating. */
   aartiCompleted: { readonly song: AartiSongId; readonly participating: boolean };
   aartiRejected: { readonly reason: AartiRejection };
+  /** A recording failed to load or decode; playback stays silent, ceremony time is unaffected. */
+  aartiAudioFailed: { readonly song: AartiSongId; readonly message: string };
 
   itemPickedUp: { readonly item: HandItem };
   itemReturned: { readonly item: HandItem };

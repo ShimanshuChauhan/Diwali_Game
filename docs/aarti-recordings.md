@@ -79,7 +79,9 @@ protected and needs its own grant.
    it in `src/audio/aarti/`. No runtime CDN.
 2. Change the song's entry in `AARTI_RECORDINGS` to `status: 'approved'`. Fill
    in `provenance` (performer, source URL, rights holder, licence, licence
-   evidence URL, attribution) and the file's exact `durationSeconds`.
+   evidence URL, attribution), the file's exact `durationSeconds`, and
+   `includes` (whether a bell or claps can be heard in it, so the family's
+   own effects are not layered on top).
 3. Delete that song's placeholder file and its line in
    `scripts/make-aarti-placeholders.mjs`. The catalogue test fails if any
    bundled audio file is not in the catalogue.
