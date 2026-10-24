@@ -1,11 +1,11 @@
 import * as THREE from 'three';
-import type { FamilyMemberId } from '../core/homes';
+import type { HouseholdMemberId } from '../core/homes';
 import type { Vec3 } from '../core/types';
 import type { InteriorAssets, InteriorLayout } from '../interior';
 import { facing } from '../interior/layout';
 import { BODY, Figure } from '../people/figure';
 import type { HouseholdMemberView } from './household';
-import { FAMILY_LOOKS, FAMILY_STOOP } from './looks';
+import { HOUSEHOLD_LOOKS, HOUSEHOLD_STOOP } from './looks';
 import { householdPose } from './poses';
 
 /** Radians per second a figure turns toward the player it is talking to. */
@@ -31,9 +31,11 @@ export function seatHeight(layout: InteriorLayout, position: Vec3): number {
 
 export interface HouseholdSceneOptions {
   readonly household: { views(): readonly HouseholdMemberView[] };
-  /** The family home's furniture, for seat heights. */
-  readonly layout: InteriorLayout & { readonly seats: Readonly<Record<FamilyMemberId, { readonly position: Vec3 }>> };
-  /** The home's interior root, so the family is drawn only while it is shown. */
+  /** The home's furniture, for seat heights; members without a seat always stand. */
+  readonly layout: InteriorLayout & {
+    readonly seats?: Readonly<Partial<Record<HouseholdMemberId, { readonly position: Vec3 }>>>;
+  };
+  /** The home's interior root, so its household is drawn only while it is shown. */
   readonly parent: THREE.Object3D;
   /** Shared interior materials; the hand bell reuses their brass. */
   readonly assets: InteriorAssets;
@@ -48,12 +50,13 @@ interface Drawn {
 }
 
 /**
- * Draws the family as festive `Figure`s from household views: placed and
- * faced from the snapshot, posed for the activity or the gesture of the line
- * being spoken, with a brass hand bell for whoever rings it during aarti.
- * Nothing here decides behaviour.
+ * Draws a household as festive `Figure`s from its views — the family at
+ * home, or Uncle and Aunty next door: placed and faced from the snapshot,
+ * posed for the activity or the gesture of the line being spoken, with a
+ * brass hand bell for whoever rings it during aarti. Nothing here decides
+ * behaviour.
  *
- * Five figures of about a dozen draw calls each, sharing the figures' one
+ * At most five figures of about a dozen draw calls each, sharing the figures' one
  * material, plus the bell. Nothing is dropped on Low: gestures are whole-arm
  * poses that read from the silhouette.
  */
@@ -72,16 +75,17 @@ export class HouseholdScene {
     this.household = options.household;
     this.object.name = 'household';
     for (const view of this.household.views()) {
-      const id = view.id as FamilyMemberId;
-      const look = FAMILY_LOOKS[id];
+      const id = view.id;
+      const look = HOUSEHOLD_LOOKS[id];
       const figure = new Figure(look);
       figure.root.name = `household.${id}`;
       this.object.add(figure.root);
       const scale = look.scale ?? 1;
       // Hips just above the seat, so the thighs rest on it.
-      const top = seatHeight(options.layout, options.layout.seats[id].position);
+      const seat = options.layout.seats?.[id];
+      const top = seat ? seatHeight(options.layout, seat.position) : 0;
       const seatBob = top / scale + 0.05 - BODY.hipY;
-      this.drawn.push({ figure, seatBob, stoop: FAMILY_STOOP[id], yaw: view.placement.yaw });
+      this.drawn.push({ figure, seatBob, stoop: HOUSEHOLD_STOOP[id], yaw: view.placement.yaw });
     }
     // A small ghanti: a cone, mouth down, under the ringer's fist.
     this.bellGeometry = new THREE.ConeGeometry(0.045, 0.08, 12);

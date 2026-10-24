@@ -128,6 +128,10 @@ export function homePromptLines(target: HomeInteractable, state: HomePromptState
     }
 
     case 'tray': {
+      // Uncle and Aunty's mithai: any time, whatever the hour of the evening.
+      if (target.id === 'neighbourHome') {
+        return held ? [no(CRACKER_BLOCKED_TEXT[HANDS_BLOCK[held.kind]])] : [go('E: Have mithai')];
+      }
       if (held?.kind === 'sweetsPlate') return [go('E: Put the plate back')];
       if (held?.kind === 'giftBox' && held.box === 'return') {
         return [go(`E: Place the ${GIFT_BOX_LABELS.return} on the sweets table`)];
