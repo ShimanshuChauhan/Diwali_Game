@@ -26,6 +26,7 @@ import {
   type InteriorBox,
 } from '../src/interior';
 import { PLAYER_RADIUS, PlayerController } from '../src/player';
+import { SWEETS_MATERIALS, SweetsScene } from '../src/sweets';
 import { createWorld } from '../src/world';
 import { addWorldColliders } from '../src/world/colliders';
 
@@ -224,7 +225,8 @@ describe('neighbour home layout', () => {
   });
 
   it('reuses the family home materials rather than adding its own', () => {
-    const family = new Set([...familyHome.solids, ...familyHome.decor].map((b) => b.material));
+    // The family's tray and plate are drawn by the sweets scene, over the same shared materials.
+    const family = new Set([...[...familyHome.solids, ...familyHome.decor].map((b) => b.material), ...SWEETS_MATERIALS]);
     for (const b of [...home.solids, ...home.decor]) expect(family.has(b.material), `${b.id}: ${b.material}`).toBe(true);
   });
 });
@@ -447,6 +449,7 @@ describe('neighbour home: walking in, around and out', () => {
 describe('neighbour home presentation', () => {
   const assets = new InteriorAssets();
   const family = buildInteriorScene(familyHome, assets);
+  new SweetsScene({ layout: familyHome, parent: family.root, assets, bus: createGameEventBus() });
   const materialsAfterFamily = assets.materialCount;
   const interior = buildInteriorScene(home, assets);
   const meshesIn = (group: THREE.Object3D) =>

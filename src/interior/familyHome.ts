@@ -118,21 +118,15 @@ export function createFamilyHomeLayout(anchor = HOME_ENTRANCES.familyHome.interi
   b.solid('armchair.back', 'furniture', b.box(1.7, 0.45, -7.0, 2.7, 1.0, -6.8), 'fabricGold');
   // A cane moodha south of the table.
   b.solid('moodha', 'furniture', b.box(2.0, 0, -2.7, 2.4, 0.4, -2.3), 'cushion');
-  // The low sweets table, its tray, and the sharing plate's place.
+  // The low sweets table, its tray, and a cloth mat where the sharing plate
+  // rests. The sweets and the plate itself are drawn by `SweetsScene` (#63),
+  // since the tray is served only after aarti and the plate can be carried.
   const table = { minX: 1.6, maxX: 2.8, minZ: -5.2, maxZ: -3.6, top: 0.45 };
   const tableX = (table.minX + table.maxX) / 2;
   const tableZ = (table.minZ + table.maxZ) / 2;
   b.solid('sweets.table', 'furniture', b.box(table.minX, 0, table.minZ, table.maxX, table.top, table.maxZ), 'wood');
   b.deco('sweets.tray', b.box(tableX - 0.35, table.top, tableZ - 0.35, tableX + 0.35, table.top + 0.04, tableZ + 0.35), 'brass');
-  for (let row = 0; row < 3; row++) {
-    for (let col = 0; col < 3; col++) {
-      const x = tableX - 0.2 + col * 0.2;
-      const z = tableZ - 0.2 + row * 0.2;
-      const material = (row + col) % 2 === 0 ? 'sweets' : 'sweetsPink';
-      b.deco(`sweets.piece.${row}.${col}`, b.box(x - 0.05, table.top + 0.04, z - 0.05, x + 0.05, table.top + 0.11, z + 0.05), material);
-    }
-  }
-  const plate = b.mat('sweets.plateSpot', tableX + 0.3, table.top, table.maxZ - 0.2, 0.14, 0.02, 'plate');
+  const plate = b.mat('sweets.plateSpot', tableX + 0.3, table.top, table.maxZ - 0.2, 0.14, 0.005, 'fabricRed');
   const giftTable = b.mat('sweets.giftMat', table.minX + 0.2, table.top, table.minZ + 0.25, 0.16, 0.01, 'fabricGold');
   b.deco('seating.rug', b.box(0.8, 0, -6.0, 3.6, 0.006, -2.8), 'rug');
   b.light('seating.lamp', b.at(2.4, 2.7, -4.4), 'medium', '#ffc070', 6, 8);

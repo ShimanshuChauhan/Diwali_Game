@@ -45,6 +45,7 @@ import { Input } from './session/input';
 import { Session } from './session/session';
 import { createStartScreen } from './session/startScreen';
 import { createHud, createMiniPlayer, createPauseMenu, HudModel, MiniPlayerModel } from './ui';
+import { FAMILY_SWEETS_DIALOGUE, SweetsReactions, SweetsScene } from './sweets';
 import { createWorld } from './world';
 import { addWorldColliders } from './world/colliders';
 import { createWorldScene } from './world/scene';
@@ -206,9 +207,11 @@ async function boot(): Promise<void> {
   bus.on('locationChanged', ({ to }) => {
     if (to === 'familyHome') for (const song of AARTI_SONG_IDS) aartiAudio.load(song).catch(() => undefined);
   });
-  const family = new Household({ bus, layout: familyHome });
+  const family = new Household({ bus, layout: familyHome, dialogue: FAMILY_SWEETS_DIALOGUE });
   const hosts = new NeighbourHosts({ bus, layout: neighbourHome, hands: heldItems });
   const household = new Households([family, hosts]);
+  const sweetsReactions = new SweetsReactions({ bus, household: family });
+  session.register(sweetsReactions);
   registerHomesReset(
     session,
     homesResetHooks({ heldItems, locations, aartiCeremony: ceremony, aartiAudio, household }),
@@ -279,6 +282,7 @@ async function boot(): Promise<void> {
   const familyHomeScene = buildInteriorScene(familyHome, interiorAssets);
   scene.add(familyHomeScene.root);
   const familyScene = new HouseholdScene({ household: family, layout: familyHome, parent: familyHomeScene.root, assets: interiorAssets });
+  const sweetsScene = new SweetsScene({ layout: familyHome, parent: familyHomeScene.root, assets: interiorAssets, bus });
   const neighbourHomeScene = buildInteriorScene(neighbourHome, interiorAssets);
   scene.add(neighbourHomeScene.root);
   const hostsScene = new HouseholdScene({ household: hosts, layout: neighbourHome, parent: neighbourHomeScene.root, assets: interiorAssets });
@@ -374,6 +378,7 @@ async function boot(): Promise<void> {
       locations.update(SIM_STEP);
       ceremony.update(SIM_STEP);
       household.update(SIM_STEP);
+      sweetsReactions.update(SIM_STEP);
     }
     const aarti = ceremony.snapshot;
     aartiAudio.sync(aarti);
@@ -386,7 +391,9 @@ async function boot(): Promise<void> {
     } else {
       const shown = session.paused ? 0 : delta;
       thaliMotion = aarti.participating ? stepThali(thaliMotion, aarti.circling, shown) : THALI_REST;
-      character.holdAt(aarti.participating ? thaliPalm(thaliMotion, thaliPalmTarget) : null);
+      // The sharing plate is carried in the thali's rest hold.
+      const carryingPlate = heldItems.hands?.kind === 'sweetsPlate';
+      character.holdAt(aarti.participating || carryingPlate ? thaliPalm(thaliMotion, thaliPalmTarget) : null);
       character.update(player.pose, player.speed, rig.mode, shown);
       const { position: eye, forward } = rig.update(player.pose, delta);
       camera.position.set(eye.x, eye.y, eye.z);
@@ -401,6 +408,14 @@ async function boot(): Promise<void> {
         firstPerson ? rig.yaw : player.pose.yaw,
         aarti.participating,
         shown,
+      );
+      const plateCenter = firstPerson
+        ? firstPersonThali(camera, THALI_REST, thaliView)
+        : heldThali(player.pose.position, player.pose.yaw, THALI_REST, character.bob);
+      sweetsScene.frame(
+        shown,
+        { served: heldItems.trayServed, carrying: carryingPlate },
+        { center: plateCenter, yaw: firstPerson ? rig.yaw : player.pose.yaw },
       );
       const held = crackers.held;
       const direction =
