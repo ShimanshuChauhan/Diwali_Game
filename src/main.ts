@@ -22,15 +22,17 @@ import { createEffectsDemo } from './effects/effectsDemo';
 import { EffectsRenderer } from './effects/effectsRenderer';
 import { FireworksEffects } from './effects/fireworksEffects';
 import { allowedDuringFade, createFadeOverlay, HeldItems, homesResetHooks, Locations, registerHomesReset } from './homes';
-import { createSubtitles, Household, HouseholdScene, subtitlesFor } from './household';
+import { createSubtitles, Household, Households, HouseholdScene, NeighbourHosts, subtitlesFor } from './household';
 import { applyHomeAction, HOME_SPOTS, Interaction } from './interaction';
 import {
   addInteriorColliders,
   buildInteriorScene,
   createFamilyHomeLayout,
+  createNeighbourHomeLayout,
   familyHomeSpots,
   InteriorAssets,
   LocationPresenter,
+  neighbourHomeSpots,
 } from './interior';
 import { createPlacementGhost } from './interaction/ghost';
 import { NeighbourScene, Neighbours } from './neighbours';
@@ -73,6 +75,8 @@ async function boot(): Promise<void> {
   addWorldColliders(physics, world.solids);
   const familyHome = createFamilyHomeLayout();
   addInteriorColliders(physics, familyHome);
+  const neighbourHome = createNeighbourHomeLayout();
+  addInteriorColliders(physics, neighbourHome);
   physics.step(); // put the static colliders in the broad phase before the player queries it
 
   const stressPlan = stressPlanFromQuery(location.search);
@@ -179,11 +183,12 @@ async function boot(): Promise<void> {
   });
   const crackers = new Crackers({ bus, admission: capacity, handPosition });
   const heldItems = new HeldItems({ bus, crackers });
+  const locationBounds = { outdoors: world.bounds, familyHome: familyHome.bounds, neighbourHome: neighbourHome.bounds };
   const locations = new Locations({
     bus,
     hands: heldItems,
     onArrive: (arrival, to) => {
-      player.teleport(arrival, to === 'familyHome' ? familyHome.bounds : world.bounds);
+      player.teleport(arrival, locationBounds[to]);
       rig.face(arrival.yaw);
     },
   });
@@ -202,8 +207,10 @@ async function boot(): Promise<void> {
   bus.on('locationChanged', ({ to }) => {
     if (to === 'familyHome') for (const song of AARTI_SONG_IDS) aartiAudio.load(song).catch(() => undefined);
   });
-  const household = new Household({ bus, layout: familyHome, dialogue: FAMILY_SWEETS_DIALOGUE });
-  const sweetsReactions = new SweetsReactions({ bus, household });
+  const family = new Household({ bus, layout: familyHome, dialogue: FAMILY_SWEETS_DIALOGUE });
+  const hosts = new NeighbourHosts({ bus, layout: neighbourHome, hands: heldItems });
+  const household = new Households([family, hosts]);
+  const sweetsReactions = new SweetsReactions({ bus, household: family });
   session.register(sweetsReactions);
   registerHomesReset(
     session,
@@ -215,8 +222,7 @@ async function boot(): Promise<void> {
   // Only while taking part: the songs and the current one's progress. Choosing never resumes or leaves.
   const miniPlayer = new MiniPlayerModel({ bus });
   const miniPlayerPanel = createMiniPlayer(document.body, miniPlayer, (song) => ceremony.selectSong(song));
-  // Only homes with a built interior are offered; the neighbour's arrives with #65.
-  const doorways = locations.doorways().filter((d) => d.destination === 'outdoors' || d.destination === 'familyHome');
+  const doorways = locations.doorways();
   const interaction = new Interaction({
     world,
     crackers: () => crackers.list(),
@@ -229,10 +235,10 @@ async function boot(): Promise<void> {
     hands: () => heldItems.hands,
     aarti: () => ceremony.snapshot,
     members: () => household.members(),
-    spots: { ...HOME_SPOTS, familyHome: familyHomeSpots(familyHome) },
+    spots: { ...HOME_SPOTS, familyHome: familyHomeSpots(familyHome), neighbourHome: neighbourHomeSpots(neighbourHome) },
   });
   // Gift exchange (#66) joins here when it lands.
-  const homeActions = { locations, ceremony, hands: heldItems, household };
+  const homeActions = { locations, ceremony, hands: heldItems, household, hosts };
   // Room for the placed cap plus crackers still burning after being lit.
   const props = new CrackerProps(TUNING.caps.maxPlacedCrackers + TUNING.caps.maxLitCrackers);
   scene.add(props.object);
@@ -275,8 +281,11 @@ async function boot(): Promise<void> {
   const interiorAssets = new InteriorAssets();
   const familyHomeScene = buildInteriorScene(familyHome, interiorAssets);
   scene.add(familyHomeScene.root);
-  const familyScene = new HouseholdScene({ household, layout: familyHome, parent: familyHomeScene.root, assets: interiorAssets });
+  const familyScene = new HouseholdScene({ household: family, layout: familyHome, parent: familyHomeScene.root, assets: interiorAssets });
   const sweetsScene = new SweetsScene({ layout: familyHome, parent: familyHomeScene.root, assets: interiorAssets, bus });
+  const neighbourHomeScene = buildInteriorScene(neighbourHome, interiorAssets);
+  scene.add(neighbourHomeScene.root);
+  const hostsScene = new HouseholdScene({ household: hosts, layout: neighbourHome, parent: neighbourHomeScene.root, assets: interiorAssets });
   const subtitles = createSubtitles(document.body);
   // In hand in either location, like the phuljhari, so it is not part of the street.
   const thali = new Thali();
@@ -286,7 +295,7 @@ async function boot(): Promise<void> {
   const thaliView = new THREE.Vector3();
   const presenter = new LocationPresenter({
     outdoor,
-    interiors: [familyHomeScene],
+    interiors: [familyHomeScene, neighbourHomeScene],
     profile: quality.profile,
     fade: (opacity) => doorFade.set(opacity),
   });
@@ -427,6 +436,7 @@ async function boot(): Promise<void> {
     } else {
       presenter.frame(session.paused ? 0 : delta);
       if (presenter.active === 'familyHome') familyScene.frame(session.paused ? 0 : delta, player.pose.position);
+      if (presenter.active === 'neighbourHome') hostsScene.frame(session.paused ? 0 : delta, player.pose.position);
     }
     subtitles.sync(subtitlesFor(household.members(), presenter.active));
     camera.getWorldDirection(listenerForward);

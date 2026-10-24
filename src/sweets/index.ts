@@ -3,6 +3,7 @@ export { SWEETS_BEHAVIOUR, SweetsReactions, type SweetsReactionsOptions } from '
 export {
   BITE_TIME,
   biteScale,
+  SWEETS_MATERIALS,
   SweetsScene,
   sweetsVisibility,
   trayPieces,

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { Unsubscribe } from '../core/eventBus';
 import type { GameEventBus } from '../core/events';
 import type { Aabb, Vec3 } from '../core/types';
-import type { InteriorAssets, InteriorLayout } from '../interior';
+import type { InteriorAssets, InteriorLayout, InteriorMaterial } from '../interior';
 
 /** What the sweets presentation draws from: the held-items snapshot. */
 export interface SweetsState {
@@ -74,6 +74,9 @@ export function trayPieces(tray: Aabb): SweetPiece[] {
   }
   return pieces;
 }
+
+/** The interior materials the sweets and the plate are drawn with, shared with any home that uses them. */
+export const SWEETS_MATERIALS = ['sweets', 'sweetsPink', 'plate'] as const satisfies readonly InteriorMaterial[];
 
 /** Sharing plate radius, metres; a steel thali for sweets. */
 const PLATE_RADIUS = 0.12;

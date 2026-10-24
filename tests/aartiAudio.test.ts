@@ -209,14 +209,96 @@ describe('AartiAudio — offsets', () => {
     expect(ctx.state).toBe('running');
   });
 
-  it('does not re-seek while the context is suspended for pause', async () => {
-    const { ctx, bus, audio, ceremony, join, recordingSources } = await setup();
+  it('does not re-seek while the context is still resuming', async () => {
+    const { ctx, audio, ceremony, join, recordingSources } = await setup();
     await join();
-    bus.emit('paused', {} as GameEvents['paused']);
-    await Promise.resolve();
-    expect(ctx.state).toBe('suspended');
-    for (let i = 0; i < 120; i++) audio.sync(ceremony.snapshot);
+    ctx.state = 'suspended';
+    for (let i = 0; i < 120; i++) {
+      ceremony.update(STEP);
+      audio.sync(ceremony.snapshot);
+    }
     expect(recordingSources()).toHaveLength(1);
+  });
+});
+
+describe('AartiAudio — pause and focus loss', () => {
+  const pause = (bus: ReturnType<typeof createGameEventBus>) => bus.emit('paused', { reason: 'focusLost' });
+
+  it('stops the source itself on pause, not only the context', async () => {
+    const { bus, audio, ceremony, join, run, recordingSources, sounding } = await setup();
+    await join();
+    run(2);
+    pause(bus);
+    // Even if the context's suspend failed or is late, nothing is left to sound.
+    expect(recordingSources()[0]!.stoppedAt).not.toBeNull();
+    expect(sounding()).toHaveLength(0);
+    expect(audio.activeSources).toBe(0);
+    for (let i = 0; i < 120; i++) audio.sync(ceremony.snapshot);
+    expect(sounding()).toHaveLength(0);
+  });
+
+  it('seeks one fresh source to the ceremony offset on resume', async () => {
+    const { bus, ctx, audio, ceremony, join, run, frame, recordingSources, sounding } = await setup();
+    await join();
+    run(3);
+    pause(bus);
+    await Promise.resolve();
+    // Real time passes while paused; neither clock moves.
+    for (let i = 0; i < 300; i++) audio.sync(ceremony.snapshot);
+    const frozen = ceremony.snapshot.elapsed;
+    expect(frozen).toBeCloseTo(3, 5);
+    bus.emit('resumed', {});
+    await Promise.resolve();
+    expect(ctx.state).toBe('running');
+    frame();
+    expect(recordingSources()).toHaveLength(2);
+    expect(onlySounding(sounding).startOffset).toBeCloseTo(frozen + STEP, 5);
+    run(2);
+    expect(recordingSources()).toHaveLength(2);
+  });
+
+  it('cannot complete the ceremony from a source ending while paused', async () => {
+    const { bus, ceremony, join, run, recordingSources } = await setup();
+    await join();
+    run(SECONDS - 0.5);
+    const source = recordingSources()[0]!;
+    pause(bus);
+    // The browser fires the end of the stopped source late; nothing listens.
+    source.onended?.();
+    expect(ceremony.snapshot.state).toBe('running');
+    expect(ceremony.snapshot.elapsed).toBeCloseTo(SECONDS - 0.5, 5);
+  });
+
+  it('stays silent for a song chosen while paused and plays it from zero on resume', async () => {
+    const { bus, audio, ceremony, join, run, frame, settle, sounding, loadBuffer } = await setup();
+    await join();
+    run(4);
+    pause(bus);
+    expect(ceremony.selectSong('jaiGaneshDeva').ok).toBe(true);
+    await settle();
+    expect(sounding()).toHaveLength(0);
+    // Loaded meanwhile, so resuming does not wait on the file.
+    expect(loadBuffer).toHaveBeenCalledWith(AARTI_RECORDINGS.jaiGaneshDeva, expect.anything());
+    expect(audio.loadState('jaiGaneshDeva')).toBe('ready');
+    bus.emit('resumed', {});
+    frame();
+    const source = onlySounding(sounding);
+    expect(source.startOffset).toBeCloseTo(STEP, 5);
+    expect((source.buffer as AudioBuffer).duration).toBeCloseTo(AARTI_RECORDINGS.jaiGaneshDeva.durationSeconds, 2);
+  });
+
+  it('a fresh session after a pause plays only once resumed', async () => {
+    const { bus, audio, ceremony, join, frame, sounding } = await setup();
+    await join();
+    pause(bus);
+    audio.reset();
+    ceremony.reset();
+    expect(ceremony.join().ok).toBe(true);
+    audio.sync(ceremony.snapshot);
+    expect(sounding()).toHaveLength(0);
+    bus.emit('resumed', {});
+    frame();
+    expect(sounding()).toHaveLength(1);
   });
 });
 

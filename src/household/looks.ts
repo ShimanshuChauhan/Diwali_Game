@@ -1,4 +1,4 @@
-import type { FamilyMemberId } from '../core/homes';
+import type { FamilyMemberId, HouseholdMemberId, NeighbourHostId } from '../core/homes';
 import type { Look } from '../people/figure';
 
 /**
@@ -24,3 +24,19 @@ export const FAMILY_STOOP: Readonly<Record<FamilyMemberId, number>> = {
   grandmother: 0.1,
   grandfather: 0.08,
 };
+
+/**
+ * Uncle and Aunty next door: Uncle in a maroon kurta under a grey Nehru
+ * jacket, greying at the temples; Aunty in a peacock-green silk saree with
+ * a gold border. Same figures and shared material as the family.
+ */
+export const HOST_LOOKS: Readonly<Record<NeighbourHostId, Look>> = {
+  uncle: { outfit: 'kurta', main: '#7b1f2e', trim: '#d4a017', second: '#f3e9d2', jacket: '#5f6368', skin: '#9a6234', hair: '#6e6a66', hairStyle: 'short', moustache: true },
+  aunty: { outfit: 'saree', main: '#00796b', trim: '#ffc107', second: '#ad1457', skin: '#b07444', hair: '#2a1e18', hairStyle: 'bun', bindi: true },
+};
+
+/** Every household member's look, family and hosts. */
+export const HOUSEHOLD_LOOKS: Readonly<Record<HouseholdMemberId, Look>> = { ...FAMILY_LOOKS, ...HOST_LOOKS };
+
+/** Every household member's stoop; the hosts stand straight. */
+export const HOUSEHOLD_STOOP: Readonly<Record<HouseholdMemberId, number>> = { ...FAMILY_STOOP, uncle: 0, aunty: 0.02 };
