@@ -181,6 +181,7 @@ export type PlaceResult =
 export type IgniteResult = { readonly ok: true } | { readonly ok: false; readonly reason: IgnitionRejection };
 
 export interface HeldItem {
+  readonly id: CrackerId;
   readonly type: 'phuljhari';
   readonly lit: boolean;
 }
@@ -201,7 +202,7 @@ export interface CrackersModule extends Steppable, Resettable {
   /** Light the held phuljhari. */
   igniteHeld(): IgniteResult;
   get(id: CrackerId): CrackerSnapshot | undefined;
-  /** Every cracker not yet finished. */
+  /** Every placed ground cracker not yet finished; the phuljhari is in `held`. */
   list(): readonly CrackerSnapshot[];
 }
 

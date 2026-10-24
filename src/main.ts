@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import RAPIER from '@dimforge/rapier3d-compat';
+import { crackerForSlot } from './core/actions';
 import { FixedStep } from './core/fixedStep';
 import { TUNING } from './core/tuning';
 import { createGameEventBus } from './core/events';
@@ -7,6 +8,7 @@ import { DEFAULT_QUALITY, qualityProfile } from './core/quality';
 import { Atmosphere } from './atmosphere';
 import { AudioEngine } from './audio/audioEngine';
 import { unlockOnFirstGesture } from './audio/controls';
+import { applyCrackerAction, Crackers, handPositionFor } from './crackers';
 import { DiyaScene, Diyas } from './diyas';
 import { createEffectsDemo } from './effects/effectsDemo';
 import { Interaction } from './interaction';
@@ -15,6 +17,7 @@ import { createDomControls } from './session/domControls';
 import { Input } from './session/input';
 import { Session } from './session/session';
 import { createStartScreen } from './session/startScreen';
+import { createHud, createPauseMenu, HudModel } from './ui';
 import { createWorld } from './world';
 import { addWorldColliders } from './world/colliders';
 import { createWorldScene } from './world/scene';
@@ -72,7 +75,9 @@ async function boot(): Promise<void> {
     doc: document,
     win: window,
   });
-  createStartScreen({ parent: document.body, bus, onStart: () => controls.requestStart() });
+  createStartScreen({ parent: document.body, bus, onStart: () => controls.requestStart(), showWhenPaused: false });
+  const hud = new HudModel({ bus });
+  const hudView = createHud(document.body, hud);
 
   const atmosphere = new Atmosphere({ scene, layout: world.layout, profile: qualityProfile(DEFAULT_QUALITY), renderer, bus });
   atmosphere.setViewport(renderer.domElement.height, camera);
@@ -80,15 +85,48 @@ async function boot(): Promise<void> {
 
   const diyas = new Diyas({ sites: world.diyaSites, bus });
   const diyaScene = new DiyaScene({ scene, diyas, profile: qualityProfile(DEFAULT_QUALITY), bus });
-  const interaction = new Interaction({
-    world,
-    playerPosition: () => player.pose.position,
-    isDiyaUsable: (id) => !diyas.isLit(id),
-  });
 
   const audio = new AudioEngine({ bus });
   unlockOnFirstGesture(window, audio);
+  // Stand-in quality setting until the quality module lands.
+  let quality = qualityProfile(DEFAULT_QUALITY);
+  createPauseMenu({
+    parent: document.body,
+    bus,
+    onResume: () => controls.requestStart(),
+    onRestart: () => {
+      session.reset();
+      controls.requestStart();
+    },
+    audio,
+    quality: {
+      get profile() {
+        return quality;
+      },
+      setLevel(level) {
+        quality = qualityProfile(level);
+        bus.emit('qualityChanged', { profile: quality });
+      },
+    },
+  });
   const listenerForward = new THREE.Vector3();
+  const crackers = new Crackers({ bus, handPosition: () => handPositionFor(player.pose.position, yaw) });
+  const interaction = new Interaction({
+    world,
+    crackers: () => crackers.list(),
+    playerPosition: () => player.pose.position,
+    isDiyaUsable: (id) => !diyas.isLit(id),
+  });
+  const crackerControls = {
+    crackers,
+    interaction,
+    bus,
+    pose: () => player.pose,
+    view: () => {
+      camera.getWorldDirection(listenerForward);
+      return { mode: 'firstPerson' as const, position: camera.position, forward: listenerForward, yaw, pitch };
+    },
+  };
   const effectsDemo = new URLSearchParams(location.search).has('effects-demo')
     ? createEffectsDemo(scene, camera, renderer)
     : null;
@@ -101,16 +139,17 @@ async function boot(): Promise<void> {
     timer.update(time);
     for (const action of input.drainActions()) {
       if (action.type === 'pause') session.pause('user');
+      // Stand-in until the crackers module owns selection and emits this itself.
+      else if (action.type === 'select') bus.emit('crackerSelected', { type: crackerForSlot(action.slot) });
       else if (action.type === 'look') {
         const { mouseSensitivity, pitchLimit } = TUNING.camera;
         yaw -= action.dx * mouseSensitivity;
         pitch = Math.min(Math.max(pitch - action.dy * mouseSensitivity, -pitchLimit), pitchLimit);
       } else if (action.type === 'interact') {
-        camera.getWorldDirection(listenerForward);
-        const view = { mode: 'firstPerson', position: camera.position, forward: listenerForward, yaw, pitch } as const;
-        const target = interaction.findInteractable(view);
+        const target = interaction.findInteractable(crackerControls.view());
         if (target?.kind === 'diya') diyas.light(target.id);
-      } else movement.apply(action);
+        else applyCrackerAction(action, crackerControls);
+      } else if (!applyCrackerAction(action, crackerControls)) movement.apply(action);
     }
     const delta = timer.getDelta();
     // The game sim freezes while paused; the effects stress demo runs on
@@ -119,6 +158,7 @@ async function boot(): Promise<void> {
     for (let i = 0; i < steps; i++) {
       player.move(movement.intent(yaw), SIM_STEP);
       physics.step();
+      crackers.update(SIM_STEP);
       audio.update(SIM_STEP);
       atmosphere.update(SIM_STEP);
       diyaScene.update(SIM_STEP);
@@ -135,7 +175,11 @@ async function boot(): Promise<void> {
     atmosphere.frame();
     diyaScene.frame(camera.position);
     camera.getWorldDirection(listenerForward);
-    audio.setListener({ mode: 'firstPerson', position: camera.position, forward: listenerForward, yaw: 0, pitch: 0 });
+    const view = { mode: 'firstPerson', position: camera.position, forward: listenerForward, yaw, pitch } as const;
+    audio.setListener(view);
+    hud.setContext({ interactable: interaction.findInteractable(view) });
+    hud.update(delta);
+    hudView.sync();
     renderer.render(scene, camera);
   });
 
