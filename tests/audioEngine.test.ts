@@ -146,7 +146,18 @@ describe('AudioEngine voices', () => {
       );
     };
     expect(await rampsPerGain('crossette')).toBeGreaterThanOrEqual(20);
-    expect(await rampsPerGain('peony')).toBeLessThan(5);
+    expect(await rampsPerGain('peony')).toBeLessThan(10);
+  });
+
+  it('booms a shell seen bursting over town once its sound has had time to arrive', async () => {
+    const { bus, ctx, audio } = setup(qualityProfile('high'));
+    await audio.unlock();
+    audio.setListener({ mode: 'firstPerson', position: origin, forward: { x: 0, y: 0, z: -1 }, yaw: 0, pitch: 0 });
+    const before = ctx.sources.length;
+    bus.emit('distantBurst', { position: { x: 0, y: 0, z: -343 } });
+    const started = ctx.sources.slice(before).map((s) => s.startedAt ?? 0);
+    expect(started.length).toBeGreaterThan(0);
+    expect(Math.min(...started)).toBeCloseTo(1, 1);
   });
 
   it('stays within the voice cap under rapid launches', async () => {

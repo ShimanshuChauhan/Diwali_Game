@@ -45,6 +45,10 @@ export interface GameEvents {
     readonly reason: 'completed' | 'reclaimed';
   };
   /** Rocket reached apex. Colours are 0xRRGGBB integers. */
+  /** A rocket launched in another part of town, beyond the map: from `position` up to `apex` in `rise` seconds. */
+  distantLaunch: { readonly position: Vec3; readonly apex: Vec3; readonly rise: number };
+  /** A shell bursting over another part of town, beyond the map. */
+  distantBurst: { readonly position: Vec3 };
   burst: {
     readonly id: CrackerId;
     readonly position: Vec3;

@@ -1,7 +1,7 @@
 import type { BurstPattern } from '../core/types';
 import { FOUNTAIN, surgeFactor } from '../effects/presets';
 import { fillBrown, fillCrackle, fillLaneImpulse, fillWhite } from './noise';
-import { STOP_FADE, type SoundKind } from './sounds';
+import { LADI_TAIL, STOP_FADE, type SoundKind } from './sounds';
 
 /**
  * Original synthesised sounds, built from oscillators, filters and the
@@ -195,6 +195,41 @@ class VoiceBuilder {
     }
   }
 
+  /**
+   * A firecracker's bang heard across town: a sharp broadband crack, then
+   * the same crack coming back off buildings a few times, each later echo
+   * quieter and duller, over a rolling, unpitched rumble.
+   */
+  bang(at: number, peak: number, distance: number | undefined, echoes = 4): void {
+    const crack = this.gain(0);
+    crack.gain.setValueAtTime(0.0001, this.t0);
+    crack.gain.setValueAtTime(0.0001, at);
+    crack.gain.exponentialRampToValueAtTime(peak, at + 0.002);
+    crack.gain.exponentialRampToValueAtTime(0.0001, at + 0.07);
+    this.chain(this.noise(this.bank.white, at, at + 0.12), this.filter('lowpass', muffle(distance, 7000), 0.6), crack, this.output);
+
+    // Reflections: a rolling "crack-k-k" off the buildings around it.
+    const echo = this.gain(0);
+    echo.gain.setValueAtTime(0.0001, this.t0);
+    let when = at;
+    for (let k = 1; k <= echoes; k++) {
+      when += 0.07 + Math.random() * 0.16;
+      const level = peak * 0.55 * Math.pow(0.55, k - 1);
+      echo.gain.setValueAtTime(0.0001, when);
+      echo.gain.exponentialRampToValueAtTime(Math.max(0.0002, level), when + 0.004);
+      echo.gain.exponentialRampToValueAtTime(0.0001, when + 0.12);
+    }
+    this.chain(this.noise(this.bank.white, at, when + 0.2), this.filter('lowpass', muffle(distance, 2400), 0.6), echo, this.output);
+
+    // Rumble: broadband and slow to die, never a pitched thump.
+    const rumble = this.gain(0);
+    rumble.gain.setValueAtTime(0, this.t0);
+    rumble.gain.setValueAtTime(0, at);
+    rumble.gain.linearRampToValueAtTime(peak * 0.28, at + 0.03);
+    rumble.gain.exponentialRampToValueAtTime(0.0001, at + 1.4);
+    this.chain(this.noise(this.bank.white, at, at + 1.5), this.filter('lowpass', muffle(distance, 900), 0.5), rumble, this.output);
+  }
+
   /** Attack to `peak`, hold, then release so the voice ends silent at `end`. */
   sustain(param: AudioParam, peak: number, attack: number, release: number): void {
     const releaseAt = Math.max(this.t0 + attack, this.end - release);
@@ -337,13 +372,14 @@ const RECIPES: Record<SoundKind, Recipe> = {
     body.frequency.setValueAtTime(1200, b.t0);
     body.frequency.exponentialRampToValueAtTime(180, b.t0 + 0.9);
     b.chain(b.noise(b.bank.brown, b.t0, b.t0 + 1.5), body, boom, b.output);
-    // The thump felt in the chest.
-    const thump = b.osc('sine', 75, b.t0, b.t0 + 0.7);
-    thump.frequency.setValueAtTime(75, b.t0);
-    thump.frequency.exponentialRampToValueAtTime(32, b.t0 + 0.5);
-    const thumpGain = b.gain(0);
-    b.hit(thumpGain.gain, 0.6, b.t0, 0.6);
-    b.chain(thump, thumpGain, b.output);
+    // A deep rumble felt in the chest, unpitched so it never sounds like a drum.
+    const rumble = b.gain(0);
+    rumble.gain.setValueAtTime(0, b.t0);
+    rumble.gain.linearRampToValueAtTime(0.45, b.t0 + 0.03);
+    rumble.gain.exponentialRampToValueAtTime(0.0001, b.t0 + 1.6);
+    b.chain(b.noise(b.bank.white, b.t0, b.t0 + 1.7), b.filter('lowpass', 260, 0.5), rumble, b.output);
+    // Echoes off the lane's houses.
+    b.bang(b.t0 + 0.12, 0.35, 40, 3);
 
     const pattern = p.pattern ?? 'peony';
     if (pattern === 'crossette') {
@@ -402,30 +438,120 @@ const RECIPES: Record<SoundKind, Recipe> = {
     b.chain(b.noise(b.bank.white), b.filter('bandpass', 1100, 0.8), breath, b.output);
   },
 
+  /** A small cracker going off far across town: a short crack with a little echo. */
   distantPop(b, p) {
     b.output.gain.value = p.gain;
-    const cutoff = Math.max(220, 1000 - (p.distance ?? 0) * 3);
-    const pop = b.gain(0);
-    b.hit(pop.gain, 1, b.t0, 0.5);
-    // Echo off far-away buildings.
-    const echoAt = b.t0 + 0.25 + Math.random() * 0.2;
-    pop.gain.setValueAtTime(0.0001, echoAt);
-    pop.gain.exponentialRampToValueAtTime(0.3, echoAt + 0.01);
-    pop.gain.exponentialRampToValueAtTime(0.0001, b.end);
-    b.chain(b.noise(b.bank.brown), b.filter('lowpass', cutoff, 0.7), pop, b.output);
+    b.bang(b.t0, 0.8, p.distance, 2);
+  },
+
+  /** A ground bomb nearby or across town: a hard crack rolling off the houses. */
+  distantBomb(b, p) {
+    b.output.gain.value = p.gain;
+    b.bang(b.t0, 1, p.distance, 5);
+  },
+
+  /**
+   * A ladi: a string of chain crackers rattling off, bursts of rapid snaps
+   * with stumbles and the odd louder one, until it burns out.
+   */
+  distantLadi(b, p) {
+    b.output.gain.value = p.gain;
+    const burning = Math.max(0.3, b.end - b.t0 - LADI_TAIL);
+    const times: number[] = [];
+    for (let t = b.t0 + 0.02; t < b.t0 + burning; ) {
+      times.push(t);
+      // Mostly a fast rattle, now and then a stumble.
+      t += Math.random() < 0.12 ? 0.12 + Math.random() * 0.2 : 0.025 + Math.random() * 0.07;
+    }
+    const snaps = b.gain(0);
+    b.hits(snaps.gain, times, 0.9, 0.04);
+    b.chain(b.noise(b.bank.white), b.filter('highpass', 500, 0.6), b.filter('lowpass', muffle(p.distance, 6000), 0.6), snaps, b.output);
+    // The rattle smears into a wash off the walls around it.
+    const wash = b.gain(0);
+    wash.gain.setValueAtTime(0, b.t0);
+    wash.gain.linearRampToValueAtTime(0.18, b.t0 + 0.3);
+    wash.gain.setValueAtTime(0.18, b.t0 + burning);
+    wash.gain.linearRampToValueAtTime(0, b.end);
+    b.chain(b.noise(b.bank.crackle), b.filter('lowpass', muffle(p.distance, 2500), 0.6), wash, b.output);
+  },
+
+  /** A shell bursting over another part of town: a crack, a long roll, sometimes a crackle. */
+  distantShell(b, p) {
+    b.output.gain.value = p.gain;
+    b.bang(b.t0, 1, p.distance, 5);
+    if (Math.random() < 0.45) {
+      const crackle = b.gain(0);
+      const from = b.t0 + 0.35;
+      crackle.gain.setValueAtTime(0, from);
+      crackle.gain.linearRampToValueAtTime(0.3, from + 0.3);
+      crackle.gain.linearRampToValueAtTime(0, b.end);
+      b.chain(b.noise(b.bank.crackle, from), b.filter('lowpass', muffle(p.distance, 3500), 0.7), crackle, b.output);
+    }
+  },
+
+  /** A rocket going up elsewhere: a whistle climbing in pitch, fading as it rises away. */
+  distantWhistle(b, p) {
+    b.output.gain.value = p.gain;
+    const motor = b.gain(0);
+    motor.gain.setValueAtTime(0, b.t0);
+    motor.gain.linearRampToValueAtTime(1, b.t0 + 0.08);
+    motor.gain.linearRampToValueAtTime(0, b.end);
+    motor.connect(b.output);
+    const pitch = 1100 + Math.random() * 500;
+    const whistle = b.osc('triangle', pitch);
+    whistle.frequency.setValueAtTime(pitch, b.t0);
+    whistle.frequency.exponentialRampToValueAtTime(pitch * 2.2, b.end);
+    b.lfo(whistle.frequency, 22, 30);
+    b.chain(whistle, b.filter('lowpass', muffle(p.distance, 5000), 0.7), b.gain(0.5), motor);
+    const hiss = b.gain(0.35);
+    b.chain(b.noise(b.bank.white), b.filter('bandpass', 3500, 0.8), b.filter('lowpass', muffle(p.distance, 6000), 0.7), hiss, motor);
+  },
+
+  /** An anar burning in someone else's courtyard: a muffled, swelling rush. */
+  distantFountain(b, p) {
+    b.sustain(b.output.gain, p.gain, 0.4, 0.9);
+    const rush = b.gain(0.8);
+    b.chain(b.noise(b.bank.white), b.filter('bandpass', 1500, 0.6), b.filter('lowpass', muffle(p.distance, 3000), 0.6), rush, b.output);
+    b.wander(rush.gain, 0.35, 0.15);
+    const crackle = b.gain(0.25);
+    b.chain(b.noise(b.bank.crackle), b.filter('lowpass', muffle(p.distance, 3500), 0.6), crackle, b.output);
+  },
+
+  /** A chakri spinning down the street: a pulsing, hissing whirr. */
+  distantChakri(b, p) {
+    b.sustain(b.output.gain, p.gain, 0.3, 0.6);
+    const whirr = b.gain(0.6);
+    b.chain(b.noise(b.bank.white), b.filter('bandpass', 2800, 1), b.filter('lowpass', muffle(p.distance, 4500), 0.6), whirr, b.output);
+    const spin = b.osc('sine', 8);
+    const depth = b.gain(0.45);
+    b.chain(spin, depth);
+    depth.connect(whirr.gain);
   },
 };
 
-/** Endless festive murmur of a celebrating neighbourhood. */
-export function startMurmur(ctx: BaseAudioContext, bank: NoiseBank, output: GainNode, t0: number): SynthVoice {
+/** Air dulls a bang with distance: the low-pass cutoff for one `distance` metres away. */
+function muffle(distance: number | undefined, nearCutoff: number): number {
+  return Math.max(350, nearCutoff * Math.min(1, 60 / Math.max(60, distance ?? 0)));
+}
+
+
+/**
+ * The town celebrating all around: a faint, endless crackle of countless
+ * far-off crackers, swelling and thinning, under the individual bangs.
+ */
+export function startTownCrackle(ctx: BaseAudioContext, bank: NoiseBank, output: GainNode, t0: number): SynthVoice {
   const builder = new VoiceBuilder(ctx, bank, output, t0, Number.POSITIVE_INFINITY);
-  const crowd = builder.gain(0.6);
-  const crowdSource = builder.noise(bank.brown, t0, Number.POSITIVE_INFINITY, 0.8);
-  builder.chain(crowdSource, builder.filter('bandpass', 450, 0.8), crowd, output);
-  builder.lfo(crowd.gain, 0.13, 0.2);
-  const chatter = builder.gain(0.12);
-  builder.chain(builder.noise(bank.white), builder.filter('bandpass', 1200, 1.5), chatter, output);
-  builder.lfo(chatter.gain, 0.31, 0.05);
+  const crackle = builder.gain(0.55);
+  builder.chain(
+    builder.noise(bank.crackle, t0, Number.POSITIVE_INFINITY, 0.7),
+    builder.filter('bandpass', 1300, 0.6),
+    builder.filter('lowpass', 2400, 0.7),
+    crackle,
+    output,
+  );
+  builder.wander(crackle.gain, 0.35, 0.03);
+  const sizzle = builder.gain(0.06);
+  builder.chain(builder.noise(bank.sizzle, t0, Number.POSITIVE_INFINITY, 0.5), builder.filter('lowpass', 1800, 0.7), sizzle, output);
   output.gain.setValueAtTime(0, t0);
   output.gain.linearRampToValueAtTime(1, t0 + 3);
   return { output, sources: builder.sources, end: Number.POSITIVE_INFINITY };

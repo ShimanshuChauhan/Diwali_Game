@@ -4,12 +4,15 @@ import type { Unsubscribe } from '../core/eventBus';
 import { DEFAULT_QUALITY, qualityProfile, type QualityProfile } from '../core/quality';
 import { TUNING, type Tuning } from '../core/tuning';
 import type { BurstPattern, CrackerId, NeighbourId, Vec3 } from '../core/types';
-import { AmbienceScheduler, AMBIENCE, type DistantPop } from './ambience';
+import { AmbienceScheduler, type AmbientEvent } from './ambience';
 import {
   ACTIVE_SOUND,
   BURST_DURATION,
   CHEER_DURATION,
+  DISTANT_BOMB_DURATION,
   DISTANT_POP_DURATION,
+  DISTANT_SHELL_DURATION,
+  LADI_TAIL,
   SOUNDS,
   STOP_FADE,
   type SoundKind,
@@ -18,7 +21,7 @@ import {
   createLaneEcho,
   createNoiseBank,
   silence,
-  startMurmur,
+  startTownCrackle,
   synthesise,
   type NoiseBank,
   type SynthVoice,
@@ -29,7 +32,10 @@ import { VoicePool, type VoiceId } from './voicePool';
 const SPEED_OF_SOUND = 343;
 /** Seconds the master gain takes to follow mute/volume changes. */
 const GAIN_SMOOTHING = 0.03;
-const MURMUR_GAIN = 0.22;
+/** The faint crackle of the whole town celebrating. */
+const TOWN_CRACKLE_GAIN = 0.14;
+/** Distant bangs this close play at full intensity; further ones fall off. */
+const DISTANT_REFERENCE = 45;
 /** How much of the effects ring off the lane's walls. */
 const ECHO_GAIN = 0.32;
 
@@ -53,7 +59,7 @@ interface Graph {
   readonly sfx: GainNode;
   readonly ambience: GainNode;
   readonly bank: NoiseBank;
-  murmur: SynthVoice | null;
+  townCrackle: SynthVoice | null;
 }
 
 interface PlayOptions {
@@ -102,7 +108,7 @@ export class AudioEngine implements AudioModule, Steppable {
     this.neighbourPosition = options.neighbourPosition ?? (() => undefined);
     this.random = options.random ?? Math.random;
     this.pool = new VoicePool(this.profile.maxAudioVoices);
-    this.ambienceScheduler = new AmbienceScheduler(this.random, AMBIENCE);
+    this.ambienceScheduler = new AmbienceScheduler(this.random);
     this.subscribe(options.bus);
   }
 
@@ -190,7 +196,7 @@ export class AudioEngine implements AudioModule, Steppable {
   /** Advance distant ambience by `dt` seconds. */
   update(dt: number): void {
     if (!this.unlocked || !this.profile.ambientFireworks) return;
-    for (const pop of this.ambienceScheduler.update(dt)) this.playDistantPop(pop);
+    for (const event of this.ambienceScheduler.update(dt)) this.playAmbient(event);
   }
 
   /** Stop every effect voice for a fresh celebration; the ambience bed continues. */
@@ -235,6 +241,23 @@ export class AudioEngine implements AudioModule, Steppable {
         const distance = this.listener ? distanceBetween(this.listener.position, position) : 0;
         this.play('burst', { position, duration: BURST_DURATION, delay: distance / SPEED_OF_SOUND, pattern });
       }),
+      bus.on('distantLaunch', ({ position, apex, rise }) => {
+        if (!this.profile.ambientFireworks) return;
+        const distance = this.listener ? distanceBetween(this.listener.position, position) : DISTANT_REFERENCE;
+        this.playDistant('distantWhistle', position, distance, 0.8, {
+          duration: rise,
+          delay: distance / SPEED_OF_SOUND,
+          moveTo: apex,
+        });
+      }),
+      bus.on('distantBurst', ({ position }) => {
+        if (!this.profile.ambientFireworks) return;
+        const distance = this.listener ? distanceBetween(this.listener.position, position) : DISTANT_REFERENCE;
+        this.playDistant('distantShell', position, distance, 1, {
+          duration: DISTANT_SHELL_DURATION,
+          delay: distance / SPEED_OF_SOUND,
+        });
+      }),
       bus.on('neighbourReacted', ({ id, reaction }) => {
         if (reaction !== 'cheer') return;
         this.play('cheer', { position: this.neighbourPosition(id) ?? null, duration: CHEER_DURATION });
@@ -270,7 +293,7 @@ export class AudioEngine implements AudioModule, Steppable {
     echo.connect(createLaneEcho(ctx, this.random)).connect(master);
     const ambience = ctx.createGain();
     ambience.connect(master);
-    return { ctx, master, sfx, ambience, bank: createNoiseBank(ctx, this.random), murmur: null };
+    return { ctx, master, sfx, ambience, bank: createNoiseBank(ctx, this.random), townCrackle: null };
   }
 
   private async resumeContext(): Promise<void> {
@@ -282,11 +305,11 @@ export class AudioEngine implements AudioModule, Steppable {
       console.warn('Audio could not start:', error);
       return;
     }
-    if (!graph.murmur && graph.ctx.state === 'running') {
+    if (!graph.townCrackle && graph.ctx.state === 'running') {
       const bed = graph.ctx.createGain();
       bed.connect(graph.ambience);
-      graph.ambience.gain.value = MURMUR_GAIN;
-      graph.murmur = startMurmur(graph.ctx, graph.bank, bed, graph.ctx.currentTime);
+      graph.ambience.gain.value = TOWN_CRACKLE_GAIN;
+      graph.townCrackle = startTownCrackle(graph.ctx, graph.bank, bed, graph.ctx.currentTime);
     }
   }
 
@@ -356,21 +379,63 @@ export class AudioEngine implements AudioModule, Steppable {
     return id;
   }
 
-  private playDistantPop(pop: DistantPop): void {
+  /** Play one crackers-elsewhere event now (the scheduler's, or the sound board's). */
+  playAmbient(event: AmbientEvent): void {
     const origin = this.listener?.position ?? { x: 0, y: 0, z: 0 };
     const position = {
-      x: origin.x + Math.sin(pop.azimuth) * pop.distance,
-      y: origin.y + 15,
-      z: origin.z + Math.cos(pop.azimuth) * pop.distance,
+      x: origin.x + Math.sin(event.azimuth) * event.distance,
+      y: origin.y,
+      z: origin.z + Math.cos(event.azimuth) * event.distance,
     };
-    const falloff = Math.sqrt(AMBIENCE.minDistance / pop.distance);
-    this.play('distantPop', {
+    const { distance, intensity, duration } = event;
+    switch (event.kind) {
+      case 'rocket': {
+        // It whistles up, then bursts where it stops.
+        const apex = { ...position, y: position.y + ROCKET_APEX.min + this.random() * (ROCKET_APEX.max - ROCKET_APEX.min) };
+        this.playDistant('distantWhistle', position, distance, intensity, { duration, moveTo: apex });
+        this.playDistant('distantShell', apex, distance, intensity, { duration: DISTANT_SHELL_DURATION, delay: duration });
+        return;
+      }
+      case 'ladi':
+        this.playDistant('distantLadi', position, distance, intensity, { duration: duration + LADI_TAIL });
+        return;
+      case 'anar':
+        this.playDistant('distantFountain', position, distance, intensity, { duration });
+        return;
+      case 'chakri':
+        this.playDistant('distantChakri', position, distance, intensity, { duration });
+        return;
+      case 'cheer':
+        this.playDistant('cheer', position, distance, intensity, { duration: CHEER_DURATION });
+        return;
+      case 'bomb':
+        this.playDistant('distantBomb', position, distance, intensity, { duration: DISTANT_BOMB_DURATION });
+        return;
+      case 'pop':
+        this.playDistant('distantPop', position, distance, intensity, { duration: DISTANT_POP_DURATION });
+        return;
+    }
+  }
+
+  /**
+   * A sound `distance` metres away: quieter with distance (the panner only
+   * gives direction), optionally delayed and moving (a rising rocket).
+   */
+  private playDistant(
+    kind: SoundKind,
+    position: Vec3,
+    distance: number,
+    intensity: number,
+    options: { readonly duration: number; readonly delay?: number; readonly moveTo?: Vec3 },
+  ): void {
+    this.play(kind, {
       position,
-      duration: DISTANT_POP_DURATION,
-      gain: pop.intensity * falloff,
-      // Loudness is set by `falloff`; the panner only supplies direction.
-      refDistance: pop.distance,
-      distance: pop.distance,
+      duration: options.duration,
+      delay: options.delay,
+      moveTo: options.moveTo,
+      gain: intensity * Math.sqrt(DISTANT_REFERENCE / Math.max(DISTANT_REFERENCE, distance)),
+      refDistance: distance,
+      distance,
     });
   }
 
@@ -413,6 +478,9 @@ export class AudioEngine implements AudioModule, Steppable {
     return this.graph?.ctx.currentTime ?? 0;
   }
 }
+
+/** How high rockets elsewhere in town climb before bursting, metres. */
+const ROCKET_APEX = { min: 25, max: 55 } as const;
 
 function defaultContext(): AudioContext | null {
   if (typeof window === 'undefined') return null;

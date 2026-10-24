@@ -101,6 +101,42 @@ describe('cracker sound recipes', () => {
     expect(lastRampOf('peony')).toBeLessThan(2);
   });
 
+  it('never builds a distant bang or a burst from a pitched oscillator, so nothing sounds like a drum', () => {
+    for (const kind of ['distantBomb', 'distantPop', 'distantShell', 'burst'] as const) {
+      const ctx = new FakeAudioContext();
+      const audio = ctx.asAudioContext();
+      synthesise(audio, createNoiseBank(audio, seeded(1)), kind, audio.createGain(), { t0: 0, duration: 3, gain: 1, distance: 100 });
+      expect(ctx.sources.every((source) => source.buffer !== null)).toBe(true);
+    }
+  });
+
+  it('rolls a distant bang back off the buildings as several fading echoes', () => {
+    const echoes = gainEvents('distantBomb', 2.2)
+      .map((events) => events.filter((e) => e.method === 'exponentialRampToValueAtTime' && e.args[0]! > 0.001))
+      .find((rises) => rises.length >= 4)!;
+    expect(echoes).toBeDefined();
+    const levels = echoes.map((e) => e.args[0]!);
+    for (let i = 1; i < levels.length; i++) expect(levels[i]).toBeLessThan(levels[i - 1]!);
+  });
+
+  it('whistles a distant rocket up in pitch over its climb', () => {
+    const ctx = new FakeAudioContext();
+    const audio = ctx.asAudioContext();
+    synthesise(audio, createNoiseBank(audio, seeded(1)), 'distantWhistle', audio.createGain(), { t0: 0, duration: 2, gain: 1, distance: 120 });
+    const oscillator = ctx.sources.find((source) => source.buffer === null && source.frequency.value > 500)!;
+    const ramp = oscillator.frequency.events.find((e) => e.method === 'exponentialRampToValueAtTime')!;
+    expect(ramp.args[0]).toBeGreaterThan(oscillator.frequency.value * 2);
+    expect(ramp.args[1]).toBe(2);
+  });
+
+  it('rattles a ladi off as a long run of quick pops', () => {
+    const pops = gainEvents('distantLadi', 3 + 1.2)
+      .map(attacks)
+      .reduce((most, times) => (times.length > most.length ? times : most), [] as number[]);
+    expect(pops.length).toBeGreaterThan(25);
+    expect(Math.max(...pops)).toBeLessThan(3.05);
+  });
+
   it('swells the anar roar along a curve and fades the rocket motor out by the apex', () => {
     const curves = (kind: SoundKind, duration: number) =>
       gainEvents(kind, duration).flat().filter((e) => e.method === 'setValueCurveAtTime');
