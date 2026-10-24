@@ -17,13 +17,14 @@ function pick<T>(items: readonly T[], random: () => number): T {
 }
 
 /**
- * Roll a variant: burst shape, colours and timing. Height scales with the
+ * Roll a variant: burst shape, a themed palette and colours from it, and timing. Height scales with the
  * ascent time so every rocket climbs at the nominal speed the trail and
  * sound assume, and a longer flight simply bursts higher.
  */
 export function rollRocketVariant(definition: CrackerDefinition<'rocket'>, random: () => number): RocketVariant {
-  const { patterns, palette, colourCount, ascentScale, apexHeight } = definition.effect;
+  const { patterns, palettes, colourCount, ascentScale, apexHeight } = definition.effect;
   const pattern = pick(patterns, random);
+  const palette = pick(palettes, random);
 
   const [minColours, maxColours] = colourCount;
   const count = Math.min(palette.length, minColours + Math.floor(random() * (maxColours - minColours + 1)));

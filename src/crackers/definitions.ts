@@ -36,6 +36,8 @@ export interface RocketEffect {
   readonly patterns: readonly BurstPattern[];
   /** 0xRRGGBB colours bursts draw from. */
   readonly palette: readonly number[];
+  /** Themed subsets of `palette`; each rocket draws its colours from one. */
+  readonly palettes: readonly (readonly number[])[];
 }
 
 export interface CrackerEffects {
@@ -61,11 +63,21 @@ export interface CrackerDefinition<T extends CrackerType = CrackerType> {
 
 export type CrackerDefinitions = { readonly [T in CrackerType]: CrackerDefinition<T> };
 
-export const BURST_PATTERNS: readonly BurstPattern[] = ['peony', 'ring', 'willow', 'crossette', 'palm'];
+export const BURST_PATTERNS: readonly BurstPattern[] = ['peony', 'ring', 'willow', 'crossette', 'palm', 'heart'];
 
 /** Festive rocket colours (0xRRGGBB). */
 export const ROCKET_PALETTE: readonly number[] = [
   0xff4f6d, 0xffd34f, 0x4fb6ff, 0x7dff6a, 0xd36bff, 0xffffff, 0xff8a3d, 0x3dffe0,
+];
+
+/** Themed colour sets drawn from `ROCKET_PALETTE`, so bursts look curated. */
+export const ROCKET_PALETTES: readonly (readonly number[])[] = [
+  [0xffd34f, 0xff8a3d, 0xffffff], // gold
+  [0xff4f6d, 0xd36bff, 0xffd34f], // festive
+  [0x4fb6ff, 0x3dffe0, 0xffffff], // cool
+  [0x7dff6a, 0xffd34f, 0x3dffe0], // spring
+  [0xff8a3d, 0xffffff, 0x7dff6a], // tiranga
+  ROCKET_PALETTE, // anything goes
 ];
 
 const LABELS: Readonly<Record<CrackerType, string>> = {
@@ -87,6 +99,7 @@ function effectsFor(tuning: Tuning): CrackerEffects {
       colourCount: [1, 3],
       patterns: BURST_PATTERNS,
       palette: ROCKET_PALETTE,
+      palettes: ROCKET_PALETTES,
     },
   };
 }

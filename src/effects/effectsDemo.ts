@@ -54,6 +54,7 @@ export function createEffectsDemo(
 
   camera.position.set(0, 1.7, 10);
   camera.lookAt(0, 16, -30);
+  effects.setViewpoint(camera.position);
   const resize = (): void => view.setViewport(renderer.domElement.height, camera);
   resize();
   window.addEventListener('resize', resize);

@@ -13,6 +13,8 @@ import { CapacityBudget } from './capacity';
 import { applyCrackerAction, Crackers } from './crackers';
 import { DiyaScene, Diyas } from './diyas';
 import { createEffectsDemo } from './effects/effectsDemo';
+import { EffectsRenderer } from './effects/effectsRenderer';
+import { FireworksEffects } from './effects/fireworksEffects';
 import { Interaction } from './interaction';
 import { NeighbourScene, Neighbours } from './neighbours';
 import { MovementIntentTracker, PlayerCharacter, PlayerController } from './player';
@@ -27,6 +29,7 @@ import { createWorldScene } from './world/scene';
 
 const SIM_STEP = 1 / 60;
 const MAX_STEPS_PER_FRAME = 5;
+const NO_EFFECT_STATS = { activeEffects: 0, liveParticles: 0, dynamicLights: 0 };
 
 async function boot(): Promise<void> {
   const container = document.getElementById('app');
@@ -116,13 +119,16 @@ async function boot(): Promise<void> {
     },
   });
   const listenerForward = new THREE.Vector3();
+  const handPosition = () => character.handPosition(player.pose);
   // `capacity.stats` holds the resource counters for the perf overlay.
-  const capacity = new CapacityBudget({ crackers: () => crackers, bus, quality, voices: () => audio.activeVoices });
-  const crackers = new Crackers({
+  const capacity = new CapacityBudget({
+    crackers: () => crackers,
     bus,
-    admission: capacity,
-    handPosition: () => character.handPosition(player.pose),
+    quality,
+    effects: () => effects?.stats ?? NO_EFFECT_STATS,
+    voices: () => audio.activeVoices,
   });
+  const crackers = new Crackers({ bus, admission: capacity, handPosition });
   const interaction = new Interaction({
     world,
     crackers: () => crackers.list(),
@@ -144,6 +150,15 @@ async function boot(): Promise<void> {
   const effectsDemo = new URLSearchParams(location.search).has('effects-demo')
     ? createEffectsDemo(scene, camera, renderer)
     : null;
+  // The stress demo brings its own effects; otherwise crackers drive these.
+  const effects = effectsDemo ? null : new FireworksEffects(bus, { quality, handPosition });
+  const effectsView = effects ? new EffectsRenderer(effects.engine) : null;
+  if (effectsView) {
+    scene.add(effectsView.object);
+    effectsView.setViewport(renderer.domElement.height, camera);
+    window.addEventListener('resize', () => effectsView.setViewport(renderer.domElement.height, camera));
+    bus.on('qualityChanged', () => effectsView.syncLightCount());
+  }
 
   const loop = new FixedStep({ step: SIM_STEP, maxSteps: MAX_STEPS_PER_FRAME });
   const demoLoop = new FixedStep({ step: SIM_STEP, maxSteps: MAX_STEPS_PER_FRAME });
@@ -171,6 +186,7 @@ async function boot(): Promise<void> {
       player.move(movement.intent(rig.yaw), SIM_STEP);
       physics.step();
       crackers.update(SIM_STEP);
+      effects?.update(SIM_STEP);
       capacity.update(SIM_STEP);
       audio.update(SIM_STEP);
       atmosphere.update(SIM_STEP);
@@ -187,6 +203,8 @@ async function boot(): Promise<void> {
       camera.position.set(eye.x, eye.y, eye.z);
       camera.lookAt(eye.x + forward.x, eye.y + forward.y, eye.z + forward.z);
     }
+    effects?.setViewpoint(camera.position);
+    effectsView?.sync();
     atmosphere.frame();
     diyaScene.frame(camera.position);
     neighbourScene.frame(session.paused ? 0 : delta);

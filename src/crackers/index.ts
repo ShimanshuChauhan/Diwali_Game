@@ -11,6 +11,7 @@ export {
   CRACKER_DEFINITIONS,
   crackerDefinitions,
   ROCKET_PALETTE,
+  ROCKET_PALETTES,
   type CrackerDefinition,
   type CrackerDefinitions,
   type CrackerEffects,
