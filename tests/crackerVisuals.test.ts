@@ -6,7 +6,7 @@ import { CRACKER_TYPES, type CrackerType, type Vec3 } from '../src/core/types';
 import { CRACKER_DEFINITIONS, Crackers, rollRocketVariant, ROCKET_PALETTES } from '../src/crackers';
 import { FireworksEffects } from '../src/effects/fireworksEffects';
 import { FireworksEngine, NO_EFFECT } from '../src/effects/fireworksEngine';
-import { BURST_PATTERNS, PATTERN_SHAPES, SPINNER } from '../src/effects/presets';
+import { BURST_PATTERNS, CHAKRI_PALETTES, PATTERN_SHAPES, SPINNER } from '../src/effects/presets';
 
 const step = 1 / 60;
 const { fuse, activeDuration } = TUNING.crackers;
@@ -169,6 +169,66 @@ describe('ground and handheld cracker looks', () => {
       quadrants.add((p[i * 3]! > at.x ? 1 : 0) + (p[i * 3 + 2]! > at.z ? 2 : 0));
     }
     expect(quadrants.size).toBe(4);
+  });
+});
+
+describe('chakri wheel', () => {
+  it('throws its sparks from the rim of the wheel, not its centre', () => {
+    const engine = new FireworksEngine({ particleCapacity: 4000, emitterCapacity: 2, flashCapacity: 4, random: seeded(3) });
+    engine.startStream({ ...SPINNER, wander: undefined }, 0, 0, 0);
+    engine.update(1 / 240);
+    const rim = SPINNER.rim!;
+    const p = engine.particles.positions;
+    expect(engine.particles.count).toBeGreaterThan(3);
+    for (let i = 0; i < engine.particles.count; i++) {
+      const r = Math.hypot(p[i * 3]!, p[i * 3 + 2]!);
+      expect(r).toBeGreaterThan(rim.radius - 0.02);
+      expect(r).toBeLessThan(rim.radius + 0.06);
+      expect(p[i * 3 + 1]).toBeCloseTo(rim.height, 1);
+    }
+  });
+
+  it('keeps a flickering light on while it burns and lets it fade after', () => {
+    const { bus, effects } = effectsFor();
+    bus.emit('crackerActive', { id: 'c', type: 'chakri', position: { x: 0, y: 0, z: 0 } });
+    for (let sample = 0; sample < 12; sample++) {
+      run(effects, 0.25);
+      expect(effects.engine.flashes.activeCount).toBeGreaterThan(0);
+    }
+    bus.emit('crackerFinished', { id: 'c', type: 'chakri', reason: 'completed' });
+    run(effects, 0.5);
+    expect(effects.engine.flashes.activeCount).toBe(0);
+  });
+
+  it('burns in one of the chakri palettes, varying between chakris', () => {
+    const firsts = new Set(CHAKRI_PALETTES.map((palette) => palette[0]));
+    const seen = new Set<number>();
+    for (let seed = 1; seed <= 12; seed++) {
+      const bus = createGameEventBus();
+      const effects = new FireworksEffects(bus, { quality: QUALITY_PROFILES.medium, random: seeded(seed) });
+      bus.emit('crackerActive', { id: 'c', type: 'chakri', position: { x: 0, y: 0, z: 0 } });
+      run(effects, 0.05);
+      const lit = effects.engine.flashes.slots.find((slot) => slot.active);
+      expect(lit).toBeDefined();
+      expect(firsts.has(lit!.colour)).toBe(true);
+      seen.add(lit!.colour);
+    }
+    expect(seen.size).toBeGreaterThan(1);
+  });
+
+  it('reports where the wheel is and how far it has turned, only while it spins', () => {
+    const { bus, effects } = effectsFor();
+    expect(effects.spinnerPose('c')).toBeNull();
+    bus.emit('crackerActive', { id: 'c', type: 'chakri', position: { x: 2, y: 0, z: -1 } });
+    bus.emit('crackerActive', { id: 'a', type: 'anar', position: { x: 0, y: 0, z: 0 } });
+    expect(effects.spinnerPose('a')).toBeNull();
+    const first = effects.spinnerPose('c')!;
+    run(effects, 0.2);
+    const later = effects.spinnerPose('c')!;
+    expect(later.angle - first.angle).toBeCloseTo(SPINNER.spin * 0.2, 0);
+    expect(Math.hypot(later.x - 2, later.z + 1)).toBeLessThanOrEqual(SPINNER.wander!.radius + 1e-6);
+    bus.emit('crackerFinished', { id: 'c', type: 'chakri', reason: 'completed' });
+    expect(effects.spinnerPose('c')).toBeNull();
   });
 });
 

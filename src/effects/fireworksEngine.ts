@@ -2,7 +2,16 @@ import type { EffectStats } from '../core/contracts';
 import type { BurstPattern } from '../core/types';
 import { FlashPool } from './flashPool';
 import { GRAVITY, ParticlePool, createParticleSpec } from './particlePool';
-import { PATTERN_SHAPES, SKY_BURST, type EmitterPreset, type PatternShape, type SurgeSpec, type WanderSpec } from './presets';
+import {
+  PATTERN_SHAPES,
+  SKY_BURST,
+  type EmitterPreset,
+  type GlowLightSpec,
+  type PatternShape,
+  type RimSpec,
+  type SurgeSpec,
+  type WanderSpec,
+} from './presets';
 
 /**
  * Renderer-free fireworks simulation: a fixed pool of emitters spraying into
@@ -68,6 +77,12 @@ interface EmitterSlot {
   carry: number;
   /** Fractional crackle pops carried between steps. */
   crackleCarry: number;
+  /** Fractional rim glow sparks carried between steps. */
+  glowCarry: number;
+  /** Seconds until the stream's glow light flickers again. */
+  lightTimer: number;
+  /** First colour as 0xRRGGBB, for lights. */
+  lightColour: number;
   live: number;
   /** Crossette stars still waiting to split. */
   pending: number;
@@ -131,6 +146,9 @@ export class FireworksEngine {
         age: 0,
         carry: 0,
         crackleCarry: 0,
+        glowCarry: 0,
+        lightTimer: 0,
+        lightColour: 0xffffff,
         live: 0,
         pending: 0,
         originX: 0,
@@ -263,6 +281,11 @@ export class FireworksEngine {
     return this.resolve(handle) !== null;
   }
 
+  /** Current spin angle of a live emitter about +Y, radians, or null. */
+  emitterSpin(handle: EffectHandle): number | null {
+    return this.resolve(handle)?.spinAngle ?? null;
+  }
+
   /** Source position of a live emitter, or null. */
   emitterPosition(handle: EffectHandle): { x: number; y: number; z: number } | null {
     return this.resolve(handle);
@@ -328,6 +351,8 @@ export class FireworksEngine {
     emitter.age = 0;
     emitter.carry = 0;
     emitter.crackleCarry = 0;
+    emitter.glowCarry = 0;
+    emitter.lightTimer = 0;
     emitter.live = 0;
     emitter.pending = 0;
     emitter.originX = x;
@@ -341,6 +366,7 @@ export class FireworksEngine {
     emitter.vz = 0;
     emitter.spinAngle = this.random() * Math.PI * 2;
     const source = colours.length > 0 ? colours : preset.colours;
+    emitter.lightColour = source[0] ?? 0xffffff;
     emitter.colourCount = Math.max(1, Math.min(MAX_COLOURS, source.length));
     for (let c = 0; c < emitter.colourCount; c++) writeLinear(source[c] ?? 0xffffff, emitter.colours, c * 3);
     emitter.hasEndColour = preset.endColour !== undefined;
@@ -412,6 +438,11 @@ export class FireworksEngine {
     const n = Math.floor(emitter.carry);
     emitter.carry -= n;
     const surge = preset.surge ? surgeFactor(preset.surge, emitter.age) : 1;
+    if (preset.light) this.glowLight(emitter, preset.light, dt);
+    if (preset.rim) {
+      this.emitRim(index, emitter, preset, preset.rim, n, surge, dt);
+      return;
+    }
     const jets = Math.max(1, preset.jets ?? 1);
     const dir = this.scratch;
     for (let k = 0; k < n; k++) {
@@ -423,6 +454,93 @@ export class FireworksEngine {
       this.spawn(emitter);
     }
     if (preset.crackle) this.crackle(index, emitter, preset, dt);
+  }
+
+  /**
+   * Sparks thrown off a spinning wheel's rim along its direction of travel,
+   * plus short-lived glow sparks round the rim that blur into a ring (chakri).
+   */
+  private emitRim(
+    index: number,
+    emitter: EmitterSlot,
+    preset: EmitterPreset,
+    rim: RimSpec,
+    n: number,
+    surge: number,
+    dt: number,
+  ): void {
+    const spec = this.spec;
+    const jets = Math.max(1, preset.jets ?? 1);
+    const turn = preset.spin < 0 ? -1 : 1;
+    const cosOut = Math.cos(rim.outward);
+    const sinOut = Math.sin(rim.outward);
+    const y = emitter.y + rim.height;
+    for (let k = 0; k < n; k++) {
+      // The jets sweep round during the step; spread sparks back along the arc.
+      const back = this.random() * dt;
+      const angle = emitter.spinAngle - preset.spin * back + ((k % jets) * Math.PI * 2) / jets;
+      const c = Math.cos(angle);
+      const s = Math.sin(angle);
+      // Tangent in the direction of travel, turned out from the wheel.
+      const jitter = preset.spread;
+      const dx = -s * turn * cosOut + c * sinOut + (this.random() - 0.5) * 2 * jitter;
+      const dy = rim.lift + (this.random() - 0.5) * jitter;
+      const dz = c * turn * cosOut + s * sinOut + (this.random() - 0.5) * 2 * jitter;
+      const speed = (lerp(preset.speed.min, preset.speed.max, this.random()) * surge) / (Math.hypot(dx, dy, dz) || 1);
+      this.fillSpec(index, emitter, preset, dx * speed, dy * speed, dz * speed, 0, 1);
+      spec.x = emitter.x + c * rim.radius;
+      spec.y = y;
+      spec.z = emitter.z + s * rim.radius;
+      this.spawn(emitter);
+    }
+
+    const glow = rim.glow;
+    emitter.glowCarry += glow.rate * this.countScale * dt;
+    const g = Math.floor(emitter.glowCarry);
+    emitter.glowCarry -= g;
+    const hot = this.scratch;
+    writeLinear(glow.colour, hot, 0);
+    // Glow sparks drift along the rim at a fraction of its speed, so they streak a little.
+    const rimSpeed = rim.radius * preset.spin * 0.35;
+    for (let k = 0; k < g; k++) {
+      const angle = this.random() * Math.PI * 2;
+      const c = Math.cos(angle);
+      const s = Math.sin(angle);
+      this.fillSpec(index, emitter, preset, -s * rimSpeed, 0, c * rimSpeed, 0, 1);
+      spec.x = emitter.x + c * rim.radius;
+      spec.y = y;
+      spec.z = emitter.z + s * rim.radius;
+      spec.life = lerp(glow.life.min, glow.life.max, this.random());
+      spec.r0 = hot[0]!;
+      spec.g0 = hot[1]!;
+      spec.b0 = hot[2]!;
+      spec.r1 = hot[0]! * 0.5;
+      spec.g1 = hot[1]! * 0.3;
+      spec.b1 = hot[2]! * 0.1;
+      spec.size0 = glow.size;
+      spec.size1 = glow.size * 0.5;
+      spec.gravity = 0;
+      spec.drag = 4;
+      this.spawn(emitter);
+    }
+  }
+
+  /** Re-light a short flash every `interval` so the light flickers while the stream burns. */
+  private glowLight(emitter: EmitterSlot, light: GlowLightSpec, dt: number): void {
+    emitter.lightTimer -= dt;
+    if (emitter.lightTimer > 0) return;
+    emitter.lightTimer += light.interval;
+    if (emitter.lightTimer < 0) emitter.lightTimer = light.interval;
+    const peak = light.peak * (0.65 + 0.35 * this.random());
+    this.flashes.trigger(
+      emitter.x,
+      emitter.y + light.height,
+      emitter.z,
+      emitter.lightColour,
+      peak,
+      light.range,
+      light.interval * 2,
+    );
   }
 
   /** Small pops of sparks dotted around the source (phuljhari). */
