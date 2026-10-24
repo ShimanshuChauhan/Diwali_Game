@@ -34,6 +34,8 @@ npm run dev        # dev server at http://localhost:5173
 | `npm run test:watch`| Run tests in watch mode                       |
 | `npm run typecheck` | Type-check only                               |
 
+Performance results and the `?stress` test: [`docs/performance.md`](docs/performance.md).
+
 ## Project layout
 
 ```
@@ -52,6 +54,7 @@ src/
   audio/         sound effects and ambience
   ui/            HUD, prompts, pause menu
   quality/       Low/Medium/High profiles
+  perf/          scripted stress test and resource-growth tracking
 tests/           headless Vitest tests
 ```
 
