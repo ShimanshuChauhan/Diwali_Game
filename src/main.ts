@@ -10,7 +10,8 @@ import { CameraRig, rapierBoomCaster } from './camera';
 import { CapacityBudget } from './capacity';
 import { aimPoint, applyCrackerAction, Crackers } from './crackers';
 import { CrackerProps } from './crackers/props';
-import { isHandheld } from './core/types';
+import { firstPersonHand, firstPersonStick, heldStick, Sparkler } from './crackers/sparkler';
+import { isHandheld, type Vec3 } from './core/types';
 import { DiyaScene, Diyas } from './diyas';
 import { createEffectsDemo } from './effects/effectsDemo';
 import { EffectsRenderer } from './effects/effectsRenderer';
@@ -138,7 +139,13 @@ async function boot(): Promise<void> {
     quality,
   });
   const listenerForward = new THREE.Vector3();
-  const handPosition = () => character.handPosition(player.pose);
+  // First person holds the phuljhari low in view; third person, in the character's hand.
+  const sparkler = new Sparkler();
+  scene.add(sparkler.object);
+  const viewHand = new THREE.Vector3();
+  const stickDirection = new THREE.Vector3();
+  const handPosition = (): Vec3 =>
+    rig.mode === 'firstPerson' ? firstPersonHand(camera, viewHand) : character.handPosition(player.pose);
   const capacity = new CapacityBudget({
     crackers: () => crackers,
     bus,
@@ -174,7 +181,13 @@ async function boot(): Promise<void> {
     ? createEffectsDemo(scene, camera, renderer)
     : null;
   // The stress demo brings its own effects; otherwise crackers drive these.
-  const effects = effectsDemo ? null : new FireworksEffects(bus, { quality: quality.profile, handPosition });
+  const effects = effectsDemo
+    ? null
+    : new FireworksEffects(bus, {
+        quality: quality.profile,
+        // Sparks leave the stick where it is burning.
+        handPosition: () => sparkler.burningPoint,
+      });
   const effectsView = effects ? new EffectsRenderer(effects.engine) : null;
   if (effectsView) {
     scene.add(effectsView.object);
@@ -237,6 +250,15 @@ async function boot(): Promise<void> {
       const { position: eye, forward } = rig.update(player.pose, delta);
       camera.position.set(eye.x, eye.y, eye.z);
       camera.lookAt(eye.x + forward.x, eye.y + forward.y, eye.z + forward.z);
+      camera.updateMatrixWorld();
+      const held = crackers.held;
+      const direction =
+        rig.mode === 'firstPerson' ? firstPersonStick(camera, stickDirection) : heldStick(player.pose.yaw, stickDirection);
+      sparkler.update(handPosition(), direction, {
+        held: held !== null,
+        lit: held?.lit ?? false,
+        progress: crackers.heldProgress,
+      });
     }
     effects?.setViewpoint(camera.position);
     effectsView?.sync();

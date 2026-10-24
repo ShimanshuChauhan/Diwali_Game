@@ -119,6 +119,13 @@ export class Crackers implements CrackersModule {
     return this.heldItem;
   }
 
+  /** How much of the held phuljhari has burnt, 0–1; 0 until it is active. */
+  get heldProgress(): number {
+    const record = this.heldRecord;
+    if (!record || record.state !== 'active') return 0;
+    return Math.min(1, record.stateTime / record.activeDuration);
+  }
+
   /** Crackers whose fuse is burning or that are active, the phuljhari included. */
   get litCount(): number {
     let count = this.heldRecord && isLit(this.heldRecord) ? 1 : 0;

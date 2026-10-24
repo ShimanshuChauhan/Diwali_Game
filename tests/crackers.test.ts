@@ -359,6 +359,20 @@ describe('held phuljhari', () => {
     expect(crackers.held?.lit).toBe(false);
   });
 
+  it('reports how far the held phuljhari has burnt', () => {
+    const { crackers } = setup();
+    crackers.select('phuljhari');
+    expect(crackers.heldProgress).toBe(0);
+    crackers.igniteHeld();
+    run(crackers, fuse.phuljhari / 2);
+    expect(crackers.heldProgress).toBe(0); // fuse still burning
+    run(crackers, fuse.phuljhari / 2 + activeDuration.phuljhari / 2);
+    expect(crackers.heldProgress).toBeCloseTo(0.5, 1);
+    run(crackers, activeDuration.phuljhari);
+    expect(crackers.held).toBeNull();
+    expect(crackers.heldProgress).toBe(0);
+  });
+
   it('is lit directly, follows the hand, burns out and leaves the hand', () => {
     const hand = { position: v(0, 1.1, 0) };
     const { crackers, log, names } = setup({ hand });

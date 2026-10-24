@@ -337,26 +337,51 @@ export const CHAKRI_PALETTES: readonly (readonly number[])[] = [
   [0xff5a3c, 0xffc04a, 0xffe0b0],
 ];
 
-/** Phuljhari: a small crackling ball of sparks at the stick tip. */
+/**
+ * Phuljhari: a white-hot point on the stick throwing fine, fast streaks in
+ * every direction, ringed by tiny branching pops, with a flickering light
+ * on the hands and ground. Sizes are small because it is seen up close.
+ */
 export const SPARKLER: EmitterPreset = {
   kind: 'stream',
   count: 0,
-  rate: 160,
+  rate: 520,
   duration: Infinity,
-  speed: { min: 0.8, max: 2.2 },
-  life: { min: 0.15, max: 0.4 },
+  speed: { min: 1, max: 2.4 },
+  life: { min: 0.1, max: 0.24 },
   direction: UP,
   spread: Math.PI,
   spin: 0,
-  gravity: 0.4,
-  drag: 3,
-  size0: 0.06,
-  size1: 0.015,
-  flicker: 0.8,
+  gravity: 0.35,
+  drag: 3.5,
+  size0: 0.0065,
+  size1: 0.002,
+  flicker: 0.6,
   fade: 0.3,
+  endColour: 0xff9a3a,
   inherit: 1,
-  colours: [0xfff4d6, 0xffd08a],
-  crackle: { rate: 14, count: 8, radius: 0.25, speed: { min: 1.5, max: 3.5 }, life: { min: 0.06, max: 0.18 }, size: 0.05 },
+  colours: [0xfff6e0, 0xffe2a0, 0xffffff],
+  tail: { count: 3, step: 0.13, fade: 0.65 },
+  brightness: 1.4,
+  nozzle: {
+    rate: 160,
+    speed: { min: 0, max: 0.15 },
+    life: { min: 0.04, max: 0.07 },
+    size: 0.028,
+    height: 0,
+    colour: 0xfffbe8,
+    brightness: 3,
+  },
+  crackle: {
+    rate: 40,
+    count: 5,
+    radius: 0.14,
+    speed: { min: 0.8, max: 2 },
+    life: { min: 0.04, max: 0.1 },
+    size: 0.005,
+    colour: 0xffffff,
+  },
+  light: { peak: 3, range: 4, interval: 0.05, height: 0 },
 };
 
 /** Shared base for overhead rocket bursts; patterns adjust it. */
