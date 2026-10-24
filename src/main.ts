@@ -8,6 +8,7 @@ import { DEFAULT_QUALITY, qualityProfile } from './core/quality';
 import { Atmosphere } from './atmosphere';
 import { AudioEngine } from './audio/audioEngine';
 import { unlockOnFirstGesture } from './audio/controls';
+import { CameraRig, rapierBoomCaster } from './camera';
 import { applyCrackerAction, Crackers, handPositionFor } from './crackers';
 import { DiyaScene, Diyas } from './diyas';
 import { createEffectsDemo } from './effects/effectsDemo';
@@ -47,10 +48,6 @@ async function boot(): Promise<void> {
   const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 500);
   const player = new PlayerController({ physics, bounds: world.bounds, spawn: world.spawn, spawnYaw: world.spawnYaw });
   const movement = new MovementIntentTracker();
-  // Minimal first-person look until the camera module lands.
-  let yaw = world.spawnYaw;
-  let pitch = 0;
-  camera.rotation.order = 'YXZ';
 
   window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
@@ -60,11 +57,12 @@ async function boot(): Promise<void> {
 
   const bus = createGameEventBus();
   const session = new Session({ bus });
+  const obstacles = rapierBoomCaster(physics, { margin: TUNING.camera.collisionMargin, exclude: player.collider });
+  const rig = new CameraRig({ obstacles, bus, spawnYaw: world.spawnYaw });
   bus.on('sessionReset', () => {
     player.reset();
     movement.reset();
-    yaw = world.spawnYaw;
-    pitch = 0;
+    rig.reset();
   });
   const input = new Input({ bus, enabled: false });
   const controls = createDomControls({
@@ -110,7 +108,7 @@ async function boot(): Promise<void> {
     },
   });
   const listenerForward = new THREE.Vector3();
-  const crackers = new Crackers({ bus, handPosition: () => handPositionFor(player.pose.position, yaw) });
+  const crackers = new Crackers({ bus, handPosition: () => handPositionFor(player.pose.position, rig.yaw) });
   const interaction = new Interaction({
     world,
     crackers: () => crackers.list(),
@@ -124,7 +122,7 @@ async function boot(): Promise<void> {
     pose: () => player.pose,
     view: () => {
       camera.getWorldDirection(listenerForward);
-      return { mode: 'firstPerson' as const, position: camera.position, forward: listenerForward, yaw, pitch };
+      return { mode: rig.mode, position: camera.position, forward: listenerForward, yaw: rig.yaw, pitch: rig.pitch };
     },
   };
   const effectsDemo = new URLSearchParams(location.search).has('effects-demo')
@@ -141,11 +139,9 @@ async function boot(): Promise<void> {
       if (action.type === 'pause') session.pause('user');
       // Stand-in until the crackers module owns selection and emits this itself.
       else if (action.type === 'select') bus.emit('crackerSelected', { type: crackerForSlot(action.slot) });
-      else if (action.type === 'look') {
-        const { mouseSensitivity, pitchLimit } = TUNING.camera;
-        yaw -= action.dx * mouseSensitivity;
-        pitch = Math.min(Math.max(pitch - action.dy * mouseSensitivity, -pitchLimit), pitchLimit);
-      } else if (action.type === 'interact') {
+      else if (action.type === 'look') rig.look(action.dx, action.dy);
+      else if (action.type === 'toggleCamera') rig.toggleMode();
+      else if (action.type === 'interact') {
         const target = interaction.findInteractable(crackerControls.view());
         if (target?.kind === 'diya') diyas.light(target.id);
         else applyCrackerAction(action, crackerControls);
@@ -156,7 +152,7 @@ async function boot(): Promise<void> {
     // its own bus and keeps real time so it needs no click to start.
     const { steps } = loop.advance(session.paused ? 0 : delta);
     for (let i = 0; i < steps; i++) {
-      player.move(movement.intent(yaw), SIM_STEP);
+      player.move(movement.intent(rig.yaw), SIM_STEP);
       physics.step();
       crackers.update(SIM_STEP);
       audio.update(SIM_STEP);
@@ -168,14 +164,14 @@ async function boot(): Promise<void> {
       for (let i = 0; i < demo.steps; i++) effectsDemo.update(SIM_STEP);
       effectsDemo.frame(delta);
     } else {
-      const feet = player.pose.position;
-      camera.position.set(feet.x, feet.y + TUNING.player.eyeHeight, feet.z);
-      camera.rotation.set(pitch, yaw, 0);
+      const { position: eye, forward } = rig.update(player.pose, delta);
+      camera.position.set(eye.x, eye.y, eye.z);
+      camera.lookAt(eye.x + forward.x, eye.y + forward.y, eye.z + forward.z);
     }
     atmosphere.frame();
     diyaScene.frame(camera.position);
     camera.getWorldDirection(listenerForward);
-    const view = { mode: 'firstPerson', position: camera.position, forward: listenerForward, yaw, pitch } as const;
+    const view = { mode: rig.mode, position: camera.position, forward: listenerForward, yaw: rig.yaw, pitch: rig.pitch };
     audio.setListener(view);
     hud.setContext({ interactable: interaction.findInteractable(view) });
     hud.update(delta);
