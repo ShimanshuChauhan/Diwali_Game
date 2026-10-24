@@ -8,6 +8,7 @@ import { Atmosphere } from './atmosphere';
 import { AudioEngine } from './audio/audioEngine';
 import { unlockOnFirstGesture } from './audio/controls';
 import { createEffectsDemo } from './effects/effectsDemo';
+import { MovementIntentTracker, PlayerController } from './player';
 import { createDomControls } from './session/domControls';
 import { Input } from './session/input';
 import { Session } from './session/session';
@@ -29,6 +30,7 @@ async function boot(): Promise<void> {
   physics.timestep = SIM_STEP;
   const world = createWorld();
   addWorldColliders(physics, world.solids);
+  physics.step(); // put the static colliders in the broad phase before the player queries it
 
   const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -38,10 +40,12 @@ async function boot(): Promise<void> {
 
   const { scene } = createWorldScene(world.layout);
   const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 500);
-  // Static view from the spawn until the player and camera modules land.
-  const { spawn, spawnYaw } = world;
-  camera.position.set(spawn.x, spawn.y + TUNING.player.eyeHeight, spawn.z);
-  camera.rotation.set(0, spawnYaw, 0);
+  const player = new PlayerController({ physics, bounds: world.bounds, spawn: world.spawn, spawnYaw: world.spawnYaw });
+  const movement = new MovementIntentTracker();
+  // Minimal first-person look until the camera module lands.
+  let yaw = world.spawnYaw;
+  let pitch = 0;
+  camera.rotation.order = 'YXZ';
 
   window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
@@ -51,6 +55,12 @@ async function boot(): Promise<void> {
 
   const bus = createGameEventBus();
   const session = new Session({ bus });
+  bus.on('sessionReset', () => {
+    player.reset();
+    movement.reset();
+    yaw = world.spawnYaw;
+    pitch = 0;
+  });
   const input = new Input({ bus, enabled: false });
   const controls = createDomControls({
     input,
@@ -81,12 +91,18 @@ async function boot(): Promise<void> {
     timer.update(time);
     for (const action of input.drainActions()) {
       if (action.type === 'pause') session.pause('user');
+      else if (action.type === 'look') {
+        const { mouseSensitivity, pitchLimit } = TUNING.camera;
+        yaw -= action.dx * mouseSensitivity;
+        pitch = Math.min(Math.max(pitch - action.dy * mouseSensitivity, -pitchLimit), pitchLimit);
+      } else movement.apply(action);
     }
     const delta = timer.getDelta();
     // The game sim freezes while paused; the effects stress demo runs on
     // its own bus and keeps real time so it needs no click to start.
     const { steps } = loop.advance(session.paused ? 0 : delta);
     for (let i = 0; i < steps; i++) {
+      player.move(movement.intent(yaw), SIM_STEP);
       physics.step();
       audio.update(SIM_STEP);
       atmosphere.update(SIM_STEP);
@@ -95,6 +111,10 @@ async function boot(): Promise<void> {
       const demo = demoLoop.advance(delta);
       for (let i = 0; i < demo.steps; i++) effectsDemo.update(SIM_STEP);
       effectsDemo.frame(delta);
+    } else {
+      const feet = player.pose.position;
+      camera.position.set(feet.x, feet.y + TUNING.player.eyeHeight, feet.z);
+      camera.rotation.set(pitch, yaw, 0);
     }
     atmosphere.frame();
     camera.getWorldDirection(listenerForward);

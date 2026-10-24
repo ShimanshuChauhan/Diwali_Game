@@ -12,6 +12,12 @@ export interface Tuning {
     readonly eyeHeight: number;
     /** Highest step the controller climbs without jumping. */
     readonly maxStepHeight: number;
+    /** Speed gained per second while a direction is held (m/s²). */
+    readonly acceleration: number;
+    /** Speed lost per second once input is released (m/s²). */
+    readonly deceleration: number;
+    /** Steepest slope (degrees from horizontal) the player walks up. */
+    readonly maxSlope: number;
   };
   readonly camera: {
     readonly mouseSensitivity: number;
@@ -67,6 +73,9 @@ export const TUNING: Tuning = {
     runSpeed: 5,
     eyeHeight: 1.6,
     maxStepHeight: 0.3,
+    acceleration: 30,
+    deceleration: 40,
+    maxSlope: 45,
   },
   camera: {
     mouseSensitivity: 0.0025,
