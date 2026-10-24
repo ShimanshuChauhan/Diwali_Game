@@ -273,3 +273,46 @@ describe('world module stays renderer-free', () => {
     expect(source).not.toMatch(/from\s+['"](three|@dimforge\/)/);
   });
 });
+
+describe('street and house detail', () => {
+  const props = layout.solids.filter((s) => s.kind === 'prop' && s.id !== 'courtyard.platform');
+
+  it('adds pots, planters and scooters as solids the player walks round', () => {
+    expect(props.some((p) => p.id.includes('.pot.'))).toBe(true);
+    expect(props.some((p) => p.id.startsWith('gate.planter'))).toBe(true);
+    expect(props.some((p) => p.id.startsWith('scooter.'))).toBe(true);
+    for (const p of props) expect(p.supportsPlacement, p.id).toBe(false);
+  });
+
+  it('keeps props clear of doorways, diyas and neighbour areas', () => {
+    const clearOf = (p: (typeof props)[number], c: Vec3, r: number) => {
+      const dx = Math.max(p.box.min.x - c.x, 0, c.x - p.box.max.x);
+      const dz = Math.max(p.box.min.z - c.z, 0, c.z - p.box.max.z);
+      return Math.hypot(dx, dz) > r;
+    };
+    for (const p of props) {
+      for (const d of world.doorways) expect(clearOf(p, d.centre, d.radius), `${p.id} / ${d.id}`).toBe(true);
+      for (const d of world.diyaSites) expect(clearOf(p, d.position, 0.3), `${p.id} / ${d.id}`).toBe(true);
+      for (const n of world.neighbourAreas) expect(clearOf(p, n.centre, n.radius), `${p.id} / ${n.id}`).toBe(true);
+    }
+  });
+
+  it('gives every house a plinth, trimmed windows and, bar the rooftop house, a parapet and water tank', () => {
+    const houses = layout.solids.filter((s) => s.kind === 'house').map((s) => s.id.slice(0, -'.body'.length));
+    const decor = new Set(layout.decor.map((d) => d.id));
+    for (const id of houses) {
+      expect(decor.has(`${id}.plinth`), id).toBe(true);
+      expect(layout.decor.some((d) => d.id.startsWith(`${id}.window.`) && d.id.endsWith('.shade')), id).toBe(true);
+      if (id === 'house.court.e') continue;
+      expect(decor.has(`${id}.parapet.n`), id).toBe(true);
+      expect(decor.has(`${id}.tank`), id).toBe(true);
+    }
+  });
+
+  it('keeps paving overlays a few millimetres proud of the ground', () => {
+    for (const d of layout.decor.filter((d) => d.id.startsWith('paving.'))) {
+      expect(d.box.max.y, d.id).toBeGreaterThan(0);
+      expect(d.box.max.y, d.id).toBeLessThan(0.01);
+    }
+  });
+});

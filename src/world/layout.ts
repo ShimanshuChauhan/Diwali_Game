@@ -55,6 +55,16 @@ export type MaterialKey =
   | 'bulbPink'
   | 'bulbGreen'
   | 'platform'
+  | 'plinth'
+  | 'windowDark'
+  | 'tank'
+  | 'metal'
+  | 'terracotta'
+  | 'leaf'
+  | 'pavement'
+  | 'drain'
+  | 'laneStoneDark'
+  | 'courtyardTileDark'
   | HouseColour;
 
 export const HOUSE_COLOURS = [
@@ -163,8 +173,12 @@ interface HouseSpec {
   /** Door centre along the facade; defaults to the facade's middle. */
   readonly doorAt?: number;
   readonly balcony: boolean;
-  /** Contrasting roofline band; off where stairs run up the wall. */
+  /** Contrasting roofline band and rooftop parapet; off where stairs run up the wall. */
   readonly band?: boolean;
+  /** Potted plants either side of the door, beyond the diyas. */
+  readonly pots?: boolean;
+  /** A stair room (mumty) on the roof, with the water tank on top of it. */
+  readonly mumty?: boolean;
 }
 
 class LayoutBuilder {
@@ -202,6 +216,62 @@ class LayoutBuilder {
 
   light(id: string, position: Vec3, colour = '#ffb35c', intensity = 18, distance = 14): void {
     this.lights.push({ id, position, colour, intensity, distance });
+  }
+
+  /**
+   * Concrete sill below a window and a chhajja sunshade above it. `face` and
+   * `out` place them on a wall `face` metres from the facade, facing `out`.
+   */
+  windowTrim(
+    id: string,
+    onFacade: (a0: number, a1: number, y0: number, y1: number, d0: number, d1: number) => Aabb,
+    centre: number,
+    y0: number,
+    face = 0,
+    out = 1,
+  ): void {
+    this.deco(`${id}.sill`, onFacade(centre - 0.5, centre + 0.5, y0 - 0.08, y0, face, face + out * 0.14), 'slab');
+    this.deco(`${id}.shade`, onFacade(centre - 0.6, centre + 0.6, y0 + 1.12, y0 + 1.2, face, face + out * 0.4), 'slab');
+  }
+
+  /** A terracotta pot (solid, so the player walks round it) with a leafy top. */
+  pot(id: string, x: number, z: number, half: number, height: number): void {
+    this.solid(id, 'prop', box(x - half, 0, z - half, x + half, height, z + half), 'terracotta');
+    this.deco(`${id}.rim`, box(x - half - 0.03, height - 0.06, z - half - 0.03, x + half + 0.03, height, z + half + 0.03), 'terracotta');
+    // A bush in tiers, narrowing upwards.
+    let y = height;
+    [1.1, 0.8, 0.45].forEach((k, i) => {
+      const r = half * k;
+      const h = half * (1 - i * 0.2);
+      this.deco(`${id}.leaf.${i}`, box(x - r, y, z - r, x + r, y + h, z + r), 'leaf');
+      y += h * 0.85;
+    });
+  }
+
+  /**
+   * A parked scooter: one invisible collider round a few visual boxes.
+   * `alongX` picks which way it points.
+   */
+  scooter(id: string, x: number, z: number, alongX: boolean, colour: HouseColour): void {
+    const length = 1.6;
+    const width = 0.6;
+    // Box in scooter space: `l` along its length from the rear, `w` across from its centre line.
+    const part = (l0: number, l1: number, y0: number, y1: number, w0: number, w1: number): Aabb => {
+      const a0 = (alongX ? x : z) - length / 2 + l0;
+      const a1 = (alongX ? x : z) - length / 2 + l1;
+      const c = alongX ? z : x;
+      return alongX ? box(a0, y0, c + w0, a1, y1, c + w1) : box(c + w0, y0, a0, c + w1, y1, a1);
+    };
+    const half = width / 2;
+    this.solid(`${id}.collider`, 'prop', part(0, length, 0, 1.1, -half, half), 'metal', { visible: false });
+    this.deco(`${id}.wheel.rear`, part(0.05, 0.45, 0, 0.4, -0.06, 0.06), 'tank');
+    this.deco(`${id}.wheel.front`, part(1.15, 1.55, 0, 0.4, -0.06, 0.06), 'tank');
+    this.deco(`${id}.body`, part(0.05, 0.95, 0.3, 0.75, -0.25, 0.25), colour);
+    this.deco(`${id}.seat`, part(0.15, 0.85, 0.75, 0.85, -0.18, 0.18), 'railing');
+    this.deco(`${id}.floor`, part(0.95, 1.2, 0.25, 0.35, -0.2, 0.2), 'railing');
+    this.deco(`${id}.shield`, part(1.2, 1.32, 0.3, 1.0, -0.22, 0.22), colour);
+    this.deco(`${id}.handlebar`, part(1.22, 1.3, 1.0, 1.06, -0.32, 0.32), 'metal');
+    this.deco(`${id}.headlamp`, part(1.32, 1.36, 0.82, 0.92, -0.06, 0.06), 'bulbWarm');
   }
 
   /**
@@ -254,6 +324,70 @@ class LayoutBuilder {
         const centre = door + side * Math.min(2.2, (hi - lo) / 2 - 0.9);
         if (storey === 0 && Math.abs(centre - door) < halfDoor + 0.6) continue;
         this.deco(`${id}.window.${storey}.${side}`, onFacade(centre - 0.4, centre + 0.4, y0, y0 + 1, 0, 0.04), 'window');
+        this.windowTrim(`${id}.window.${storey}.${side}`, onFacade, centre, y0);
+      }
+    }
+
+    // Lit and dark windows on the back wall, with an AC unit under one.
+    const back = -(alongX ? maxZ - minZ : maxX - minX);
+    const columns = Math.max(1, Math.floor((hi - lo) / 2.6));
+    for (let storey = 0; storey < storeys; storey++) {
+      const y0 = storey * 3 + 1;
+      for (let c = 0; c < columns; c++) {
+        const centre = lo + ((c + 0.5) * (hi - lo)) / columns;
+        const lit = (storey + c + id.length) % 3 !== 0;
+        const wid = `${id}.back.${storey}.${c}`;
+        this.deco(wid, onFacade(centre - 0.4, centre + 0.4, y0, y0 + 1, back - 0.04, back), lit ? 'window' : 'windowDark');
+        this.windowTrim(wid, onFacade, centre, y0, back, -1);
+      }
+    }
+    if (storeys > 1) {
+      const centre = lo + (0.5 * (hi - lo)) / columns;
+      this.deco(`${id}.back.ac`, onFacade(centre - 0.4, centre + 0.4, 3.3, 3.8, back - 0.32, back), 'metal');
+    }
+
+    // Plinth round the base.
+    this.deco(`${id}.plinth`, box(minX - 0.04, 0, minZ - 0.04, maxX + 0.04, 0.4, maxZ + 0.04), 'plinth');
+
+    // Roof: a parapet with a cream coping, a water tank, and on taller houses
+    // a stair room that carries the tank.
+    if (spec.band ?? true) {
+      const t = 0.15;
+      const top = height + 0.6;
+      const edges: [string, Aabb][] = [
+        ['n', box(minX, height, minZ, maxX, top, minZ + t)],
+        ['s', box(minX, height, maxZ - t, maxX, top, maxZ)],
+        ['w', box(minX, height, minZ + t, minX + t, top, maxZ - t)],
+        ['e', box(maxX - t, height, minZ + t, maxX, top, maxZ - t)],
+      ];
+      for (const [side, b] of edges) {
+        this.deco(`${id}.parapet.${side}`, b, colour);
+        this.deco(
+          `${id}.parapet.${side}.coping`,
+          box(b.min.x - 0.03, top, b.min.z - 0.03, b.max.x + 0.03, top + 0.08, b.max.z + 0.03),
+          'slab',
+        );
+      }
+      // Tucked into the back corner, away from the street.
+      const a0 = lo + 0.5;
+      let base = height;
+      if (spec.mumty) {
+        this.deco(`${id}.mumty`, onFacade(a0, a0 + 2.4, height, height + 2.6, back + 0.5, back + 2.9), colour);
+        this.deco(`${id}.mumty.roof`, onFacade(a0 - 0.1, a0 + 2.5, height + 2.6, height + 2.75, back + 0.4, back + 3), 'slab');
+        this.deco(`${id}.mumty.door`, onFacade(a0 + 0.8, a0 + 1.6, height, height + 2, back + 2.9, back + 2.95), 'door');
+        base = height + 2.75;
+      } else {
+        this.deco(`${id}.tank.stand`, onFacade(a0, a0 + 1.2, height, height + 0.4, back + 0.5, back + 1.7), 'stairStone');
+        base = height + 0.4;
+      }
+      this.deco(`${id}.tank`, onFacade(a0 + 0.1, a0 + 1.1, base, base + 1.1, back + 0.6, back + 1.6), 'tank');
+    }
+
+    // Potted plants beyond the diyas.
+    if (spec.pots) {
+      for (const side of [-1, 1] as const) {
+        const p = point(door + side * 1.9, 0, 0.35);
+        this.pot(`${id}.pot.${side < 0 ? 'left' : 'right'}`, p.x, p.z, 0.2, 0.45);
       }
     }
 
@@ -294,8 +428,8 @@ export function createLayout(): WorldLayout {
     walkable: true,
     supportsPlacement: true,
   });
-  // Distant ground beyond the houses, seen from the rooftop; never reachable.
-  b.deco('ground.outer', box(-60, -0.6, -80, 60, -0.02, 50), 'outerGround');
+  // Ground under the distant town beyond the houses; never reachable.
+  b.deco('ground.outer', box(-150, -0.6, -170, 150, -0.02, 140), 'outerGround');
 
   // ── Lane houses: four a side, facing the lane ─────────────────────────
   const laneZ = [8, 1, -6, -13, -20];
@@ -313,6 +447,9 @@ export function createLayout(): WorldLayout {
       colour: HOUSE_COLOURS[i % HOUSE_COLOURS.length]!,
       facing: '+x',
       balcony: true,
+      // Not the family home's door (w0): its entrance stays uncluttered.
+      pots: i % 2 === 1,
+      mumty: i % 2 === 0,
     });
     b.house({
       id: `house.lane.e${i}`,
@@ -324,6 +461,9 @@ export function createLayout(): WorldLayout {
       colour: HOUSE_COLOURS[(i + 4) % HOUSE_COLOURS.length]!,
       facing: '-x',
       balcony: i % 2 === 0,
+      // Not the neighbour's door (e1).
+      pots: i % 2 === 0,
+      mumty: i % 2 === 1,
     });
   }
 
@@ -338,6 +478,7 @@ export function createLayout(): WorldLayout {
     colour: 'houseCoral',
     facing: '+x',
     balcony: true,
+    pots: true,
   });
   b.house({
     id: 'house.court.nw',
@@ -349,6 +490,8 @@ export function createLayout(): WorldLayout {
     colour: 'houseSky',
     facing: '+z',
     balcony: true,
+    pots: true,
+    mumty: true,
   });
   b.house({
     id: 'house.court.ne',
@@ -440,6 +583,36 @@ export function createLayout(): WorldLayout {
   // ── Lane entrance: compound wall with a gate across the south end ─────
   b.solid('wall.lane.south', 'wall', box(-lane, 0, laneSouthZ, lane, 2.2, laneSouthZ + 0.3), 'compoundWall');
   b.deco('wall.lane.gate', box(-1.2, 0, laneSouthZ - 0.04, 1.2, 2, laneSouthZ), 'door');
+
+  // ── Paving: lane pavements with a drain line, joints, courtyard tiles ─
+  // Flat overlays a few millimetres proud of the ground; decoration only, so
+  // placement still rests on the ground beneath.
+  const skin = 0.003;
+  const kerb = 0.9;
+  for (const side of [-1, 1] as const) {
+    const inner = side * (lane - kerb);
+    const outer = side * lane;
+    b.deco(`paving.lane.${side < 0 ? 'w' : 'e'}`, box(Math.min(inner, outer), -0.1, courtyardSouthZ, Math.max(inner, outer), skin, laneSouthZ), 'pavement');
+    const d0 = inner;
+    const d1 = inner - side * 0.15;
+    b.deco(`paving.drain.${side < 0 ? 'w' : 'e'}`, box(Math.min(d0, d1), -0.1, courtyardSouthZ, Math.max(d0, d1), skin + 0.001, laneSouthZ), 'drain');
+  }
+  for (let k = 0, z = laneSouthZ - 1.5; z > courtyardSouthZ + 0.5; k++, z -= 1.5) {
+    b.deco(`paving.joint.${k}`, box(-lane + kerb + 0.15, -0.1, z - 0.04, lane - kerb - 0.15, skin, z + 0.04), 'laneStoneDark');
+  }
+  for (let i = 0, x = -court; x < court; i++, x += 2) {
+    for (let k = 0, z = courtyardNorthZ; z < courtyardSouthZ; k++, z += 2) {
+      if ((i + k) % 2 === 0) continue;
+      b.deco(`paving.tile.${i}.${k}`, box(x + 0.04, -0.1, z + 0.04, x + 1.96, skin, z + 1.96), 'courtyardTileDark');
+    }
+  }
+
+  // ── Street life: parked scooters and planters by the gate ─────────────
+  b.scooter('scooter.courtyard.west', -11.3, -23, false, 'houseTurquoise');
+  b.scooter('scooter.courtyard.north', 9.5, -35.55, true, 'housePink');
+  for (const side of [-1, 1] as const) {
+    b.pot(`gate.planter.${side < 0 ? 'w' : 'e'}`, side * 3.3, laneSouthZ - 0.7, 0.35, 0.6);
+  }
 
   // ── Strings of bulbs across the lane and courtyard ────────────────────
   const bulbs: MaterialKey[] = ['bulbWarm', 'bulbPink', 'bulbGreen'];

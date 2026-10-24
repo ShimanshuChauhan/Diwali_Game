@@ -32,6 +32,16 @@ const MATERIALS: Readonly<Record<MaterialKey, MaterialSpec>> = {
   houseSaffron: { color: '#f0a03c' },
   houseLime: { color: '#a6c94a' },
   houseLavender: { color: '#9c86d6' },
+  plinth: { color: '#5a4a40', roughness: 0.95 },
+  windowDark: { color: '#1a1622', roughness: 0.4 },
+  tank: { color: '#1c1c1e', roughness: 0.6 },
+  metal: { color: '#8a8c90', roughness: 0.5 },
+  terracotta: { color: '#b0583a', roughness: 0.9 },
+  leaf: { color: '#2f6a2a', roughness: 0.9 },
+  pavement: { color: '#5e544a', roughness: 0.95 },
+  drain: { color: '#1a1714', roughness: 1 },
+  laneStoneDark: { color: '#2e2722', roughness: 1 },
+  courtyardTileDark: { color: '#55392c', roughness: 0.9 },
   houseOchre: { color: '#c99a3e' },
   houseCoral: { color: '#e8775a' },
   houseSky: { color: '#5fa0e0' },
@@ -106,6 +116,16 @@ export function buildWorldScene(layout: WorldLayout): WorldScene {
   };
 }
 
+/** The evening's sky fill and moonlight; distant scenery bakes the same light. */
+export const EVENING_LIGHT = {
+  sky: '#4a4290',
+  ground: '#2a1a10',
+  ambient: 0.7,
+  moon: '#9aa8ff',
+  moonIntensity: 0.4,
+  moonPosition: { x: -20, y: 40, z: 10 },
+} as const;
+
 const SKY_ZENITH = new THREE.Color('#0b0a2a');
 const SKY_HORIZON = new THREE.Color('#5a2a5e');
 const SKY_GLOW = new THREE.Color('#d0603a');
@@ -142,9 +162,10 @@ export function createWorldScene(layout: WorldLayout): { scene: THREE.Scene; wor
   scene.fog = new THREE.Fog(SKY_HORIZON.clone().multiplyScalar(0.5), 30, 110);
   scene.add(createSkyDome(200));
 
-  scene.add(new THREE.HemisphereLight('#4a4290', '#2a1a10', 0.7));
-  const moon = new THREE.DirectionalLight('#9aa8ff', 0.4);
-  moon.position.set(-20, 40, 10);
+  const light = EVENING_LIGHT;
+  scene.add(new THREE.HemisphereLight(light.sky, light.ground, light.ambient));
+  const moon = new THREE.DirectionalLight(light.moon, light.moonIntensity);
+  moon.position.set(light.moonPosition.x, light.moonPosition.y, light.moonPosition.z);
   scene.add(moon);
 
   const world = buildWorldScene(layout);
