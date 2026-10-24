@@ -35,6 +35,7 @@ interface or through events.
 | Camera (`camera/`)         | `CameraModule`                | Yaw/pitch, first/third-person `CameraView`        | View only  |
 | Interaction (`interaction/`) | `InteractionModule`         | Nearby interactables, placement validation        | No         |
 | Crackers (`crackers/`)     | `CrackersModule`              | Selection, lifecycle `placed → fuseBurning → active → finished`, held phuljhari, caps | No |
+| Capacity (`capacity/`)     | `CrackerAdmission` (`CapacityBudget`) | Budgets for props, lit crackers, effects, particles, lights, voices; admission, unlit-prop reclamation, overlay counters | No |
 | Effects (`effects/`)       | `EffectsModule`               | Pooled particles, trails, flashes; effect budgets | Yes        |
 | Diyas (`diyas/`)           | `DiyasModule`                 | Session-local lit state                           | No (visuals react to `diyaLit`) |
 | Neighbours (`neighbours/`) | `NeighboursModule`            | Ambient behaviour, reactions, live positions      | Logic no; meshes yes |

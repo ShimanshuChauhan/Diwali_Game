@@ -22,8 +22,18 @@ import {
 import { crackerDefinitions, type CrackerDefinitions } from './definitions';
 import { rollRocketVariant, type RocketVariant } from './rocket';
 
+/**
+ * Capacity gate consulted before the built-in caps, e.g. the capacity
+ * budget. May reclaim an old unlit cracker to make room. Null admits.
+ */
+export interface CrackerAdmission {
+  admitPlacement(type: CrackerType): PlacementRejection | null;
+  admitIgnition(id: CrackerId, type: CrackerType): IgnitionRejection | null;
+}
+
 export interface CrackersOptions {
   readonly bus: GameEventBus;
+  readonly admission?: CrackerAdmission;
   readonly tuning?: Tuning;
   /** Rocket variation source; `Math.random` by default. */
   readonly random?: () => number;
@@ -66,13 +76,15 @@ function isLit(record: CrackerRecord): boolean {
  * and UI; renderer-free.
  *
  * Supply is unlimited. Placement and ignition are bounded by `caps`
- * (placed ground crackers, lit crackers at once); reclaiming old unlit
- * crackers is the capacity policy's job and goes through `reclaim`.
+ * (placed ground crackers, lit crackers at once) and by an optional
+ * `admission` gate; reclaiming old unlit crackers is the capacity policy's
+ * job and goes through `reclaim`.
  */
 export class Crackers implements CrackersModule {
   readonly definitions: CrackerDefinitions;
 
   private readonly bus: GameEventBus;
+  private readonly admission: CrackerAdmission | null;
   private readonly tuning: Tuning;
   private readonly random: () => number;
   private readonly handPosition: () => Vec3;
@@ -88,6 +100,7 @@ export class Crackers implements CrackersModule {
 
   constructor(options: CrackersOptions) {
     this.bus = options.bus;
+    this.admission = options.admission ?? null;
     this.tuning = options.tuning ?? TUNING;
     this.random = options.random ?? Math.random;
     this.handPosition = options.handPosition ?? (() => ORIGIN);
@@ -128,6 +141,8 @@ export class Crackers implements CrackersModule {
   place(preview: PlacementPreview): PlaceResult {
     const { type, position } = preview;
     if (isHandheld(type)) return this.rejectPlacement(type, 'handheldOnly');
+    const refused = this.admission?.admitPlacement(type) ?? null;
+    if (refused) return this.rejectPlacement(type, refused);
     if (this.ground.length >= this.tuning.caps.maxPlacedCrackers) return this.rejectPlacement(type, 'capacity');
     const record = this.create(type, position);
     this.ground.push(record);
@@ -226,6 +241,8 @@ export class Crackers implements CrackersModule {
 
   private light(record: CrackerRecord): IgniteResult {
     if (record.state !== 'placed') return this.rejectIgnition(record.id, 'alreadyLit');
+    const refused = this.admission?.admitIgnition(record.id, record.type) ?? null;
+    if (refused) return this.rejectIgnition(record.id, refused);
     if (this.litCount >= this.tuning.caps.maxLitCrackers) return this.rejectIgnition(record.id, 'capacity');
     record.state = 'fuseBurning';
     record.stateTime = 0;
