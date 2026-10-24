@@ -314,10 +314,23 @@ describe('neighbour scene', () => {
     expect(figure.position.x).toBeCloseTo(1);
     expect(figure.position.z).toBeCloseTo(2);
 
+    // Cheering lifts both hands above the head.
+    const heights = () => {
+      figure.updateMatrixWorld(true);
+      const y = (name: string) => {
+        const found: number[] = [];
+        figure.traverse((o) => {
+          if (o.name === name) found.push(new THREE.Box3().setFromObject(o).max.y);
+        });
+        return found;
+      };
+      return { head: Math.max(...y('figure.head')), hands: y('figure.forearm') };
+    };
+    expect(Math.max(...heights().hands)).toBeLessThan(heights().head);
     neighbours.react(v(1, 30, 10));
     view.frame(0.016);
-    const leftArm = figure.children.find((c) => c instanceof THREE.Group && c.position.x < 0)!;
-    expect(Math.abs(leftArm.rotation.z)).toBeGreaterThan(2);
+    const cheering = heights();
+    for (const hand of cheering.hands) expect(hand).toBeGreaterThan(cheering.head);
 
     view.dispose();
     expect(scene.children).not.toContain(view.object);
