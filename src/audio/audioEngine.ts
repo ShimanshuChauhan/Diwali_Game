@@ -58,8 +58,16 @@ interface Graph {
   readonly master: GainNode;
   readonly sfx: GainNode;
   readonly ambience: GainNode;
+  /** Recorded music (aarti): under master gain and mute, dry of the lane echo. */
+  readonly music: GainNode;
   readonly bank: NoiseBank;
   townCrackle: SynthVoice | null;
+}
+
+/** Where recorded music plays; see `AudioEngine.musicOutput`. */
+export interface MusicOutput {
+  readonly context: AudioContext;
+  readonly destination: AudioNode;
 }
 
 interface PlayOptions {
@@ -130,6 +138,15 @@ export class AudioEngine implements AudioModule, Steppable {
 
   get voiceLimit(): number {
     return this.pool.limit;
+  }
+
+  /**
+   * The context and bus for recorded music, so it shares unlock, pause,
+   * mute and master gain with the effects; null until `unlock()` has built
+   * the graph. Music sources are the caller's and outside the voice cap.
+   */
+  get musicOutput(): MusicOutput | null {
+    return this.graph ? { context: this.graph.ctx, destination: this.graph.music } : null;
   }
 
   async unlock(): Promise<void> {
@@ -293,7 +310,9 @@ export class AudioEngine implements AudioModule, Steppable {
     echo.connect(createLaneEcho(ctx, this.random)).connect(master);
     const ambience = ctx.createGain();
     ambience.connect(master);
-    return { ctx, master, sfx, ambience, bank: createNoiseBank(ctx, this.random), townCrackle: null };
+    const music = ctx.createGain();
+    music.connect(master);
+    return { ctx, master, sfx, ambience, music, bank: createNoiseBank(ctx, this.random), townCrackle: null };
   }
 
   private async resumeContext(): Promise<void> {

@@ -9,6 +9,9 @@
  */
 export type AartiSongId = 'omJaiJagdishHare' | 'jaiLakshmiMata' | 'jaiGaneshDeva';
 
+/** Accompaniment a recording may already contain. */
+export type AartiAccompaniment = 'bell' | 'claps';
+
 /**
  * Licences that permit modification and redistribution, including
  * commercially (PRD → Assets and licensing). Noncommercial, no-derivatives
@@ -38,6 +41,11 @@ interface RecordingBase {
   readonly durationSeconds: number;
   /** Resolved URL of the bundled file. */
   readonly url: string;
+  /**
+   * Bell or claps audible in the recording itself, so the family's own
+   * bell and clap effects are not layered on top of it.
+   */
+  readonly includes: readonly AartiAccompaniment[];
 }
 
 export interface PlaceholderRecording extends RecordingBase {
@@ -56,6 +64,8 @@ export const AARTI_SONG_IDS: readonly AartiSongId[] = ['omJaiJagdishHare', 'jaiL
 
 /** Length of each generated placeholder, seconds. */
 const PLACEHOLDER_SECONDS = 24;
+/** The placeholders are a bell pattern. */
+const PLACEHOLDER_INCLUDES: readonly AartiAccompaniment[] = ['bell'];
 
 // `new URL(literal, import.meta.url)` lets Vite bundle each file locally.
 export const AARTI_RECORDINGS: Readonly<Record<AartiSongId, AartiRecording>> = {
@@ -65,6 +75,7 @@ export const AARTI_RECORDINGS: Readonly<Record<AartiSongId, AartiRecording>> = {
     status: 'placeholder',
     file: 'placeholders/PLACEHOLDER-om-jai-jagdish-hare.wav',
     durationSeconds: PLACEHOLDER_SECONDS,
+    includes: PLACEHOLDER_INCLUDES,
     url: new URL('./placeholders/PLACEHOLDER-om-jai-jagdish-hare.wav', import.meta.url).href,
   },
   jaiLakshmiMata: {
@@ -73,6 +84,7 @@ export const AARTI_RECORDINGS: Readonly<Record<AartiSongId, AartiRecording>> = {
     status: 'placeholder',
     file: 'placeholders/PLACEHOLDER-jai-lakshmi-mata.wav',
     durationSeconds: PLACEHOLDER_SECONDS,
+    includes: PLACEHOLDER_INCLUDES,
     url: new URL('./placeholders/PLACEHOLDER-jai-lakshmi-mata.wav', import.meta.url).href,
   },
   jaiGaneshDeva: {
@@ -81,6 +93,7 @@ export const AARTI_RECORDINGS: Readonly<Record<AartiSongId, AartiRecording>> = {
     status: 'placeholder',
     file: 'placeholders/PLACEHOLDER-jai-ganesh-deva.wav',
     durationSeconds: PLACEHOLDER_SECONDS,
+    includes: PLACEHOLDER_INCLUDES,
     url: new URL('./placeholders/PLACEHOLDER-jai-ganesh-deva.wav', import.meta.url).href,
   },
 };
