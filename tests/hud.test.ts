@@ -147,6 +147,29 @@ describe('HudModel', () => {
     expect(hud.crosshairVisible).toBe(true);
   });
 
+  it('swaps the cracker hotbar for the aarti mini player while taking part', () => {
+    const { bus, hud } = running();
+    const aarti = {
+      state: 'running',
+      participating: true,
+      song: 'omJaiJagdishHare',
+      elapsed: 0,
+      duration: 24,
+      circling: false,
+      playbackId: 1,
+    } as const;
+    expect(hud.hotbarVisible).toBe(true);
+    const before = hud.revision;
+    hud.setContext({ interactable: null, homes: { hands: { kind: 'thali' }, aarti } });
+    expect(hud.hotbarVisible).toBe(false);
+    expect(hud.revision).toBeGreaterThan(before);
+    hud.setContext({ interactable: null, homes: { hands: null, aarti: { ...aarti, participating: false } } });
+    expect(hud.hotbarVisible).toBe(true);
+    hud.setContext({ interactable: null, homes: { hands: { kind: 'thali' }, aarti } });
+    bus.emit('sessionReset', {});
+    expect(hud.hotbarVisible).toBe(true);
+  });
+
   it('hides while paused and returns on resume', () => {
     const { bus, hud } = running();
     bus.emit('paused', { reason: 'user' });

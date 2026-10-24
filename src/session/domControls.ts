@@ -111,6 +111,14 @@ export function createDomControls(options: DomControlsOptions): DomControls {
         if (isLocked() && event.button !== undefined) input.mouseDown(event.button);
       },
     ],
+    // Releases count wherever they land, so a hold never sticks; `Input` ignores ones it did not see start.
+    [
+      doc,
+      'mouseup',
+      (event: MouseLike) => {
+        if (event.button !== undefined) input.mouseUp(event.button);
+      },
+    ],
   ];
 
   for (const [target, type, listener] of listeners) target.addEventListener(type, listener);

@@ -117,6 +117,7 @@ export function createHud(parent: HTMLElement, model: HudModel): HudView {
 
     root.style.display = model.visible ? 'block' : 'none';
     crosshair.style.display = model.crosshairVisible ? 'block' : 'none';
+    hotbar.style.display = model.hotbarVisible ? 'flex' : 'none';
 
     CRACKER_TYPES.forEach((type, i) => {
       const selected = type === model.selected;

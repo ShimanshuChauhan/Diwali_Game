@@ -144,6 +144,25 @@ describe('DOM controls', () => {
     expect(input.drainActions()).toEqual([{ type: 'look', dx: 4, dy: -2 }, { type: 'place' }]);
   });
 
+  it('forwards the end of a held click wherever it is released', () => {
+    const { doc, element, controls, input } = setup();
+    controls.requestStart();
+    element.dispatchEvent(event('mousedown', { button: 0 }));
+    doc.dispatchEvent(event('mouseup', { button: 0 }));
+    expect(input.drainActions()).toEqual([{ type: 'place' }, { type: 'placeReleased' }]);
+  });
+
+  it('losing the pointer mid-hold releases the click', () => {
+    const { doc, element, controls, input } = setup();
+    controls.requestStart();
+    element.dispatchEvent(event('mousedown', { button: 0 }));
+    input.drainActions();
+    doc.focused = false;
+    doc.exitPointerLock();
+    controls.requestStart();
+    expect(input.drainActions()).toEqual([{ type: 'placeReleased' }]);
+  });
+
   it('dispose detaches every listener', () => {
     const { win, controls, input, session } = setup();
     controls.requestStart();

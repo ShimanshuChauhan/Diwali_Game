@@ -125,6 +125,15 @@ Ownership rules:
   takes its `durationOf`, so a song that failed to load (`aartiAudioFailed`)
   cannot be selected; `layerAllowed` tells household effects not to add a
   bell or claps the recording already contains.
+- **Participant controls** are `applyAartiAction`'s
+  (`src/aarti/participation.ts`), ahead of every other consumer: click
+  (`place`) circles the thali and `placeReleased` rests it, 1–3 pick a
+  song, E leaves; look, camera, pause and held movement keys pass through.
+  `holdStill` stops translation and keeps the body facing the puja, so the
+  view looks round freely. The thali (`src/aarti/thali.ts`) and mini player
+  (`src/ui/miniPlayer.ts`) only present the snapshot; the mini player's
+  buttons take clicks while paused and stop them there, so choosing a song
+  never resumes, leaves or circles.
 - **Hands** are `HeldItemsModule`'s (`src/homes/heldItems.ts`): the
   ceremony `reserveThali`s, gift exchange `take`s boxes, `returnTo`s them
   to their designated spots and `deliver`s them (swapping outbound for

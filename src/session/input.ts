@@ -15,8 +15,9 @@ export interface InputOptions {
  * Converts raw key/mouse input into `GameAction`s. DOM-free: the browser edge
  * (`domControls.ts`) forwards `KeyboardEvent.code`s, buttons and mouse deltas.
  *
- * Held keys are tracked so that releasing them — or losing focus with them
- * down — always ends in a neutral `move`/`run`, and movement never sticks.
+ * Held keys and the place button are tracked so that releasing them — or
+ * losing focus with them down — always ends in a neutral `move`/`run` or a
+ * `placeReleased`, and neither movement nor a hold ever sticks.
  */
 export class Input implements InputModule {
   private readonly held = new Set<string>();
@@ -24,6 +25,8 @@ export class Input implements InputModule {
   private forward = 0;
   private right = 0;
   private running = false;
+  /** The place button is down, so its release ends a hold. */
+  private placeHeld = false;
   private enabled: boolean;
   private readonly unsubscribes: Unsubscribe[] = [];
 
@@ -74,7 +77,14 @@ export class Input implements InputModule {
   }
 
   mouseDown(button: number): void {
-    if (this.enabled && button === PLACE_BUTTON) this.queue.push({ type: 'place' });
+    if (!this.enabled || button !== PLACE_BUTTON) return;
+    this.placeHeld = true;
+    this.queue.push({ type: 'place' });
+  }
+
+  /** Ends a hold begun by `mouseDown`; a release with nothing held is ignored. */
+  mouseUp(button: number): void {
+    if (button === PLACE_BUTTON) this.releasePlace();
   }
 
   /** Mouse delta in pixels; consecutive deltas merge into one action. */
@@ -96,18 +106,28 @@ export class Input implements InputModule {
   }
 
   /**
-   * Forget held keys and pending presses and looks. If the player was moving
-   * or running, queue the neutral actions so consumers stop them. Pending
-   * move/run actions are kept so a repeated release can't drop the neutral.
+   * Forget held keys and pending presses and looks. If the player was moving,
+   * running or holding the place button, queue the neutral actions so
+   * consumers stop them. Pending move/run/release actions are kept so a
+   * repeated release can't drop the neutral.
    */
   releaseAll(): void {
     this.held.clear();
-    this.queue = this.queue.filter((action) => action.type === 'move' || action.type === 'run');
+    this.queue = this.queue.filter(
+      (action) => action.type === 'move' || action.type === 'run' || action.type === 'placeReleased',
+    );
     this.updateHeld();
+    this.releasePlace();
   }
 
   dispose(): void {
     for (const unsubscribe of this.unsubscribes.splice(0)) unsubscribe();
+  }
+
+  private releasePlace(): void {
+    if (!this.placeHeld) return;
+    this.placeHeld = false;
+    this.queue.push({ type: 'placeReleased' });
   }
 
   private updateHeld(): void {
