@@ -6,7 +6,7 @@ import { CRACKER_TYPES, type CrackerType, type Vec3 } from '../src/core/types';
 import { CRACKER_DEFINITIONS, Crackers, rollRocketVariant, ROCKET_PALETTES } from '../src/crackers';
 import { FireworksEffects } from '../src/effects/fireworksEffects';
 import { FireworksEngine, NO_EFFECT } from '../src/effects/fireworksEngine';
-import { BURST_PATTERNS, CHAKRI_PALETTES, PATTERN_SHAPES, SPINNER } from '../src/effects/presets';
+import { ANAR_PALETTES, BURST_PATTERNS, CHAKRI_PALETTES, PATTERN_SHAPES, SPINNER } from '../src/effects/presets';
 
 const step = 1 / 60;
 const { fuse, activeDuration } = TUNING.crackers;
@@ -169,6 +169,63 @@ describe('ground and handheld cracker looks', () => {
       quadrants.add((p[i * 3]! > at.x ? 1 : 0) + (p[i * 3 + 2]! > at.z ? 2 : 0));
     }
     expect(quadrants.size).toBe(4);
+  });
+});
+
+describe('anar fountain', () => {
+  it('rises from the mouth of its pot to about three metres, and no higher', () => {
+    const { bus, effects } = effectsFor();
+    bus.emit('crackerActive', { id: 'a', type: 'anar', position: { x: 0, y: 0, z: 0 } });
+    let tallest = 0;
+    let lowestSpawn = Infinity;
+    for (let window = 0; window < 20; window++) {
+      run(effects, 0.25);
+      tallest = Math.max(tallest, extent(effects.engine, { x: 0, y: 0, z: 0 }).height);
+    }
+    const p = effects.engine.particles.positions;
+    for (let i = 0; i < effects.engine.particles.count; i++) lowestSpawn = Math.min(lowestSpawn, p[i * 3 + 1]!);
+    expect(tallest).toBeGreaterThan(2);
+    expect(tallest).toBeLessThan(4.5);
+    // Embers fall back to (and past) the ground around the pot.
+    expect(lowestSpawn).toBeLessThan(0.26);
+  });
+
+  it('keeps a white-hot glow at the mouth and lights the lane while it burns', () => {
+    const { bus, effects } = effectsFor();
+    bus.emit('crackerActive', { id: 'a', type: 'anar', position: { x: 0, y: 0, z: 0 } });
+    for (let sample = 0; sample < 8; sample++) {
+      run(effects, 0.25);
+      expect(effects.engine.flashes.activeCount).toBeGreaterThan(0);
+    }
+    const { positions: p, colours: c } = effects.engine.particles;
+    let hotAtMouth = 0;
+    for (let i = 0; i < effects.engine.particles.count; i++) {
+      const nearMouth = Math.hypot(p[i * 3]!, p[i * 3 + 1]! - 0.26, p[i * 3 + 2]!) < 0.3;
+      if (nearMouth && c[i * 4]! > 1 && c[i * 4 + 2]! > 0.5) hotAtMouth++;
+    }
+    expect(hotAtMouth).toBeGreaterThan(3);
+    bus.emit('crackerFinished', { id: 'a', type: 'anar', reason: 'completed' });
+    run(effects, 0.4);
+    expect(effects.engine.flashes.activeCount).toBe(0);
+  });
+
+  it('burns in one of the anar palettes and sparkles its fuse at the mouth', () => {
+    const firsts = new Set(ANAR_PALETTES.map((palette) => palette[0]));
+    const seen = new Set<number>();
+    for (let seed = 1; seed <= 12; seed++) {
+      const bus = createGameEventBus();
+      const effects = new FireworksEffects(bus, { quality: QUALITY_PROFILES.medium, random: seeded(seed) });
+      bus.emit('crackerActive', { id: 'a', type: 'anar', position: { x: 0, y: 0, z: 0 } });
+      run(effects, 0.05);
+      const lit = effects.engine.flashes.slots.find((slot) => slot.active)!;
+      expect(firsts.has(lit.colour)).toBe(true);
+      seen.add(lit.colour);
+    }
+    expect(seen.size).toBeGreaterThan(1);
+
+    const { bus, effects } = effectsFor();
+    bus.emit('fuseLit', { id: 'f', type: 'anar', position: { x: 0, y: 0, z: 0 } });
+    expect(effects.engine.emitterPosition(effects.handleFor('f'))!.y).toBeCloseTo(0.27);
   });
 });
 

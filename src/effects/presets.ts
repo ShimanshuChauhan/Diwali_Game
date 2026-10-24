@@ -70,6 +70,22 @@ export interface EmitterPreset {
   readonly brightness?: number;
   /** Brief bright sprite at the heart of a burst: the bang. */
   readonly core?: CoreSpec;
+  /** White-hot sparks hugging the mouth of a ground fountain (anar). */
+  readonly nozzle?: NozzleSpec;
+}
+
+export interface NozzleSpec {
+  /** Sparks per second at a count scale of 1. */
+  readonly rate: number;
+  readonly speed: Range;
+  readonly life: Range;
+  readonly size: number;
+  /** Height of the mouth above the source, metres. */
+  readonly height: number;
+  /** 0xRRGGBB. */
+  readonly colour: number;
+  /** Colour multiplier; above 1 pushes it into the bloom. */
+  readonly brightness: number;
 }
 
 export interface TailSpec {
@@ -138,9 +154,13 @@ export interface CrackleSpec {
   readonly count: number;
   /** Pops happen within this distance of the source, metres. */
   readonly radius: number;
+  /** Height of the pops' centre above the source, metres; default 0. */
+  readonly height?: number;
   readonly speed: Range;
   readonly life: Range;
   readonly size: number;
+  /** 0xRRGGBB for the pops instead of the stream's colours. */
+  readonly colour?: number;
 }
 
 export interface WanderSpec {
@@ -198,28 +218,63 @@ export const FUSE: EmitterPreset = {
   colours: [0xffe6a0, 0xffb050],
 };
 
-/** Anar ground fountain; its height swells and dips as it burns. */
+/**
+ * Anar: a tight cone of fine, streaking sparks about three metres tall that
+ * arc over and fall as embers, swelling and dipping as it burns, with a
+ * white-hot mouth, crackling pops near the crown and a flickering light
+ * that warms the houses round it.
+ */
 export const FOUNTAIN: EmitterPreset = {
   kind: 'stream',
   count: 0,
-  rate: 420,
+  rate: 800,
   duration: Infinity,
-  speed: { min: 6, max: 10 },
-  life: { min: 0.8, max: 1.6 },
+  speed: { min: 5.2, max: 7.2 },
+  life: { min: 0.9, max: 1.5 },
   direction: UP,
-  spread: 0.28,
+  spread: 0.32,
   spin: 0,
-  gravity: 1,
-  drag: 0.4,
-  size0: 0.18,
-  size1: 0.04,
-  flicker: 0.6,
+  gravity: 1.1,
+  drag: 0.8,
+  size0: 0.055,
+  size1: 0.02,
+  flicker: 0.45,
   fade: 0.3,
+  endColour: 0xb0400c,
   inherit: 0,
-  colours: [0xffd27a, 0xfff2c4, 0xff9a3c],
-  flash: { peak: 15, range: 12, duration: 0.6 },
-  surge: { amplitude: 0.3, frequency: 0.7, rampUp: 1 },
+  colours: [0xffd27a, 0xfff2c4, 0xffb04a],
+  surge: { amplitude: 0.18, frequency: 0.9, rampUp: 0.8 },
+  tail: { count: 2, step: 0.05, fade: 0.6 },
+  brightness: 1.3,
+  nozzle: {
+    rate: 240,
+    speed: { min: 0.6, max: 1.6 },
+    life: { min: 0.06, max: 0.14 },
+    size: 0.12,
+    height: 0,
+    colour: 0xfff6dc,
+    brightness: 2.5,
+  },
+  crackle: {
+    rate: 9,
+    count: 7,
+    radius: 0.7,
+    height: 1.8,
+    speed: { min: 1.5, max: 3.5 },
+    life: { min: 0.06, max: 0.16 },
+    size: 0.05,
+    colour: 0xfff8e8,
+  },
+  light: { peak: 14, range: 10, interval: 0.08, height: 0.8 },
 };
+
+/** Spark colours an anar may burn with; one is picked per anar. */
+export const ANAR_PALETTES: readonly (readonly number[])[] = [
+  [0xffd27a, 0xfff2c4, 0xffb04a],
+  [0xf6f8ff, 0xdfe8ff, 0xffffff],
+  [0xffd27a, 0x9dff6a, 0xfff2c4],
+  [0xffd27a, 0xff5a3c, 0xfff2c4],
+];
 
 /**
  * Chakri: a wheel spinning about four times a second, throwing sparks off

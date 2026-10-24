@@ -5,7 +5,7 @@ import { QUALITY_LEVELS, QUALITY_PROFILES, qualityProfile, DEFAULT_QUALITY, type
 import { TUNING, type Tuning } from '../core/tuning';
 import type { CrackerId, CrackerType, Vec3 } from '../core/types';
 import { FireworksEngine, NO_EFFECT, type EffectHandle, type EngineStats } from './fireworksEngine';
-import { CHAKRI_PALETTES, FOUNTAIN, FUSE, ROCKET_TRAIL, SPARKLER, SPINNER, type EmitterPreset } from './presets';
+import { ANAR_PALETTES, CHAKRI_PALETTES, FOUNTAIN, FUSE, ROCKET_TRAIL, SPARKLER, SPINNER, type EmitterPreset } from './presets';
 
 /**
  * Effects module: turns cracker events into pooled particles, trails and
@@ -31,8 +31,11 @@ export interface SpinnerPose {
   readonly angle: number;
 }
 
-/** The fuse sparkle sits a little above a ground cracker's base. */
-const FUSE_HEIGHT = 0.12;
+/** The fuse sparkle sits at the top of each ground cracker's model. */
+const FUSE_HEIGHT: Readonly<Record<CrackerType, number>> = { phuljhari: 0, anar: 0.27, chakri: 0.06, rocket: 0.12 };
+
+/** The anar's fountain leaves the mouth of its pot, not the ground. */
+const ACTIVE_HEIGHT: Readonly<Record<CrackerType, number>> = { phuljhari: 0, anar: 0.26, chakri: 0, rocket: 0 };
 
 /** Stream preset started when each ground/held cracker becomes active. */
 const ACTIVE_PRESETS: Readonly<Record<CrackerType, EmitterPreset>> = {
@@ -40,6 +43,12 @@ const ACTIVE_PRESETS: Readonly<Record<CrackerType, EmitterPreset>> = {
   anar: FOUNTAIN,
   chakri: SPINNER,
   rocket: ROCKET_TRAIL,
+};
+
+/** Palettes ground crackers pick from, one per cracker. */
+const PALETTES: Partial<Record<CrackerType, readonly (readonly number[])[]>> = {
+  anar: ANAR_PALETTES,
+  chakri: CHAKRI_PALETTES,
 };
 
 /** Preset counts are authored for Medium; scale by particle budget, within limits. */
@@ -149,7 +158,7 @@ export class FireworksEffects implements EffectsModule {
 
   onFuseLit({ id, type, position }: GameEvents['fuseLit']): void {
     this.stopCracker(id);
-    const lift = type === 'phuljhari' ? 0 : FUSE_HEIGHT;
+    const lift = FUSE_HEIGHT[type];
     const handle = this.engine.startStream(FUSE, position.x, position.y + lift, position.z);
     if (handle === NO_EFFECT) return;
     this.track(id, type, handle);
@@ -157,10 +166,11 @@ export class FireworksEffects implements EffectsModule {
 
   onCrackerActive({ id, type, position }: GameEvents['crackerActive']): void {
     this.stopCracker(id);
-    // Each chakri burns in one of a few palettes.
-    const colours =
-      type === 'chakri' ? CHAKRI_PALETTES[Math.floor(this.random() * CHAKRI_PALETTES.length)] : undefined;
-    const handle = this.engine.startStream(ACTIVE_PRESETS[type], position.x, position.y, position.z, colours);
+    // Each anar and chakri burns in one of a few palettes.
+    const palettes = PALETTES[type];
+    const colours = palettes ? palettes[Math.floor(this.random() * palettes.length)] : undefined;
+    const y = position.y + ACTIVE_HEIGHT[type];
+    const handle = this.engine.startStream(ACTIVE_PRESETS[type], position.x, y, position.z, colours);
     if (handle === NO_EFFECT) return;
     this.track(id, type, handle);
     if (type === 'chakri') this.spinners.add(id);

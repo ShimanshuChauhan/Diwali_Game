@@ -12,6 +12,46 @@ interface PropStyle {
   readonly vertexColours?: boolean;
 }
 
+/** Clay, the paper band round its belly, and the fuse-end cap. */
+const ANAR_CLAY = '#b4572e';
+const ANAR_BAND = '#2f9e4f';
+const ANAR_CAP = '#f2c230';
+
+/**
+ * An anar: a round-bellied clay pot narrowing to a short neck, with a band
+ * of coloured paper round the belly and a paper cap on the mouth.
+ */
+function anarGeometry(): THREE.BufferGeometry {
+  // Profile from the base centre up to the mouth: [radius, height].
+  const profile: [number, number][] = [
+    [0, 0],
+    [0.07, 0],
+    [0.1, 0.03],
+    [0.115, 0.08],
+    [0.11, 0.13],
+    [0.085, 0.19],
+    [0.045, 0.235],
+    [0.04, 0.26],
+    [0.03, 0.27],
+    [0, 0.27],
+  ];
+  const pot = new THREE.LatheGeometry(
+    profile.map(([r, y]) => new THREE.Vector2(r, y)),
+    20,
+  );
+  const position = pot.getAttribute('position');
+  const colours = new Float32Array(position.count * 3);
+  const colour = new THREE.Color();
+  for (let i = 0; i < position.count; i++) {
+    const y = position.getY(i);
+    colour.set(y > 0.255 ? ANAR_CAP : y > 0.07 && y < 0.15 ? ANAR_BAND : ANAR_CLAY);
+    colour.toArray(colours, i * 3);
+  }
+  pot.setAttribute('color', new THREE.Float32BufferAttribute(colours, 3));
+  pot.computeVertexNormals();
+  return pot;
+}
+
 /** Paper wrapping round a chakri's coil, repeated along it. */
 const CHAKRI_STRIPES = ['#d8302a', '#f2c230', '#2f9e4f', '#f2c230'];
 
@@ -54,10 +94,7 @@ function chakriGeometry(): THREE.BufferGeometry {
 
 /** Simple stand-in models, sat on the ground at the origin. */
 const STYLES: Readonly<Record<GroundType, PropStyle>> = {
-  anar: {
-    geometry: () => new THREE.ConeGeometry(0.1, 0.26, 12).translate(0, 0.13, 0),
-    colour: '#d8452b',
-  },
+  anar: { geometry: anarGeometry, colour: '#ffffff', vertexColours: true },
   chakri: { geometry: chakriGeometry, colour: '#ffffff', vertexColours: true },
   rocket: {
     geometry: () => {
