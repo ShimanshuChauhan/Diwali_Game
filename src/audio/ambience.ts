@@ -1,14 +1,14 @@
 /**
  * Timing for the celebration going on elsewhere in town: rockets whistling
  * up and bursting, single bombs, ladis (long strings of chain crackers
- * rattling off), small far-away pops, anars roaring, chakris whirring and
- * the odd cheer, near and far around the listener at irregular times. Pure
+ * rattling off), small far-away pops, anars roaring and chakris whirring,
+ * near and far around the listener at irregular times. Pure
  * and seeded via `random` so it can be tested headless; the audio engine
  * turns each event into sound. Rockets the player can see on the horizon
  * are not scheduled here: their sound follows the distant fireworks.
  */
 
-export type AmbientKind = 'rocket' | 'bomb' | 'ladi' | 'pop' | 'anar' | 'chakri' | 'cheer';
+export type AmbientKind = 'rocket' | 'bomb' | 'ladi' | 'pop' | 'anar' | 'chakri';
 
 export interface AmbientEvent {
   readonly kind: AmbientKind;
@@ -20,7 +20,7 @@ export interface AmbientEvent {
   readonly intensity: number;
   /**
    * Seconds the event lasts: a rocket's climb before it bursts, a ladi's
-   * string, an anar or chakri burning; 0 for single bangs and cheers.
+   * string, an anar or chakri burning; 0 for single bangs.
    */
   readonly duration: number;
 }
@@ -48,7 +48,6 @@ export const AMBIENCE: AmbienceOptions = {
   pop: { meanInterval: 1.8, minDistance: 150, maxDistance: 420, ...single, clusterChance: 0.35 },
   anar: { meanInterval: 22, minDistance: 35, maxDistance: 150, minDuration: 4, maxDuration: 8, clusterChance: 0 },
   chakri: { meanInterval: 26, minDistance: 30, maxDistance: 120, minDuration: 3, maxDuration: 6, clusterChance: 0.2 },
-  cheer: { meanInterval: 30, minDistance: 25, maxDistance: 110, ...single, clusterChance: 0 },
 };
 
 export const AMBIENT_KINDS = Object.keys(AMBIENCE) as AmbientKind[];
@@ -63,7 +62,7 @@ export class AmbienceScheduler {
     private readonly random: () => number = Math.random,
     private readonly options: AmbienceOptions = AMBIENCE,
   ) {
-    this.untilNext = { rocket: 0, bomb: 0, ladi: 0, pop: 0, anar: 0, chakri: 0, cheer: 0 };
+    this.untilNext = { rocket: 0, bomb: 0, ladi: 0, pop: 0, anar: 0, chakri: 0 };
     this.reset();
   }
 

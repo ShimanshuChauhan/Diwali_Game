@@ -3,12 +3,11 @@ import type { GameEventBus } from '../core/events';
 import type { Unsubscribe } from '../core/eventBus';
 import { DEFAULT_QUALITY, qualityProfile, type QualityProfile } from '../core/quality';
 import { TUNING, type Tuning } from '../core/tuning';
-import type { BurstPattern, CrackerId, NeighbourId, Vec3 } from '../core/types';
+import type { BurstPattern, CrackerId, Vec3 } from '../core/types';
 import { AmbienceScheduler, type AmbientEvent } from './ambience';
 import {
   ACTIVE_SOUND,
   BURST_DURATION,
-  CHEER_DURATION,
   DISTANT_BOMB_DURATION,
   DISTANT_POP_DURATION,
   DISTANT_SHELL_DURATION,
@@ -48,8 +47,6 @@ export interface AudioEngineOptions {
   readonly createContext?: () => AudioContext | null;
   readonly profile?: QualityProfile;
   readonly tuning?: Tuning;
-  /** Where a neighbour stands, so cheers are spatial; unknown ids play unpanned. */
-  readonly neighbourPosition?: (id: NeighbourId) => Vec3 | undefined;
   readonly random?: () => number;
 }
 
@@ -71,8 +68,7 @@ export interface MusicOutput {
 }
 
 interface PlayOptions {
-  /** Null plays unpanned (e.g. a cheer with no known position). */
-  readonly position: Vec3 | null;
+  readonly position: Vec3;
   readonly duration: number;
   readonly delay?: number;
   readonly gain?: number;
@@ -101,7 +97,6 @@ export class AudioEngine implements AudioModule, Steppable {
   private readonly unsubscribes: Unsubscribe[] = [];
   private readonly createContext: () => AudioContext | null;
   private readonly tuning: Tuning;
-  private readonly neighbourPosition: (id: NeighbourId) => Vec3 | undefined;
   private readonly random: () => number;
   private profile: QualityProfile;
   private listener: CameraView | null = null;
@@ -113,7 +108,6 @@ export class AudioEngine implements AudioModule, Steppable {
     this.createContext = options.createContext ?? defaultContext;
     this.profile = options.profile ?? qualityProfile(DEFAULT_QUALITY);
     this.tuning = options.tuning ?? TUNING;
-    this.neighbourPosition = options.neighbourPosition ?? (() => undefined);
     this.random = options.random ?? Math.random;
     this.pool = new VoicePool(this.profile.maxAudioVoices);
     this.ambienceScheduler = new AmbienceScheduler(this.random);
@@ -275,10 +269,6 @@ export class AudioEngine implements AudioModule, Steppable {
           delay: distance / SPEED_OF_SOUND,
         });
       }),
-      bus.on('neighbourReacted', ({ id, reaction }) => {
-        if (reaction !== 'cheer') return;
-        this.play('cheer', { position: this.neighbourPosition(id) ?? null, duration: CHEER_DURATION });
-      }),
       bus.on('paused', () => {
         this.sessionPaused = true;
         this.graph?.ctx.suspend().catch(() => undefined);
@@ -376,14 +366,10 @@ export class AudioEngine implements AudioModule, Steppable {
     this.forgetStoppedVoices();
 
     const output = ctx.createGain();
-    if (options.position) {
-      const panner = this.createPanner(ctx, options.position, options.refDistance ?? spec.refDistance);
-      if (options.moveTo) movePanner(panner, options.position, options.moveTo, t0, end);
-      output.connect(panner);
-      panner.connect(graph.sfx);
-    } else {
-      output.connect(graph.sfx);
-    }
+    const panner = this.createPanner(ctx, options.position, options.refDistance ?? spec.refDistance);
+    if (options.moveTo) movePanner(panner, options.position, options.moveTo, t0, end);
+    output.connect(panner);
+    panner.connect(graph.sfx);
     synth = synthesise(ctx, graph.bank, kind, output, {
       t0,
       duration: options.duration,
@@ -423,9 +409,6 @@ export class AudioEngine implements AudioModule, Steppable {
         return;
       case 'chakri':
         this.playDistant('distantChakri', position, distance, intensity, { duration });
-        return;
-      case 'cheer':
-        this.playDistant('cheer', position, distance, intensity, { duration: CHEER_DURATION });
         return;
       case 'bomb':
         this.playDistant('distantBomb', position, distance, intensity, { duration: DISTANT_BOMB_DURATION });

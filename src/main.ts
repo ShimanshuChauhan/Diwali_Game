@@ -170,7 +170,7 @@ async function boot(): Promise<void> {
   const neighbours = new Neighbours({ areas: world.neighbourAreas, bus });
   const neighbourScene = new NeighbourScene({ scene, neighbours });
 
-  const audio = new AudioEngine({ bus, profile: quality.profile, neighbourPosition: (id) => neighbours.positionOf(id) });
+  const audio = new AudioEngine({ bus, profile: quality.profile });
   unlockOnFirstGesture(window, audio);
   createPauseMenu({
     parent: document.body,

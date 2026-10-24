@@ -32,9 +32,14 @@ describe('AmbienceScheduler', () => {
     }
   });
 
-  it('includes rockets, fountains, chakris and cheers, not just bangs', () => {
+  it('includes rockets, fountains and chakris, not just bangs', () => {
     const kinds = new Set(run(9, 600).map((e) => e.kind));
-    for (const kind of ['rocket', 'anar', 'chakri', 'cheer'] as const) expect(kinds).toContain(kind);
+    for (const kind of ['rocket', 'anar', 'chakri'] as const) expect(kinds).toContain(kind);
+  });
+
+  it('never schedules a crowd cheer', () => {
+    expect(AMBIENT_KINDS as string[]).not.toContain('cheer');
+    expect(run(11, 1200).some((e) => (e.kind as string) === 'cheer')).toBe(false);
   });
 
   it('places each kind within its distance band, all round the listener', () => {

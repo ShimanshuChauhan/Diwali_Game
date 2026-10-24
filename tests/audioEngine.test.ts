@@ -237,21 +237,16 @@ describe('AudioEngine voices', () => {
     expect(ramp?.args[0]).toBe(TUNING.crackers.rocketApexHeight);
   });
 
-  it('plays cheers spatially when the neighbour is known, unpanned otherwise', async () => {
-    const bus = createGameEventBus();
-    const ctx = new FakeAudioContext();
-    const audio = new AudioEngine({
-      bus,
-      createContext: () => ctx.asAudioContext(),
-      neighbourPosition: (id) => (id === 'n1' ? { x: 4, y: 0, z: 1 } : undefined),
-    });
+  it('plays no sound when neighbours cheer or watch', async () => {
+    const { bus, ctx, audio } = setup();
     await audio.unlock();
+    const sources = ctx.sources.length;
+    const panners = ctx.panners.length;
     bus.emit('neighbourReacted', { id: 'n1', reaction: 'cheer' });
-    expect(ctx.panners).toHaveLength(1);
-    bus.emit('neighbourReacted', { id: 'n2', reaction: 'cheer' });
-    expect(ctx.panners).toHaveLength(1);
-    bus.emit('neighbourReacted', { id: 'n1', reaction: 'watch' });
-    expect(audio.activeVoices).toBe(2);
+    bus.emit('neighbourReacted', { id: 'n2', reaction: 'watch' });
+    expect(audio.activeVoices).toBe(0);
+    expect(ctx.sources.length).toBe(sources);
+    expect(ctx.panners.length).toBe(panners);
   });
 
   it('a lower quality cap stops excess voices', async () => {
