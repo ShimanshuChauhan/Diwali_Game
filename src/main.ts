@@ -22,6 +22,7 @@ import { NeighbourScene, Neighbours } from './neighbours';
 import { MovementIntentTracker, PlayerCharacter, PlayerController } from './player';
 import { createPerfOverlay, FrameTimer, initialQualityLevel, QualitySettings, type QualityStorage } from './quality';
 import { RenderPipeline } from './quality/renderPipeline';
+import { browserSampler, createStressHarness, stressPlanFromQuery } from './perf';
 import { createDomControls } from './session/domControls';
 import { Input } from './session/input';
 import { Session } from './session/session';
@@ -56,13 +57,16 @@ async function boot(): Promise<void> {
   addWorldColliders(physics, world.solids);
   physics.step(); // put the static colliders in the broad phase before the player queries it
 
+  const stressPlan = stressPlanFromQuery(location.search);
+  // The stress test renders at a fixed size so runs compare across screens.
+  const viewSize = () => stressPlan?.viewport ?? { width: window.innerWidth, height: window.innerHeight };
   const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setSize(viewSize().width, viewSize().height);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   container.appendChild(renderer.domElement);
 
   const { scene } = createWorldScene(world.layout);
-  const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 500);
+  const camera = new THREE.PerspectiveCamera(70, viewSize().width / viewSize().height, 0.1, 500);
   const player = new PlayerController({ physics, bounds: world.bounds, spawn: world.spawn, spawnYaw: world.spawnYaw });
   const movement = new MovementIntentTracker();
 
@@ -86,9 +90,10 @@ async function boot(): Promise<void> {
   });
 
   window.addEventListener('resize', () => {
-    camera.aspect = window.innerWidth / window.innerHeight;
+    const { width, height } = viewSize();
+    camera.aspect = width / height;
     camera.updateProjectionMatrix();
-    pipeline.setSize(window.innerWidth, window.innerHeight);
+    pipeline.setSize(width, height);
   });
 
   const session = new Session({ bus });
@@ -196,6 +201,27 @@ async function boot(): Promise<void> {
     bus.on('qualityChanged', () => effectsView.syncLightCount());
   }
 
+  // `?stress` runs the scripted performance test (docs/performance.md).
+  const stress = stressPlan
+    ? createStressHarness({
+        plan: stressPlan,
+        crackers,
+        validatePlacement: (request) => interaction.validatePlacement(request),
+        setLevel: (level) => quality.setLevel(level),
+        sample: browserSampler({
+          renderer,
+          scene,
+          capacity: () => capacity.stats,
+          distantParticles: () => atmosphere.stats.distant.liveParticles,
+        }),
+      })
+    : null;
+  if (stress) {
+    Object.assign(window, { __stress: stress.snapshot });
+    bus.on('paused', () => session.resume());
+    session.start();
+  }
+
   const loop = new FixedStep({ step: SIM_STEP, maxSteps: MAX_STEPS_PER_FRAME });
   const demoLoop = new FixedStep({ step: SIM_STEP, maxSteps: MAX_STEPS_PER_FRAME });
   const timer = new THREE.Timer();
@@ -233,6 +259,7 @@ async function boot(): Promise<void> {
     for (let i = 0; i < steps; i++) {
       player.move(movement.intent(rig.yaw), SIM_STEP);
       physics.step();
+      stress?.update(SIM_STEP);
       crackers.update(SIM_STEP);
       effects?.update(SIM_STEP);
       capacity.update(SIM_STEP);
@@ -287,6 +314,7 @@ async function boot(): Promise<void> {
     pipeline.render();
     frames.record(delta);
     perfOverlay.frame(delta);
+    stress?.frame(delta);
   });
 
   if (status) status.textContent = `Three.js r${THREE.REVISION} · Rapier ${RAPIER.version()}`;

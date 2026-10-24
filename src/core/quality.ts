@@ -2,8 +2,9 @@ import type { QualityLevel } from './types';
 
 /**
  * Central quality profile. The quality module picks one; renderer, effects
- * and audio read their budgets from it. Values are placeholders until
- * measured on the reference laptop (PRD → Performance checks).
+ * and audio read their budgets from it. Measured on the reference laptop
+ * (Low holds 60 FPS at 1280×720 with every cap full); see
+ * docs/performance.md.
  */
 export interface QualityProfile {
   readonly level: QualityLevel;
