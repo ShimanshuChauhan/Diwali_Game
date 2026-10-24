@@ -13,7 +13,19 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
  */
 
 export type OutfitKind = 'kurta' | 'saree';
-export type HairStyle = 'short' | 'bun' | 'braid';
+/**
+ * How a figure wears its hair:
+ * - `sidePart`: men's short, neat cut parted on the left, with lift at the front;
+ * - `receding`: an older man's cut, high at the temples and greying at the sides;
+ * - `balding`: a bald crown with a fringe of hair round the sides and back;
+ * - `fringe`: a boy's fuller, rounder cut with tufts over the forehead;
+ * - `bun`: centre parting, hair pulled back into a plain juda at the back;
+ * - `bunGajra`: the same juda, ringed with a white jasmine gajra;
+ * - `plait`: centre parting into a long choti down the back, ending in a paranda.
+ *
+ * `short` and `braid` are older names for `sidePart` and `plait`.
+ */
+export type HairStyle = 'sidePart' | 'receding' | 'balding' | 'fringe' | 'bun' | 'bunGajra' | 'plait' | 'short' | 'braid';
 
 export interface Look {
   readonly outfit: OutfitKind;
@@ -98,7 +110,7 @@ class Segment {
 
   add(
     geometry: THREE.BufferGeometry,
-    colour: string,
+    colour: THREE.ColorRepresentation,
     x = 0,
     y = 0,
     z = 0,
@@ -119,6 +131,36 @@ class Segment {
     for (let i = 0; i < count; i++) c.toArray(colours, i * 3);
     geometry.setAttribute('color', new THREE.BufferAttribute(colours, 3));
     this.parts.push(geometry);
+    return this;
+  }
+
+  /** Add a part already placed and coloured (it carries its own `color` attribute). */
+  addPainted(geometry: THREE.BufferGeometry): this {
+    geometry.deleteAttribute('uv');
+    this.parts.push(geometry);
+    return this;
+  }
+
+  /**
+   * Like `add`, for a lock of hair: coloured `tone.base`, with a soft sheen
+   * baked in where the surface faces `light` and shadow underneath.
+   */
+  addHair(
+    geometry: THREE.BufferGeometry,
+    tone: HairTone,
+    light: THREE.Vector3,
+    x = 0,
+    y = 0,
+    z = 0,
+    rx = 0,
+    ry = 0,
+    rz = 0,
+    sx = 1,
+    sy = 1,
+    sz = 1,
+  ): this {
+    this.add(geometry, tone.base, x, y, z, rx, ry, rz, sx, sy, sz);
+    shadeHair(geometry, tone, light);
     return this;
   }
 
@@ -156,6 +198,459 @@ function limb(radiusTop: number, radiusBottom: number, length: number): THREE.Bu
   return new THREE.CylinderGeometry(radiusTop, radiusBottom, length, 10).translate(0, -length / 2, 0);
 }
 
+// ── hair ────────────────────────────────────────────────────────────────
+
+/** A hair colour with its baked highlight and shadow. */
+interface HairTone {
+  readonly base: THREE.Color;
+  /** The soft lamp-lit sheen along the crown and on each lock. */
+  readonly sheen: THREE.Color;
+  /** Darker strands, the parting and the underside. */
+  readonly shadow: THREE.Color;
+}
+
+const DARK_SHEEN = new THREE.Color('#c9a98c');
+const LIGHT_SHEEN = new THREE.Color('#f4eee4');
+/** Black hair is lifted a little so it never reads as a flat hole at night. */
+const DARK_LIFT = new THREE.Color('#2e231d');
+/** Greying temples on a receding cut. */
+const TEMPLE_GREY = new THREE.Color('#b9b4ac');
+const SINDOOR = '#d0122c';
+const PARANDA_RED = '#c8102e';
+const JASMINE = ['#fffdf5', '#f2ead0'] as const;
+
+function luminance(c: THREE.Color): number {
+  return 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+}
+
+function hairTone(hex: string): HairTone {
+  const base = new THREE.Color(hex);
+  const dark = luminance(base) < 0.06;
+  if (dark) base.lerp(DARK_LIFT, 0.3);
+  const sheen = base.clone().lerp(dark ? DARK_SHEEN : LIGHT_SHEEN, dark ? 0.24 : 0.28);
+  const shadow = base.clone().multiplyScalar(dark ? 0.6 : 0.55);
+  return { base, sheen, shadow };
+}
+
+function smoothstep(edge0: number, edge1: number, x: number): number {
+  const t = Math.min(1, Math.max(0, (x - edge0) / (edge1 - edge0)));
+  return t * t * (3 - 2 * t);
+}
+
+/** A repeatable pseudo-random number in [-1, 1] for column `n`. */
+function hash(n: number): number {
+  const s = Math.sin(n * 127.1 + 311.7) * 43758.5453;
+  return (s - Math.floor(s)) * 2 - 1;
+}
+
+/** Colour every vertex of a placed lock from its normal: sheen facing `light`, shadow underneath. */
+function shadeHair(geometry: THREE.BufferGeometry, tone: HairTone, light: THREE.Vector3): void {
+  const normal = geometry.getAttribute('normal');
+  const colour = geometry.getAttribute('color');
+  const c = new THREE.Color();
+  const n = new THREE.Vector3();
+  for (let i = 0; i < colour.count; i++) {
+    n.fromBufferAttribute(normal, i).normalize();
+    const d = n.dot(light);
+    c.copy(tone.base)
+      .lerp(tone.shadow, smoothstep(0, -0.7, d) * 0.6)
+      .lerp(tone.sheen, smoothstep(0.5, 0.95, d) * 0.75);
+    colour.setXYZ(i, c.r, c.g, c.b);
+  }
+}
+
+/** Piecewise-linear [x, y] keyframes, sorted by x. */
+type Keys = readonly (readonly [number, number])[];
+
+function curve(keys: Keys, x: number): number {
+  if (x <= keys[0]![0]) return keys[0]![1];
+  for (let i = 1; i < keys.length; i++) {
+    const [x1, y1] = keys[i]!;
+    if (x <= x1) {
+      const [x0, y0] = keys[i - 1]!;
+      return y0 + ((y1 - y0) * (x - x0)) / (x1 - x0);
+    }
+  }
+  return keys[keys.length - 1]![1];
+}
+
+/**
+ * The sculpted hair shell, by polar angle from the crown (0) and azimuth
+ * round the head (0 at the forehead, π at the nape). Keyframes are by
+ * |azimuth|, so both sides match unless swept.
+ */
+interface ShellSpec {
+  /** Lower edge, the hairline: polar angle by |azimuth|. */
+  readonly edge: Keys;
+  /** Upper edge of a bald crown's horseshoe; omitted for a full head. */
+  readonly top?: Keys;
+  /** Lift off the scalp, as a fraction of head size, by |azimuth|. */
+  readonly volume: Keys;
+  /** Lift at the crown, where every column meets. */
+  readonly crown: number;
+  /** Azimuth of the parting, or null when combed without one. */
+  readonly part: number | null;
+  /** Extra lift on the far side of the parting, where the hair is swept over. */
+  readonly sweep: number;
+  /** Extra stand-off at the forehead, where the hair has thickness. */
+  readonly front: number;
+  /** Length of the tufts along the lower edge, radians; `fringeTufts` over the forehead. */
+  readonly tufts: number;
+  readonly fringeTufts?: number;
+  /** Lumpiness of the locks, for an irregular silhouette. */
+  readonly clump: number;
+  /** Greying at the temples and sides. */
+  readonly greyTemples?: boolean;
+}
+
+/** Ears sit at |azimuth| ≈ 1.4–1.85: the hair clears their tops; men's sideburns run just in front. */
+const MEN_EDGE: Keys = [[0, 0.8], [0.45, 0.86], [0.75, 0.97], [1.0, 1.06], [1.15, 1.72], [1.33, 1.72], [1.42, 1.36], [1.85, 1.36], [2.05, 1.62], [2.5, 2.0], [Math.PI, 2.12]];
+const RECEDING_EDGE: Keys = [[0, 0.64], [0.3, 0.6], [0.6, 0.42], [0.85, 0.62], [1.1, 1.05], [1.2, 1.6], [1.33, 1.6], [1.42, 1.36], [1.85, 1.36], [2.05, 1.6], [2.5, 1.98], [Math.PI, 2.1]];
+const WOMEN_EDGE: Keys = [[0, 0.78], [0.5, 0.84], [0.85, 1.0], [1.15, 1.25], [1.4, 1.42], [1.85, 1.42], [2.1, 1.75], [2.6, 2.1], [Math.PI, 2.2]];
+
+type ShellName = 'sidePart' | 'receding' | 'balding' | 'fringe' | 'sleek';
+
+const SHELLS: Readonly<Record<ShellName, ShellSpec>> = {
+  sidePart: {
+    edge: MEN_EDGE,
+    volume: [[0, 0.14], [1.2, 0.07], [1.8, 0.05], [Math.PI, 0.07]],
+    crown: 0.13,
+    part: -0.55,
+    sweep: 0.06,
+    front: 0.04,
+    tufts: 0.05,
+    clump: 0.035,
+  },
+  receding: {
+    edge: RECEDING_EDGE,
+    volume: [[0, 0.06], [1.2, 0.06], [Math.PI, 0.075]],
+    crown: 0.07,
+    part: null,
+    sweep: 0,
+    front: 0.015,
+    tufts: 0.04,
+    clump: 0.03,
+    greyTemples: true,
+  },
+  balding: {
+    edge: [[0, 1.0], [0.9, 1.05], [1.15, 1.6], [1.33, 1.6], [1.42, 1.36], [1.85, 1.36], [2.05, 1.6], [2.5, 1.98], [Math.PI, 2.1]],
+    top: [[0, 1.0], [0.9, 1.05], [1.2, 0.98], [1.8, 0.88], [2.4, 0.76], [Math.PI, 0.72]],
+    volume: [[0, 0], [1.1, 0.07], [Math.PI, 0.09]],
+    crown: 0,
+    part: null,
+    sweep: 0,
+    front: 0,
+    tufts: 0.05,
+    clump: 0.04,
+  },
+  fringe: {
+    edge: [[0, 1.02], [0.7, 1.05], [1.0, 1.12], [1.15, 1.5], [1.33, 1.5], [1.42, 1.34], [1.85, 1.34], [2.05, 1.62], [2.5, 2.0], [Math.PI, 2.12]],
+    volume: [[0, 0.17], [1.5, 0.12], [Math.PI, 0.12]],
+    crown: 0.2,
+    part: null,
+    sweep: 0,
+    front: 0.06,
+    tufts: 0.05,
+    fringeTufts: 0.1,
+    clump: 0.045,
+  },
+  sleek: {
+    edge: WOMEN_EDGE,
+    volume: [[0, 0.055], [0.9, 0.1], [1.4, 0.07], [2.2, 0.05], [Math.PI, 0.06]],
+    crown: 0.06,
+    part: 0,
+    sweep: 0,
+    front: 0.01,
+    tufts: 0.015,
+    clump: 0.012,
+  },
+};
+
+/** The face's half-size in head space (its sphere of radius 0.1, scaled 0.92 × 1.12 × 0.98). */
+const SKULL = new THREE.Vector3(0.092, 0.112, 0.098);
+/** Columns round the head and rows from crown to hairline. */
+const SHELL_COLUMNS = 32;
+const SHELL_ROWS = 6;
+/** Half-width of the parting's gap, radians: the scalp shows through it. */
+const PART_GAP = 0.05;
+/** Hairline stand-off, as a fraction of head size. */
+const EDGE_LIFT = 0.035;
+
+/** A point on the skull lifted by `lift`, in head space around (0, cy, 0). */
+function skullPoint(theta: number, phi: number, lift: number, cy: number, out: THREE.Vector3): THREE.Vector3 {
+  const k = 1 + lift;
+  return out.set(
+    SKULL.x * Math.sin(theta) * Math.sin(phi) * k,
+    cy + SKULL.y * Math.cos(theta) * k,
+    -SKULL.z * Math.sin(theta) * Math.cos(phi) * k,
+  );
+}
+
+/**
+ * The hair over the scalp as one sculpted shell: a hairline that dips at the
+ * temples and sideburns and rises over the ears, volume on top, tufts along
+ * the edge, and a real parting where the two sides lift away from a line of
+ * scalp. Vertex colours carry the strands, a broken halo of sheen round the
+ * crown and darker roots at the parting. Its edge tucks under into the skin
+ * so no gap shows from below.
+ */
+function hairShell(spec: ShellSpec, tone: HairTone, cy: number): THREE.BufferGeometry {
+  const N = SHELL_COLUMNS;
+  const rows = SHELL_ROWS + 2; // crown to hairline, then the tuck
+  const seam = spec.part ?? Math.PI;
+  const gap = spec.part === null ? 0 : PART_GAP;
+  const band = spec.top !== undefined;
+  const positions = new Float32Array((N + 1) * rows * 3);
+  const colours = new Float32Array((N + 1) * rows * 3);
+  const widths: number[] = [];
+  const p = new THREE.Vector3();
+  const c = new THREE.Color();
+  for (let j = 0; j <= N; j++) {
+    const phi = seam + gap + ((Math.PI * 2 - gap * 2) * j) / N;
+    const wrapped = Math.atan2(Math.sin(phi), Math.cos(phi));
+    const side = Math.abs(wrapped);
+    const top = spec.top ? curve(spec.top, side) : 0;
+    const hairline = curve(spec.edge, side);
+    let tuft = 0;
+    if (j % 2 === 1 && hairline - top > 0.05) {
+      tuft = side < 0.95 && spec.fringeTufts !== undefined ? spec.fringeTufts : spec.tufts * (side > 2.3 ? 1.3 : 1);
+    }
+    const bottom = Math.max(top, hairline + tuft);
+    widths.push(bottom - top);
+    const atPart = spec.part !== null && (j === 0 || j === N);
+    const volume = curve(spec.volume, side) + spec.sweep * Math.max(0, Math.cos(wrapped - 0.35));
+    const front = spec.front * Math.max(0, Math.cos(wrapped));
+    // Columns 0 and N meet at the seam, so they share their strand.
+    const strand = hash(j % N);
+    const glint = 0.55 + 0.45 * hash((j % N) + 57);
+    for (let i = 0; i < rows; i++) {
+      const tuck = i === rows - 1;
+      const t = Math.min(i, SHELL_ROWS) / SHELL_ROWS;
+      const theta = tuck ? bottom + 0.03 : top + (bottom - top) * t;
+      let lift: number;
+      if (tuck) lift = -0.03;
+      else if (band) lift = 0.01 + (volume + spec.clump * strand) * Math.sin(Math.PI * t);
+      else {
+        // The crown is shared by every column; volume eases off to hug the skin at the hairline.
+        const body = (spec.crown * (1 - t) + volume * t) * (1 - t * t);
+        lift = EDGE_LIFT + front * t + body + spec.clump * strand * t * (1 - t) * 4;
+        if (atPart && i > 0) lift = Math.min(lift, 0.012);
+      }
+      skullPoint(theta, phi, lift, cy, p).toArray(positions, (j * rows + i) * 3);
+      // Strands, a broken halo of sheen round the crown, darker at the roots of the parting.
+      c.copy(tone.base);
+      if (strand < 0) c.lerp(tone.shadow, -strand * 0.35);
+      if (!tuck) c.lerp(tone.sheen, Math.exp(-(((theta - 0.62) / 0.17) ** 2)) * glint * 0.85);
+      if (spec.greyTemples) c.lerp(TEMPLE_GREY, smoothstep(0.75, 1.15, side) * (1 - smoothstep(2.1, 2.7, side)) * smoothstep(0.3, 0.8, t) * 0.7);
+      if (atPart || tuck) c.lerp(tone.shadow, 0.5);
+      c.toArray(colours, (j * rows + i) * 3);
+    }
+  }
+  const index: number[] = [];
+  const v = (i: number, j: number) => j * rows + i;
+  for (let j = 0; j < N; j++) {
+    if (widths[j]! < 1e-3 && widths[j + 1]! < 1e-3) continue;
+    for (let i = 0; i < rows - 1; i++) {
+      const a = v(i, j);
+      const b = v(i, j + 1);
+      const below = v(i + 1, j);
+      const d = v(i + 1, j + 1);
+      // Every column meets at the crown, so the first row is a fan.
+      if (band || i > 0) index.push(a, b, below);
+      index.push(b, d, below);
+    }
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geometry.setAttribute('color', new THREE.BufferAttribute(colours, 3));
+  geometry.setIndex(index);
+  geometry.computeVertexNormals();
+  // Smooth the shading where columns meet: the crown, and a seam without a parting.
+  const normal = geometry.getAttribute('normal') as THREE.BufferAttribute;
+  if (!band) for (let j = 0; j <= N; j++) normal.setXYZ(v(0, j), 0, 1, 0);
+  if (spec.part === null) {
+    const n = new THREE.Vector3();
+    const m = new THREE.Vector3();
+    for (let i = band ? 0 : 1; i < rows; i++) {
+      n.fromBufferAttribute(normal, v(i, 0)).add(m.fromBufferAttribute(normal, v(i, N))).normalize();
+      normal.setXYZ(v(i, 0), n.x, n.y, n.z);
+      normal.setXYZ(v(i, N), n.x, n.y, n.z);
+    }
+  }
+  return geometry;
+}
+
+/** Hair parts other code (and the tests) can find by name: zero-cost markers. */
+type HairAnchors = [name: string, at: THREE.Vector3][];
+
+interface HairBuild {
+  readonly anchors: HairAnchors;
+  /** The plait, built in the nape pivot's space; null for other styles. */
+  readonly plait: { readonly segment: Segment; readonly anchors: HairAnchors } | null;
+}
+
+/** Where the plait hangs from, in head space: the nape. */
+const PLAIT_NAPE = new THREE.Vector3(0, 0.05, 0.085);
+/**
+ * How much of the head's turn the plait follows. It hangs from the nape but
+ * keeps its lie down the back as the head nods and turns.
+ */
+const PLAIT_FOLLOW = 0.3;
+/**
+ * The plait's path, [down, back] in the nape pivot's space: out over the
+ * collar and the saree's pallu (which wraps the back at radius ≈ 0.2), then
+ * straight down to the waist, clear of the body even with the head thrown back.
+ */
+const PLAIT_PATH = [
+  [0, 0],
+  [-0.035, 0.06],
+  [-0.075, 0.115],
+  [-0.11, 0.14],
+  [-0.16, 0.152],
+  [-0.4, 0.154],
+  [-0.6, 0.157],
+] as const;
+const PLAIT_LOBES = 13;
+
+/** Light direction for the baked sheen on locks: from above and a little behind. */
+const HAIR_LIGHT = new THREE.Vector3(0, 0.8, 0.6).normalize();
+
+type Style = Exclude<HairStyle, 'short' | 'braid'>;
+
+function canonicalStyle(style: HairStyle): Style {
+  if (style === 'short') return 'sidePart';
+  if (style === 'braid') return 'plait';
+  return style;
+}
+
+function wornBack(style: Style): boolean {
+  return style === 'bun' || style === 'bunGajra' || style === 'plait';
+}
+
+/** Add the look's hair to the head segment; the plait comes back separately. */
+function buildHair(head: Segment, look: Look, tone: HairTone, cy: number): HairBuild {
+  const style = canonicalStyle(look.hairStyle);
+  const back = wornBack(style);
+  head.addPainted(hairShell(SHELLS[back ? 'sleek' : (style as ShellName)], tone, cy));
+  const anchors: HairAnchors = [];
+  if (back && look.bindi) {
+    // Sindoor in the front of the parting.
+    const path = new THREE.CatmullRomCurve3([0.3, 0.5, 0.68].map((theta) => skullPoint(theta, 0, 0.006, cy, new THREE.Vector3())));
+    head.add(new THREE.TubeGeometry(path, 4, 0.0028, 3), SINDOOR);
+  }
+  if (style === 'bun' || style === 'bunGajra') {
+    // The juda: a coiled knot low on the back of the head.
+    const festive = style === 'bunGajra';
+    const radius = festive ? 0.044 : 0.037;
+    const at = new THREE.Vector3(0, cy - (festive ? 0.015 : 0.005), festive ? 0.115 : 0.108);
+    head.addHair(new THREE.SphereGeometry(radius, 10, 8), tone, HAIR_LIGHT, at.x, at.y, at.z, 0, 0, 0, 1, 0.88, 0.72);
+    head.addHair(new THREE.TorusGeometry(radius * 0.7, radius * 0.3, 6, 14), tone, HAIR_LIGHT, at.x, at.y, at.z + radius * 0.36, 0, 0, 0.4, 1, 0.9, 0.8);
+    anchors.push(['hair.bun', at]);
+    if (festive) {
+      // Gajra: jasmine buds strung round the bun, with a short strand hanging at the side.
+      const ring = 16;
+      for (let k = 0; k < ring; k++) {
+        const a = (k / ring) * Math.PI * 2;
+        head.add(new THREE.OctahedronGeometry(0.0085), JASMINE[k % 2]!, at.x + Math.cos(a) * radius * 1.08, at.y + Math.sin(a) * radius * 0.98, at.z - 0.002, a, a * 0.5, 0, 1, 1, 0.8);
+      }
+      for (let k = 0; k < 3; k++) {
+        head.add(new THREE.OctahedronGeometry(0.008), JASMINE[k % 2]!, at.x + radius * 1.05 + k * 0.002, at.y - 0.02 - k * 0.016, at.z - 0.006, k, 0, 0, 1, 1.15, 0.8);
+      }
+      anchors.push(['hair.gajra', at.clone().setZ(at.z - 0.002)]);
+    }
+  }
+  return { anchors, plait: style === 'plait' ? buildPlait(tone, look) : null };
+}
+
+/**
+ * A choti that reads as a braid: overlapping lobes leaning alternately left
+ * and right down a curve, tapering, tied off with a red band and finished
+ * with a paranda of three silk tassels on gold beads.
+ */
+function buildPlait(tone: HairTone, look: Look): { segment: Segment; anchors: HairAnchors } {
+  const plait = new Segment();
+  const path = new THREE.CatmullRomCurve3(PLAIT_PATH.map(([y, z]) => new THREE.Vector3(0, y, z)));
+  const across = new THREE.Vector3(1, 0, 0);
+  const lobe = new THREE.SphereGeometry(1, 7, 5);
+  const darker: HairTone = { ...tone, base: tone.base.clone().lerp(tone.shadow, 0.35) };
+  const point = new THREE.Vector3();
+  const tangent = new THREE.Vector3();
+  const out = new THREE.Vector3();
+  const axis = new THREE.Vector3();
+  const side = new THREE.Vector3();
+  const basis = new THREE.Matrix4();
+  for (let i = 0; i < PLAIT_LOBES; i++) {
+    const f = i / (PLAIT_LOBES - 1);
+    const u = 0.02 + f * 0.9;
+    path.getPointAt(u, point);
+    path.getTangentAt(u, tangent);
+    // Away from the back, then each lobe leans ±0.5 rad off the run of the plait.
+    out.crossVectors(tangent, across).normalize();
+    const lean = i % 2 === 0 ? 0.5 : -0.5;
+    axis.copy(tangent).negate().applyAxisAngle(out, lean);
+    side.crossVectors(axis, out).normalize();
+    const width = 0.027 - 0.011 * f;
+    const shift = (i % 2 === 0 ? -1 : 1) * width * 0.32;
+    basis.makeBasis(side.multiplyScalar(width), axis.multiplyScalar(0.034), out.multiplyScalar(width * 0.6));
+    basis.setPosition(point.x + shift, point.y, point.z);
+    plait.addHair(lobe.clone().applyMatrix4(basis), i % 2 === 0 ? tone : darker, HAIR_LIGHT);
+  }
+  lobe.dispose();
+  const end = path.getPointAt(1);
+  // Tie band, a short tail of black thread, then the tassels.
+  plait.add(new THREE.CylinderGeometry(0.013, 0.013, 0.016, 8), PARANDA_RED, end.x, end.y + 0.01, end.z);
+  plait.add(new THREE.ConeGeometry(0.012, 0.045, 6), '#141010', end.x, end.y - 0.02, end.z, Math.PI, 0, 0);
+  const tassels: readonly (readonly [number, THREE.ColorRepresentation])[] = [[-0.013, PARANDA_RED], [0, look.trim], [0.013, PARANDA_RED]];
+  for (const [x, colour] of tassels) {
+    const drop = x === 0 ? 0.008 : 0;
+    plait.add(new THREE.OctahedronGeometry(0.0075), GOLD, end.x + x, end.y - 0.048 - drop, end.z);
+    plait.add(new THREE.ConeGeometry(0.0095, 0.04, 6), colour, end.x + x * 1.3, end.y - 0.075 - drop, end.z);
+  }
+  return {
+    segment: plait,
+    anchors: [
+      ['hair.plait.tie', end.clone().setY(end.y + 0.01)],
+      ['hair.plait.paranda', end.clone().setY(end.y - 0.07)],
+    ],
+  };
+}
+
+/** Arched brows and, if worn, a moustache, in the hair's shadow tone. */
+function buildBrows(head: Segment, look: Look, tone: HairTone, cy: number): void {
+  const back = wornBack(canonicalStyle(look.hairStyle));
+  const grey = luminance(tone.base) > 0.2;
+  const brow = grey ? tone.base.clone().lerp(tone.shadow, 0.5) : tone.shadow;
+  const thick = back ? 0.0055 : grey ? 0.01 : 0.008;
+  // On the face's surface, a few millimetres proud, following its curve.
+  const surface = (x: number, dy: number) => -SKULL.z * Math.sqrt(Math.max(0, 1 - (x / SKULL.x) ** 2 - (dy / SKULL.y) ** 2)) - 0.005;
+  // Inner half rising gently, outer half arched down toward the temple, joined end to end.
+  const inner = { x: 0.026, y: 0.046, half: 0.012, tilt: 0.08 };
+  const outerHalf = 0.0105;
+  const outerTilt = -0.36;
+  const joinX = inner.x + inner.half * Math.cos(inner.tilt) - 0.002;
+  const joinY = inner.y + inner.half * Math.sin(inner.tilt);
+  const outer = { x: joinX + outerHalf * Math.cos(outerTilt), y: joinY + outerHalf * Math.sin(outerTilt) };
+  for (const side of [-1, 1]) {
+    head.add(new THREE.BoxGeometry(inner.half * 2, thick, 0.008), brow, side * inner.x, cy + inner.y, surface(inner.x, inner.y), 0, side * 0.3, side * inner.tilt);
+    head.add(new THREE.BoxGeometry(outerHalf * 2, thick * 0.85, 0.008), brow, side * outer.x, cy + outer.y, surface(outer.x, outer.y), 0, side * 0.55, side * outerTilt);
+  }
+  if (look.moustache) {
+    for (const side of [-1, 1]) {
+      head.add(new THREE.BoxGeometry(0.03, 0.012, 0.012), brow, side * 0.014, cy - 0.036, surface(0.014, -0.036) - 0.002, 0, side * 0.25, side * -0.22);
+    }
+  }
+}
+
+/** A named, zero-cost marker at a hair part. */
+function hairAnchor(name: string, at: THREE.Vector3): THREE.Object3D {
+  const anchor = new THREE.Object3D();
+  anchor.name = name;
+  anchor.position.copy(at);
+  anchor.matrixAutoUpdate = false;
+  anchor.updateMatrix();
+  return anchor;
+}
+
 /**
  * A festive person built from `look`. Call `setPose` each frame to animate;
  * `rightHand` is the palm of the right hand, for held items.
@@ -174,6 +669,8 @@ export class Figure {
   private readonly knees: [THREE.Group, THREE.Group] = [new THREE.Group(), new THREE.Group()];
   private readonly meshes: THREE.Mesh[] = [];
   private readonly saree: boolean;
+  /** Where a plait hangs from the nape; it keeps its lie down the back as the head moves. */
+  private plaitPivot: THREE.Group | null = null;
 
   constructor(readonly look: Look) {
     this.saree = look.outfit === 'saree';
@@ -188,6 +685,8 @@ export class Figure {
     this.body.position.y = pose.bob ?? 0;
     this.chest.rotation.x = -(pose.lean ?? 0);
     this.head.rotation.set(pose.headPitch ?? 0, pose.headYaw ?? 0, 0, 'YXZ');
+    // Undo the nod and most of the turn: Ry(yaw)·Rx(pitch)·Rx(-pitch)·Ry(-yaw·(1-k)) = Ry(k·yaw).
+    this.plaitPivot?.rotation.set(-(pose.headPitch ?? 0), -(pose.headYaw ?? 0) * (1 - PLAIT_FOLLOW), 0, 'XYZ');
     const [leftShoulder, rightShoulder] = this.shoulders;
     leftShoulder.rotation.set(pose.leftArm ?? 0, 0, -(pose.leftSpread ?? 0));
     rightShoulder.rotation.set(pose.rightArm ?? 0, 0, pose.rightSpread ?? 0);
@@ -300,24 +799,27 @@ export class Figure {
     for (const side of [-1, 1]) {
       head.add(new THREE.SphereGeometry(0.016, 8, 6), '#f4efe6', side * 0.034, cy + 0.015, -0.083, 0, 0, 0, 1, 0.8, 0.5);
       head.add(new THREE.SphereGeometry(0.009, 6, 5), DARK, side * 0.034, cy + 0.015, -0.091);
-      head.add(new THREE.BoxGeometry(0.038, 0.007, 0.01), look.hair, side * 0.035, cy + 0.045, -0.088, 0, 0, side * -0.12);
     }
     head.add(new THREE.ConeGeometry(0.014, 0.04, 8), look.skin, 0, cy - 0.01, -0.098, -Math.PI / 2 - 0.25, 0, 0);
     head.add(new THREE.BoxGeometry(0.036, 0.008, 0.01), LIP, 0, cy - 0.052, -0.088);
-    if (look.moustache) head.add(new THREE.BoxGeometry(0.05, 0.012, 0.012), look.hair, 0, cy - 0.035, -0.094);
     if (look.bindi) head.add(new THREE.SphereGeometry(0.006, 6, 4), '#c8102e', 0, cy + 0.058, -0.088);
-    // Hair: a cap over the top and back, then the style.
-    head.add(new THREE.SphereGeometry(r * 1.06, 18, 10, 0, Math.PI * 2, 0, Math.PI * 0.45), look.hair, 0, cy + 0.012, 0.014, 0.42, 0, 0, 0.95, 1.12, 1.02);
-    if (look.hairStyle === 'bun') {
-      head.add(new THREE.SphereGeometry(0.048, 12, 10), look.hair, 0, cy + 0.02, 0.1);
-      head.add(new THREE.TorusGeometry(0.04, 0.008, 6, 14), '#f5f0e0', 0, cy + 0.02, 0.098, 0, 0, 0);
-    } else if (look.hairStyle === 'braid') {
-      for (let i = 0; i < 6; i++) head.add(new THREE.SphereGeometry(0.03 - i * 0.002, 10, 8), look.hair, 0, cy - 0.04 - i * 0.055, 0.1 + i * 0.006);
-      head.add(new THREE.SphereGeometry(0.018, 8, 6), '#f5f0e0', 0, cy - 0.37, 0.13);
-    }
+    // Brows, moustache and hair, all parented to the head.
+    const tone = hairTone(look.hair);
+    buildBrows(head, look, tone, cy);
+    const hair = buildHair(head, look, tone, cy);
     this.head.position.y = BODY.neckY - BODY.waistY + 0.03;
     this.chest.add(this.head);
     this.keep(head, this.head, 'figure.head');
+    for (const [name, at] of hair.anchors) this.head.add(hairAnchor(name, at));
+    if (hair.plait) {
+      const pivot = new THREE.Group();
+      pivot.name = 'hair.plaitPivot';
+      pivot.position.copy(PLAIT_NAPE);
+      this.head.add(pivot);
+      this.plaitPivot = pivot;
+      this.keep(hair.plait.segment, pivot, 'hair.plait');
+      for (const [name, at] of hair.plait.anchors) pivot.add(hairAnchor(name, at));
+    }
   }
 
   private buildArms(): void {
