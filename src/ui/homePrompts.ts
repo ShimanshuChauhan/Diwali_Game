@@ -42,7 +42,7 @@ export interface HomePromptState {
 export const MEMBER_LABELS: Readonly<Record<HouseholdMemberId, string>> = {
   mother: 'Mummy',
   father: 'Papa',
-  sibling: 'your sibling',
+  sibling: 'Chhotu',
   grandmother: 'Dadi',
   grandfather: 'Dadaji',
   uncle: 'Uncle',
