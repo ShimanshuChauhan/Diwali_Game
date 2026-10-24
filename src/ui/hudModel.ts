@@ -1,6 +1,7 @@
 import type { HeldItem, Interactable, UiModule } from '../core/contracts';
 import type { Unsubscribe } from '../core/eventBus';
 import type { GameEventBus } from '../core/events';
+import type { LocationId } from '../core/homes';
 import {
   CRACKER_TYPES,
   isHandheld,
@@ -127,6 +128,8 @@ export class HudModel implements UiModule {
   private currentMode: CameraMode = 'firstPerson';
   private isPaused = true;
   private inAarti = false;
+  private handsFull = false;
+  private location: LocationId = 'outdoors';
   private lines: readonly PromptLine[] = [];
   private currentRejection: { text: string; remaining: number } | null = null;
   private rev = 0;
@@ -147,6 +150,8 @@ export class HudModel implements UiModule {
         bus.on('aartiRejected', ({ reason }) => this.showMessage(AARTI_REJECTION_TEXT[reason])),
         bus.on('giftRejected', ({ reason }) => this.showMessage(GIFT_REJECTION_TEXT[reason])),
         bus.on('cameraModeChanged', ({ mode }) => this.setCameraMode(mode)),
+        // Published at the fade's midpoint, under the black, so the hotbar never flickers.
+        bus.on('locationChanged', ({ to }) => this.setLocation(to)),
         bus.on('paused', () => this.setPaused(true)),
         bus.on('resumed', () => this.setPaused(false)),
         bus.on('sessionStarted', () => this.setPaused(false)),
@@ -185,9 +190,13 @@ export class HudModel implements UiModule {
     return !this.isPaused;
   }
 
-  /** The cracker hotbar gives way to the aarti mini player, whose songs 1–3 pick. */
+  /**
+   * The cracker hotbar shows only outdoors with free hands: it hides in a
+   * home and while a plate, gift box or thali is carried, and gives way to
+   * the aarti mini player, whose songs 1–3 pick. Refusals still show.
+   */
   get hotbarVisible(): boolean {
-    return !this.inAarti;
+    return !this.inAarti && !this.handsFull && this.location === 'outdoors';
   }
 
   /** The crosshair is for aiming in first-person only. */
@@ -207,6 +216,12 @@ export class HudModel implements UiModule {
     this.changed();
   }
 
+  setLocation(location: LocationId): void {
+    if (location === this.location) return;
+    this.location = location;
+    this.changed();
+  }
+
   setPaused(paused: boolean): void {
     if (paused === this.isPaused) return;
     this.isPaused = paused;
@@ -221,8 +236,10 @@ export class HudModel implements UiModule {
   /** Recompute the prompt from what the player is near and aiming at. */
   setContext(context: HudContext): void {
     const inAarti = context.homes?.aarti?.participating ?? false;
-    if (inAarti !== this.inAarti) {
+    const handsFull = (context.homes?.hands ?? null) !== null;
+    if (inAarti !== this.inAarti || handsFull !== this.handsFull) {
       this.inAarti = inAarti;
+      this.handsFull = handsFull;
       this.changed();
     }
     this.setLines(promptLines(this.currentSelection, context));
@@ -250,11 +267,13 @@ export class HudModel implements UiModule {
     this.changed();
   }
 
-  /** Fresh session: default selection, no prompt, no message. */
+  /** Fresh session: default selection, outdoors with free hands, no prompt, no message. */
   reset(): void {
     this.currentSelection = this.initialSelection;
     this.lines = [];
     this.inAarti = false;
+    this.handsFull = false;
+    this.location = 'outdoors';
     this.currentRejection = null;
     this.changed();
   }
