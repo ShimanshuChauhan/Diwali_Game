@@ -34,7 +34,7 @@ npm run dev        # dev server at http://localhost:5173
 | `npm run test:watch`| Run tests in watch mode                       |
 | `npm run typecheck` | Type-check only                               |
 
-Performance results and the `?stress` test: [`docs/performance.md`](docs/performance.md).
+Performance results, the `?stress` test and the `?tour` family-home checkpoint: [`docs/performance.md`](docs/performance.md).
 
 ## Project layout
 

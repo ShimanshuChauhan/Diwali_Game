@@ -8,6 +8,8 @@ export interface BrowserSampleSources {
   readonly capacity: () => CapacityStats;
   /** Distant sky sparks, which sit outside the capacity budget. */
   readonly distantParticles: () => number;
+  /** More counts to sample alongside, e.g. audio sources and bus listeners. */
+  readonly extra?: () => ResourceSample;
 }
 
 /** Chrome-only `performance.memory`; absent elsewhere. */
@@ -40,6 +42,7 @@ export function browserSampler(sources: BrowserSampleSources): () => ResourceSam
       textures: renderer.info.memory.textures,
       programs: renderer.info.programs?.length,
       heapMb: heap ? heap.usedJSHeapSize / 2 ** 20 : undefined,
+      ...sources.extra?.(),
     };
   };
 }

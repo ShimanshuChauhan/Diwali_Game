@@ -39,7 +39,14 @@ import { NeighbourScene, Neighbours } from './neighbours';
 import { MovementIntentTracker, PlayerCharacter, PlayerController } from './player';
 import { createPerfOverlay, FrameTimer, initialQualityLevel, QualitySettings, type QualityStorage } from './quality';
 import { RenderPipeline } from './quality/renderPipeline';
-import { browserSampler, createStressHarness, stressPlanFromQuery } from './perf';
+import {
+  browserSampler,
+  createHomesTour,
+  createStressHarness,
+  drawEverythingOnce,
+  stressPlanFromQuery,
+  tourPlanFromQuery,
+} from './perf';
 import { createDomControls } from './session/domControls';
 import { Input } from './session/input';
 import { Session } from './session/session';
@@ -80,8 +87,9 @@ async function boot(): Promise<void> {
   physics.step(); // put the static colliders in the broad phase before the player queries it
 
   const stressPlan = stressPlanFromQuery(location.search);
-  // The stress test renders at a fixed size so runs compare across screens.
-  const viewSize = () => stressPlan?.viewport ?? { width: window.innerWidth, height: window.innerHeight };
+  const tourPlan = stressPlan ? null : tourPlanFromQuery(location.search);
+  // The stress test and the homes tour render at a fixed size so runs compare across screens.
+  const viewSize = () => (stressPlan ?? tourPlan)?.viewport ?? { width: window.innerWidth, height: window.innerHeight };
   const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
   renderer.setSize(viewSize().width, viewSize().height);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -299,26 +307,57 @@ async function boot(): Promise<void> {
     profile: quality.profile,
     fade: (opacity) => doorFade.set(opacity),
   });
-  bus.on('qualityChanged', ({ profile }) => presenter.applyQuality(profile));
-  presenter.preload(() => renderer.compile(scene, camera));
+  // Draw every location once now, and again for a new profile's light set, so first visits do not hitch.
+  const locationRoots = new Set([...outdoor, familyHomeScene.root, neighbourHomeScene.root]);
+  const warmLocations = () => presenter.preload(() => drawEverythingOnce(scene, locationRoots, () => pipeline.render()));
+  bus.on('qualityChanged', ({ profile }) => {
+    presenter.applyQuality(profile);
+    warmLocations();
+  });
+  warmLocations();
 
-  // `?stress` runs the scripted performance test (docs/performance.md).
+  // `?stress` runs the scripted performance test, `?tour` the family-home checkpoint (docs/performance.md).
+  const sample = browserSampler({
+    renderer,
+    scene,
+    capacity: () => capacity.stats,
+    distantParticles: () => atmosphere.stats.distant.liveParticles,
+    extra: () => ({
+      aartiSources: aartiAudio.activeSources,
+      busListeners: bus.totalListenerCount(),
+      domNodes: document.getElementsByTagName('*').length,
+    }),
+  });
   const stress = stressPlan
     ? createStressHarness({
         plan: stressPlan,
         crackers,
         validatePlacement: (request) => interaction.validatePlacement(request),
         setLevel: (level) => quality.setLevel(level),
-        sample: browserSampler({
-          renderer,
-          scene,
-          capacity: () => capacity.stats,
-          distantParticles: () => atmosphere.stats.distant.liveParticles,
-        }),
+        sample,
       })
     : null;
-  if (stress) {
-    Object.assign(window, { __stress: stress.snapshot });
+  const tour = tourPlan
+    ? createHomesTour({
+        plan: tourPlan,
+        crackers,
+        validatePlacement: (request) => interaction.validatePlacement(request),
+        setLevel: (level) => quality.setLevel(level),
+        locations,
+        ceremony,
+        hands: heldItems,
+        layout: familyHome,
+        standAt: (placement) => {
+          player.teleport(placement, locationBounds[locations.location]);
+          rig.face(placement.yaw);
+        },
+        sample,
+        drawingBuffer: () => ({ width: renderer.domElement.width, height: renderer.domElement.height }),
+      })
+    : null;
+  if (stress) Object.assign(window, { __stress: stress.snapshot });
+  if (tour) Object.assign(window, { __tour: () => tour.report() });
+  if (stress || tour) {
     bus.on('paused', () => session.resume());
     session.start();
   }
@@ -368,6 +407,7 @@ async function boot(): Promise<void> {
       player.move(locations.controlsLocked ? { ...intent, forward: 0, right: 0 } : intent, SIM_STEP);
       physics.step();
       stress?.update(SIM_STEP);
+      tour?.update(SIM_STEP);
       crackers.update(SIM_STEP);
       effects?.update(SIM_STEP);
       capacity.update(SIM_STEP);
@@ -477,6 +517,7 @@ async function boot(): Promise<void> {
     frames.record(delta);
     perfOverlay.frame(delta);
     stress?.frame(delta);
+    tour?.frame(delta);
   });
 
   if (status) status.textContent = `Three.js r${THREE.REVISION} · Rapier ${RAPIER.version()}`;

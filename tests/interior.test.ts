@@ -641,14 +641,24 @@ describe('location presenter', () => {
     expect(street.visible).toBe(false);
   });
 
-  it('preloads each interior and puts the shown location back', () => {
+  it('preloads the street and each interior and puts the shown location back', () => {
     const { presenter, interior, street } = setup();
-    const seen: { home: string; visible: boolean; street: boolean }[] = [];
-    presenter.preload((h) => seen.push({ home: h, visible: interior.root.visible, street: street.visible }));
-    expect(seen).toEqual([{ home: 'familyHome', visible: true, street: false }]);
+    presenter.activate('familyHome');
+    const seen: { location: string; visible: boolean; street: boolean }[] = [];
+    presenter.preload((l) => seen.push({ location: l, visible: interior.root.visible, street: street.visible }));
+    expect(seen).toEqual([
+      { location: 'outdoors', visible: false, street: true },
+      { location: 'familyHome', visible: true, street: false },
+    ]);
+    expect(interior.root.visible).toBe(true);
+    expect(street.visible).toBe(false);
+    expect(presenter.stats.switches).toBe(1);
+    presenter.activate('outdoors');
+    presenter.preload(() => undefined);
     expect(interior.root.visible).toBe(false);
     expect(street.visible).toBe(true);
-    expect(presenter.stats.switches).toBe(0);
+    // Only the two real visits count.
+    expect(presenter.stats.switches).toBe(2);
   });
 
   it('forwards the door fade and quality changes', () => {

@@ -188,3 +188,226 @@ The caps were already well inside the target, so **no caps were changed**:
   the lit cap.
 - **Other hardware.** This is one Apple-silicon laptop. An Intel or AMD
   integrated-GPU Windows laptop would be a useful second reference.
+
+## Family-home checkpoint (issue #64)
+
+Checks the complete family-home slice (door transitions, aarti, sweets)
+before the neighbour home is measured with the full expansion (#67). Same
+reference laptop and browser as above; production bundle via `vite
+preview`; the laptop was **on battery** and other work was running on it
+(see [Caveats](#caveats)).
+
+### How to reproduce
+
+```bash
+npm run build
+npx vite preview          # http://localhost:4173
+```
+
+Open `http://localhost:4173/?tour&perf` and click once outside the game
+canvas so audio (the aarti recording) can start. The run takes about
+7½ minutes and needs no further input; keep the window in front.
+`window.__tour()` returns progress and the report, which is also logged
+as `[tour] done`.
+
+| Query | Default | Meaning |
+| --- | --- | --- |
+| `tour` | — | Turn the family-home tour on |
+| `level=low` | `low` | Profile held for the whole tour |
+| `settle=10` | 10 s | Play before each scenario's measurement |
+| `measure=60` | 60 s | Measurement window per scenario |
+| `trips=25` | 25 | Family-home round trips (two transitions each) |
+| `dwell=3` | 3 s | Time on each side of the door per trip |
+| `song=10` | 10 s | Seconds between aarti song changes |
+| `viewport=1280x720` | 1280×720 | Fixed canvas size in CSS px, as for `?stress` |
+
+### The scripted tour (`src/perf/homesTour.ts`)
+
+It drives the same module commands that E and click reach, on Low:
+
+1. **Outdoors**: the stress scenario above (placed, lit and effect caps
+   full, a rocket every 2 s, a lit phuljhari in hand).
+2. **Transitions**: 25 round trips through the family-home front door,
+   3 s each side, with the outdoor fireworks still going. Resources are
+   sampled outdoors after every trip.
+3. **Aarti**: phuljhari put away, in through the door, join at the puja
+   corner; circle the thali 2.5 s, rest 1 s, change song every 10 s.
+   Then circle to the end of the song, which completes the ceremony and
+   serves the tray.
+4. **Sweets**: at the sweets table, every 0.75 s: eat, eat, take the
+   plate, offer it to each of the five family members, put it back.
+5. Out through the door.
+
+Steady-state frames are measured per scenario after the settle period.
+A **transition** runs from the first frame its fade is drawn until
+0.25 s after it ends, so the first frames of the new room count; its
+worst frame is its **hitch**, and those frames are kept out of the
+steady-state numbers.
+
+The aarti view is first person, facing the shrine with the thali in
+view; the sweets view faces the seated family, with subtitles. The
+recordings are still the 24 s placeholders (#58).
+
+### Regression found and fixed: first-draw hitches
+
+The first run showed a **67 ms** hitch on the first entry into the
+family home, and **133 ms** when going in for aarti. A short diagnostic
+run of the same build hit **534 ms** and **217 ms**. All later
+transitions were 17–19 ms.
+
+The shader programs were already compiled at boot: no new program
+appeared on the first entry. The cost was the **first real draw**. A
+draw uploads each object's buffers (geometries went 94 → 152 on the
+first entry), and ANGLE's Metal backend builds a pipeline state per
+program and vertex layout. `renderer.compile`, the old preload, does
+neither. Going in for aarti also drew the thali and the anar placement
+ghost for the first time.
+
+Fix: at boot (and again after a quality change, for the new light set),
+`drawEverythingOnce` (`src/perf/firstDraw.ts`) **draws each location
+once**, the street included. For that one draw, every hidden prop
+(thali, plate, bell, ghost, Low-only dressing) is shown and frustum
+culling is off; lights keep their state, so the pipelines match what is
+really drawn there. After the fix, programs (16), geometries (203) and
+textures (1) never change after boot, and the first entry costs the same
+as any other (17.7 ms).
+
+An A/B of the outdoor stress at Low (30 s each, same session) showed no
+steady-state cost: 60.00 FPS, p99 18.7 ms, no frames over 33 ms, both
+with the old `renderer.compile` preload and with the new draw.
+
+### Results (2026-10-25)
+
+Drawing buffer **960 × 540** (1280 × 720 CSS px, Low render scale 0.75,
+DPR capped at 1, measured from the canvas). Each scenario is 60 s after a
+10 s settle; transitions in their own table.
+
+#### Run 2: after the fix
+
+| Scenario | FPS | Mean | p50 | p95 | p99 | Worst | Frames > 33 ms | Stalls excluded |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Outdoors at caps | 55.1 | 18.15 ms | 16.75 ms | 33.5 ms | 34.0 ms | 66.7 ms | 3.9 % | 1 (6.4 s) |
+| Between transitions | 58.2 | 17.18 ms | 16.75 ms | 17.75 ms | 33.5 ms | 183 ms | 1.4 % | 0 |
+| Aarti | **60.0** | 16.67 ms | 16.75 ms | 17.5 ms | 17.75 ms | 18.3 ms | 0 % | 0 |
+| Sweets | **60.0** | 16.67 ms | 16.75 ms | 17.75 ms | 17.75 ms | 21.5 ms | 0 % | 0 |
+
+| Transitions | Count | Hitch p50 | Hitch p95 | Worst hitch | First family-home entry | Frames > 33 ms |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Run 2 | 52 | 17.75 ms | 34.5 ms | 65.9 ms | **17.7 ms** | 1.1 % |
+
+The outdoor and between-transition dips in run 2 came in one stretch
+(transitions 13–18 hitched at 34 ms, at vsync half-rate). The A/B above,
+run straight afterwards, held 60.00 FPS outdoors on both builds, so it
+is not the fix.
+
+#### Run 3: after the fix, degraded machine
+
+Run straight after run 2 and the A/B, with no code change. Before its
+outdoor measurement the window was hidden for 408 s, which is excluded
+as a stall.
+
+| Scenario | FPS | Mean | p50 | p95 | p99 | Worst | Frames > 33 ms |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Outdoors at caps | 44.6 | 22.43 ms | 17.25 ms | 34.5 ms | 35.25 ms | 68.5 ms | 17.3 % |
+| Between transitions | 48.9 | 20.46 ms | 16.75 ms | 34.0 ms | 35.25 ms | 66.7 ms | 10.9 % |
+| Aarti | 47.7 | 20.98 ms | 17.0 ms | 34.25 ms | 35.25 ms | 50.0 ms | 11.5 % |
+| Sweets | 56.2 | 17.79 ms | 16.75 ms | 33.0 ms | 34.75 ms | 100 ms | 3.1 % |
+
+52 transitions: hitch p50 35 ms, p95 35.5 ms, worst 116 ms. Resources
+stayed identical to run 2 (536 objects, 203 geometries, 1 texture, 16
+programs, 80 listeners, 102 DOM nodes, no aarti source).
+
+This run reflects the machine, not the game. The aarti view (29 draw
+calls, under 2 k triangles) held a flat 60 in runs 1 and 2, but here it
+dropped frames at the same rate as the much heavier street. As a control
+afterwards, in the same Chrome window, a blank page doing nothing but
+moving one `div` managed **39.8, 47.0 and 56.4 FPS** in three 5 s
+windows, with 96, 63 and 19 frames over 25 ms. Even in this state, every
+scenario's average stayed above 30 FPS (lowest 44.6).
+
+#### Run 1: before the fix
+
+| Scenario | FPS | p50 | p95 | p99 | Worst | Frames > 33 ms | Stalls excluded |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Outdoors at caps | 60.0 | 16.75 ms | 17.5 ms | 17.75 ms | 34.3 ms | 0.03 % | 1 (3.1 s) |
+| Between transitions | 60.0 | 16.75 ms | 17.5 ms | 17.75 ms | 75.4 ms | 0.01 % | 1 (13.8 s) |
+| Aarti | 60.0 | 16.75 ms | 17.75 ms | 17.75 ms | 20.3 ms | 0 % | 0 |
+| Sweets | 60.0 | 16.75 ms | 17.25 ms | 17.7 ms | 17.7 ms | 0 % | 0 |
+
+52 transitions: hitch p50 17.75 ms, p95 19.25 ms; worst **133 ms**
+(going in for aarti); first family-home entry **66.6 ms**.
+
+Every scenario's average stayed above 30 FPS in every run. On an
+undisturbed machine (run 1, and aarti and sweets in run 2) every
+scenario held 60.
+
+### Resources across 25 round trips (run 2)
+
+Sampled outdoors after each round trip (25 samples, 50 transitions).
+"Early" is the mean over the second quarter of the samples, "late" over
+the last quarter.
+
+| Resource | Min | Max | Budget | Early | Late | Growing? |
+| --- | ---: | ---: | ---: | ---: | ---: | :---: |
+| Placed props | 9 | 12 | 12 | 10.8 | 11.0 | no |
+| Lit crackers | 3 | 6 | 6 | 4.7 | 4.9 | no |
+| Active effects | 4 | 6 | 6 | 5.7 | 5.7 | no |
+| Particles | 701 | 3942 | 4000 | 2396 | 2282 | no |
+| Dynamic lights | 2 | 2 | 2 | 2 | 2 | no |
+| Audio voices | 7 | 12 | 12 | 11.7 | 10.3 | no |
+| Distant sky sparks | 0 | 80 | 82 | 27.3 | 14.0 | no |
+| Scene objects | 536 | 536 | — | 536 | 536 | no |
+| GPU geometries | 203 | 203 | — | 203 | 203 | no |
+| GPU textures | 1 | 1 | — | 1 | 1 | no |
+| Shader programs | 16 | 16 | — | 16 | 16 | no |
+| Aarti audio sources | 0 | 0 | — | 0 | 0 | no |
+| Event-bus listeners | 80 | 80 | — | 80 | 80 | no |
+| DOM nodes | 102 | 102 | — | 102 | 102 | no |
+| JS heap (MB) | 64.0 | 69.5 | — | 69.1 | 65.6 | no |
+
+Nothing grows across the transitions (`bounded: true`). Scene objects,
+geometries, textures, programs, listeners and DOM nodes are identical
+after every trip. Run 1 was also flat (programs 28, geometries 152,
+listeners 80, DOM nodes 102). Its distant-spark count was flagged as
+growing, but that was noise: whole sky bursts come and go between
+samples taken 7 s apart. The tour now judges distant sparks against
+their pool budget instead (82 on Low).
+
+The tour ran with no refused command. It made 52 transitions, joined
+aarti once, changed song 7 times and completed the ceremony. At the
+sweets table it ate 22 times, took and returned the plate 11 times, and
+made 51 offers. One aarti recording played at a time, and none outlived
+the ceremony (`aartiSources` 0 after every trip).
+
+### Headless check (`tests/homesTour.test.ts`)
+
+`npm test` runs the same tour headless. The family-home slice is wired as
+`main.ts` wires it, scene graph included, with a fake `AudioContext`, and
+the test makes 25 round trips plus the aarti and sweets. Across all 52
+transitions it checks that:
+
+- scene objects, geometries, materials, interior materials and event-bus
+  listeners stay identical;
+- no aarti source or decoded recording outlives the ceremony, and at most
+  one ever sounds;
+- capacity resources stay within budget and don't grow;
+- after the whole tour the scene and bus are as they were at boot. The
+  one exception is the family's bell: it's built at boot and only joins
+  the graph in the ringer's hand at the first aarti.
+
+### Caveats
+
+- **Battery and a shared machine.** All runs were on battery (91 % → 78 %,
+  Low Power Mode off), with other work running (load average around 3).
+  Run 1 has 60 FPS everywhere; run 2 has one 30 FPS stretch that the A/B
+  straight afterwards didn't reproduce; run 3 was degraded throughout,
+  matching a blank-page control. A diagnostic run also showed 6.6 s at
+  30 FPS in the sweets phase, then recovered by itself. Re-measure on AC
+  on an idle machine before quoting a single number.
+- **Stalls.** Chrome stops drawing an occluded window. Two runs had a
+  3–14 s gap, which is excluded as a stall (see above).
+- **Placeholders.** The aarti recordings are 24 s placeholders. Real
+  recordings are longer, but play through one source the same way.
+- **Not covered here.** The neighbour home's hospitality and a 15–30
+  minute browser soak with repeated visits, song switches and
+  pause/resume belong to #67.
