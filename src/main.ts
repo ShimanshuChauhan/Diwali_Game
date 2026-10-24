@@ -3,6 +3,8 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import { FixedStep } from './core/fixedStep';
 import { TUNING } from './core/tuning';
 import { createGameEventBus } from './core/events';
+import { DEFAULT_QUALITY, qualityProfile } from './core/quality';
+import { Atmosphere } from './atmosphere';
 import { AudioEngine } from './audio/audioEngine';
 import { unlockOnFirstGesture } from './audio/controls';
 import { createEffectsDemo } from './effects/effectsDemo';
@@ -60,6 +62,10 @@ async function boot(): Promise<void> {
   });
   createStartScreen({ parent: document.body, bus, onStart: () => controls.requestStart() });
 
+  const atmosphere = new Atmosphere({ scene, layout: world.layout, profile: qualityProfile(DEFAULT_QUALITY), renderer, bus });
+  atmosphere.setViewport(renderer.domElement.height, camera);
+  window.addEventListener('resize', () => atmosphere.setViewport(renderer.domElement.height, camera));
+
   const audio = new AudioEngine({ bus });
   unlockOnFirstGesture(window, audio);
   const listenerForward = new THREE.Vector3();
@@ -83,12 +89,14 @@ async function boot(): Promise<void> {
     for (let i = 0; i < steps; i++) {
       physics.step();
       audio.update(SIM_STEP);
+      atmosphere.update(SIM_STEP);
     }
     if (effectsDemo) {
       const demo = demoLoop.advance(delta);
       for (let i = 0; i < demo.steps; i++) effectsDemo.update(SIM_STEP);
       effectsDemo.frame(delta);
     }
+    atmosphere.frame();
     camera.getWorldDirection(listenerForward);
     audio.setListener({ mode: 'firstPerson', position: camera.position, forward: listenerForward, yaw: 0, pitch: 0 });
     renderer.render(scene, camera);
