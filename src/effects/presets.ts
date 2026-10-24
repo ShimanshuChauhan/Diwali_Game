@@ -60,6 +60,41 @@ export interface EmitterPreset {
   readonly crackle?: CrackleSpec;
   /** The source drifts on the ground near where it started (chakri). */
   readonly wander?: WanderSpec;
+  /** Sparks leave a spinning wheel's rim instead of its centre (chakri). */
+  readonly rim?: RimSpec;
+  /** A light that keeps flickering while the stream burns (chakri). */
+  readonly light?: GlowLightSpec;
+}
+
+export interface RimSpec {
+  /** Radius of the wheel the jets sit on, metres. */
+  readonly radius: number;
+  /** Height of the jets above the source, metres. */
+  readonly height: number;
+  /** How far the jets turn out from the tangent, radians. */
+  readonly outward: number;
+  /** Upward part of each spark's direction, before normalising. */
+  readonly lift: number;
+  /** Bright, short-lived sparks hugging the rim: the blurred wheel of fire. */
+  readonly glow: {
+    /** Glow sparks per second at a count scale of 1. */
+    readonly rate: number;
+    readonly life: Range;
+    readonly size: number;
+    /** 0xRRGGBB; the glow is hotter than the thrown sparks. */
+    readonly colour: number;
+  };
+}
+
+export interface GlowLightSpec {
+  /** Point-light intensity (candela) at full flicker. */
+  readonly peak: number;
+  /** Light reach in metres. */
+  readonly range: number;
+  /** Seconds between flickers; each flicker lasts twice this. */
+  readonly interval: number;
+  /** Height of the light above the source, metres. */
+  readonly height: number;
 }
 
 export interface SurgeSpec {
@@ -161,28 +196,51 @@ export const FOUNTAIN: EmitterPreset = {
   surge: { amplitude: 0.3, frequency: 0.7, rampUp: 1 },
 };
 
-/** Chakri: twin spinning jets just above the ground, skittering about. */
+/**
+ * Chakri: a wheel spinning about four times a second, throwing sparks off
+ * its rim along the direction of travel so they trace spiral arcs, with a
+ * blurred ring of fire round the wheel and a flickering glow on the ground.
+ * It skitters a little as it spins.
+ */
 export const SPINNER: EmitterPreset = {
   kind: 'stream',
   count: 0,
-  rate: 360,
+  rate: 1500,
   duration: Infinity,
-  speed: { min: 3, max: 5 },
-  life: { min: 0.25, max: 0.6 },
-  direction: { x: 1, y: 0.05, z: 0 },
-  spread: 0.15,
-  spin: 14,
-  gravity: 0.6,
-  drag: 2,
-  size0: 0.14,
-  size1: 0.03,
-  flicker: 0.5,
+  speed: { min: 4, max: 7.5 },
+  life: { min: 0.18, max: 0.42 },
+  direction: { x: 1, y: 0, z: 0 },
+  spread: 0.08,
+  spin: 25,
+  gravity: 0.9,
+  drag: 2.6,
+  size0: 0.045,
+  size1: 0.012,
+  flicker: 0.55,
   fade: 0.25,
+  endColour: 0xc02a08,
   inherit: 0,
-  colours: [0xffe08a, 0x9cff8a, 0xff7aa8],
+  colours: [0xffd36b, 0xffb43c, 0xfff0c0],
   jets: 2,
-  wander: { speed: 0.35, radius: 0.5, turn: 6 },
+  surge: { amplitude: 0.15, frequency: 1.3, rampUp: 0.5 },
+  wander: { speed: 0.25, radius: 0.35, turn: 6 },
+  rim: {
+    radius: 0.14,
+    height: 0.05,
+    outward: 0.35,
+    lift: 0.12,
+    glow: { rate: 420, life: { min: 0.04, max: 0.08 }, size: 0.06, colour: 0xfff3c8 },
+  },
+  light: { peak: 5, range: 6, interval: 0.1, height: 0.3 },
 };
+
+/** Spark colours a chakri may burn with; one is picked per chakri. */
+export const CHAKRI_PALETTES: readonly (readonly number[])[] = [
+  [0xffd36b, 0xffb43c, 0xfff0c0],
+  [0xf4f6ff, 0xd8e4ff, 0xffffff],
+  [0x9dff6a, 0xffd36b, 0xe8ffc8],
+  [0xff5a3c, 0xffc04a, 0xffe0b0],
+];
 
 /** Phuljhari: a small crackling ball of sparks at the stick tip. */
 export const SPARKLER: EmitterPreset = {

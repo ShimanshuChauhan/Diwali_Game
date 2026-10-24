@@ -246,7 +246,7 @@ async function boot(): Promise<void> {
     camera.getWorldDirection(listenerForward);
     const view = { mode: rig.mode, position: camera.position, forward: listenerForward, yaw: rig.yaw, pitch: rig.pitch };
     audio.setListener(view);
-    props.sync(crackers.list());
+    props.sync(crackers.list(), (id) => effects?.spinnerPose(id) ?? null);
     // Ghost and prompt preview where a click would put the selected ground cracker.
     const selected = crackers.selected;
     const feet = player.pose.position;

@@ -37,4 +37,25 @@ describe('CrackerProps', () => {
     props.sync([]);
     expect(counts(props)['crackerProps.anar']).toBe(0);
   });
+
+  it('moves and turns a burning chakri with its wheel of sparks', () => {
+    const props = new CrackerProps(4);
+    const mesh = props.object.getObjectByName('crackerProps.chakri') as THREE.InstancedMesh;
+    const matrix = new THREE.Matrix4();
+    const position = new THREE.Vector3();
+    const rotation = new THREE.Quaternion();
+    const scale = new THREE.Vector3();
+
+    props.sync([snap('c', 'chakri', 'active')], (id) => (id === 'c' ? { x: 1.2, y: 0, z: -1.9, angle: Math.PI / 2 } : null));
+    mesh.getMatrixAt(0, matrix);
+    matrix.decompose(position, rotation, scale);
+    expect(position.x).toBeCloseTo(1.2);
+    expect(position.z).toBeCloseTo(-1.9);
+    expect(new THREE.Euler().setFromQuaternion(rotation).y).toBeCloseTo(-Math.PI / 2);
+
+    // Without a pose (e.g. not lit yet) it sits where it was placed.
+    props.sync([snap('c', 'chakri', 'placed')], () => null);
+    mesh.getMatrixAt(0, matrix);
+    expect(new THREE.Vector3().setFromMatrixPosition(matrix).toArray()).toEqual([1, 0, -2]);
+  });
 });

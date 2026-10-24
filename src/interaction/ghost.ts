@@ -5,6 +5,9 @@ import type { PlacementFeedback } from './placement';
 const VALID_COLOR = 0x4cff7a;
 const INVALID_COLOR = 0xff4a4a;
 
+/** Smallest footprint the ground ring is drawn round, metres. */
+const MIN_RING_RADIUS = 0.15;
+
 /** Rough footprint of each ground cracker: [radius, height] in metres. */
 const SHAPES: Readonly<Record<Exclude<CrackerType, 'phuljhari'>, readonly [number, number]>> = {
   anar: [0.12, 0.3],
@@ -21,9 +24,10 @@ export interface PlacementGhost {
 }
 
 /**
- * Translucent preview of the selected ground cracker, green where it can be
- * placed and red where it cannot. One unit cylinder is scaled per type and
- * recoloured in place, so `update` allocates nothing.
+ * Translucent preview of the selected ground cracker with a ring on the
+ * ground, green where it can be placed and red where it cannot. One unit
+ * cylinder is scaled per type and recoloured in place, so `update`
+ * allocates nothing.
  */
 export function createPlacementGhost(): PlacementGhost {
   const geometry = new THREE.CylinderGeometry(1, 1, 1, 16);
@@ -31,13 +35,26 @@ export function createPlacementGhost(): PlacementGhost {
   const material = new THREE.MeshBasicMaterial({
     color: VALID_COLOR,
     transparent: true,
-    opacity: 0.45,
+    opacity: 0.12,
     depthWrite: false,
   });
   const mesh = new THREE.Mesh(geometry, material);
   mesh.name = 'placementGhost';
   mesh.visible = false;
   mesh.renderOrder = 1;
+
+  // A crisp ring on the ground marks the spot; the faint body shows the size.
+  const ringGeometry = new THREE.RingGeometry(1.35, 1.6, 40).rotateX(-Math.PI / 2).translate(0, 0.01, 0);
+  const ringMaterial = new THREE.MeshBasicMaterial({
+    color: VALID_COLOR,
+    transparent: true,
+    opacity: 0.85,
+    depthWrite: false,
+  });
+  const ring = new THREE.Mesh(ringGeometry, ringMaterial);
+  ring.name = 'placementGhost.ring';
+  ring.renderOrder = 1;
+  mesh.add(ring);
 
   return {
     root: mesh,
@@ -49,12 +66,19 @@ export function createPlacementGhost(): PlacementGhost {
       const [radius, height] = SHAPES[feedback.type];
       mesh.visible = true;
       mesh.scale.set(radius, height, radius);
+      // Keep the ring readable round thin crackers like the rocket.
+      const ringScale = Math.max(radius, MIN_RING_RADIUS) / radius;
+      ring.scale.set(ringScale, 1, ringScale);
       mesh.position.set(feedback.position.x, feedback.position.y, feedback.position.z);
-      material.color.setHex(feedback.ok ? VALID_COLOR : INVALID_COLOR);
+      const colour = feedback.ok ? VALID_COLOR : INVALID_COLOR;
+      material.color.setHex(colour);
+      ringMaterial.color.setHex(colour);
     },
     dispose() {
       geometry.dispose();
       material.dispose();
+      ringGeometry.dispose();
+      ringMaterial.dispose();
     },
   };
 }

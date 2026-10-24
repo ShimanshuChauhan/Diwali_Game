@@ -5,7 +5,7 @@ import { QUALITY_LEVELS, QUALITY_PROFILES, qualityProfile, DEFAULT_QUALITY, type
 import { TUNING, type Tuning } from '../core/tuning';
 import type { CrackerId, CrackerType, Vec3 } from '../core/types';
 import { FireworksEngine, NO_EFFECT, type EffectHandle, type EngineStats } from './fireworksEngine';
-import { FOUNTAIN, FUSE, ROCKET_TRAIL, SPARKLER, SPINNER, type EmitterPreset } from './presets';
+import { CHAKRI_PALETTES, FOUNTAIN, FUSE, ROCKET_TRAIL, SPARKLER, SPINNER, type EmitterPreset } from './presets';
 
 /**
  * Effects module: turns cracker events into pooled particles, trails and
@@ -20,6 +20,15 @@ export interface FireworksEffectsOptions {
   readonly random?: () => number;
   /** Where the held phuljhari is; its fuse and sparks follow it every step. */
   readonly handPosition?: () => Vec3;
+}
+
+/** Where a spinning ground cracker's wheel is and how far it has turned. */
+export interface SpinnerPose {
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+  /** Rotation about +Y, radians. */
+  readonly angle: number;
 }
 
 /** The fuse sparkle sits a little above a ground cracker's base. */
@@ -55,11 +64,14 @@ export class FireworksEffects implements EffectsModule {
   /** Effects that track the hand: the held phuljhari's fuse and sparks. */
   private readonly inHand = new Set<CrackerId>();
   private readonly handPosition: (() => Vec3) | null;
+  private readonly random: () => number;
+  private readonly spinners = new Set<CrackerId>();
   private readonly unsubscribes: Unsubscribe[] = [];
 
   constructor(bus: GameEventBus | null, options: FireworksEffectsOptions = {}) {
     this.tuning = options.tuning ?? TUNING;
     this.handPosition = options.handPosition ?? null;
+    this.random = options.random ?? Math.random;
     this.engine = new FireworksEngine({
       particleCapacity: maxOver('maxParticles'),
       // Each lit cracker may need a stream and, for rockets, a burst.
@@ -103,6 +115,7 @@ export class FireworksEffects implements EffectsModule {
   reset(): void {
     this.byCracker.clear();
     this.inHand.clear();
+    this.spinners.clear();
     this.engine.reset();
   }
 
@@ -110,6 +123,20 @@ export class FireworksEffects implements EffectsModule {
   handleFor(id: CrackerId): EffectHandle {
     const handle = this.byCracker.get(id);
     return handle !== undefined && this.engine.isAlive(handle) ? handle : NO_EFFECT;
+  }
+
+  /**
+   * Where a burning chakri's wheel is and its spin, so its model can turn
+   * and skid with the sparks; null once it stops or for other crackers.
+   */
+  spinnerPose(id: CrackerId): SpinnerPose | null {
+    if (!this.spinners.has(id)) return null;
+    const handle = this.byCracker.get(id);
+    if (handle === undefined) return null;
+    const position = this.engine.emitterPosition(handle);
+    const angle = this.engine.emitterSpin(handle);
+    if (!position || angle === null) return null;
+    return { x: position.x, y: position.y, z: position.z, angle };
   }
 
   /** Stop listening to the bus. */
@@ -130,9 +157,13 @@ export class FireworksEffects implements EffectsModule {
 
   onCrackerActive({ id, type, position }: GameEvents['crackerActive']): void {
     this.stopCracker(id);
-    const handle = this.engine.startStream(ACTIVE_PRESETS[type], position.x, position.y, position.z);
+    // Each chakri burns in one of a few palettes.
+    const colours =
+      type === 'chakri' ? CHAKRI_PALETTES[Math.floor(this.random() * CHAKRI_PALETTES.length)] : undefined;
+    const handle = this.engine.startStream(ACTIVE_PRESETS[type], position.x, position.y, position.z, colours);
     if (handle === NO_EFFECT) return;
     this.track(id, type, handle);
+    if (type === 'chakri') this.spinners.add(id);
     if (type === 'rocket') {
       const { rocketApexHeight, activeDuration } = this.tuning.crackers;
       this.engine.setEmitterVelocity(handle, 0, rocketApexHeight / activeDuration.rocket, 0);
@@ -154,6 +185,7 @@ export class FireworksEffects implements EffectsModule {
     this.engine.stopEmitter(handle);
     this.byCracker.delete(id);
     this.inHand.delete(id);
+    this.spinners.delete(id);
   }
 
   private track(id: CrackerId, type: CrackerType, handle: EffectHandle): void {
