@@ -2,6 +2,8 @@ import { EventBus } from './eventBus';
 import type {
   AartiRejection,
   AartiSongId,
+  CrackerAction,
+  CrackerHandsRejection,
   DialogueLine,
   DoorwayId,
   FamilyMemberId,
@@ -101,6 +103,10 @@ export interface GameEvents {
   itemPickedUp: { readonly item: HandItem };
   itemReturned: { readonly item: HandItem };
   itemRejected: { readonly action: ItemAction; readonly reason: ItemRejection };
+  /** The carried item was consumed rather than put back, e.g. a gift handed over. */
+  itemDelivered: { readonly item: HandItem };
+  /** A cracker action was refused because the hands hold something else. */
+  crackerBlocked: { readonly action: CrackerAction; readonly reason: CrackerHandsRejection };
   sweetsEaten: Record<string, never>;
   sweetsOffered: { readonly member: FamilyMemberId };
 

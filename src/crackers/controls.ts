@@ -1,6 +1,7 @@
 import { crackerForSlot, type GameAction } from '../core/actions';
 import type { CameraView, InteractionModule, PlayerPose } from '../core/contracts';
 import type { GameEventBus } from '../core/events';
+import type { CrackerAction, CrackerHandsRejection } from '../core/homes';
 import { TUNING } from '../core/tuning';
 import { isHandheld, type Vec3 } from '../core/types';
 import type { Crackers } from './crackers';
@@ -22,6 +23,8 @@ export interface CrackerControlContext {
   readonly bus: GameEventBus;
   readonly pose: () => PlayerPose;
   readonly view: () => CameraView;
+  /** What else is in the hands; any reason it gives blocks every cracker action. */
+  readonly hands?: { crackerBlock(): CrackerHandsRejection | null };
 }
 
 /**
@@ -51,23 +54,33 @@ export function handPositionFor(feet: Vec3, yaw: number): Vec3 {
   };
 }
 
+/** True, after emitting `crackerBlocked`, when the hands are busy with something else. */
+function blocked(ctx: CrackerControlContext, action: CrackerAction): boolean {
+  const reason = ctx.hands?.crackerBlock() ?? null;
+  if (reason) ctx.bus.emit('crackerBlocked', { action, reason });
+  return reason !== null;
+}
+
 /**
  * Route the cracker actions: 1–4 select, click places the selected ground
  * cracker (or lights the held phuljhari), E lights the nearest placed
- * cracker, else the held phuljhari. Returns false for actions it ignores.
+ * cracker, else the held phuljhari. While the hands carry a plate, gift box
+ * or thali, each of these is refused with `crackerBlocked` instead. Returns
+ * false for actions it ignores.
  */
 export function applyCrackerAction(action: GameAction, ctx: CrackerControlContext): boolean {
   const { crackers } = ctx;
   switch (action.type) {
     case 'select':
-      crackers.select(crackerForSlot(action.slot));
+      if (!blocked(ctx, 'select')) crackers.select(crackerForSlot(action.slot));
       return true;
     case 'place': {
       const type = crackers.selected;
       if (isHandheld(type)) {
-        crackers.igniteHeld();
+        if (!blocked(ctx, 'igniteHeld')) crackers.igniteHeld();
         return true;
       }
+      if (blocked(ctx, 'place')) return true;
       const pose = ctx.pose();
       const target = aimPoint(pose.position, ctx.view().forward);
       const result = ctx.interaction.validatePlacement({ type, playerPosition: pose.position, target });
@@ -77,8 +90,11 @@ export function applyCrackerAction(action: GameAction, ctx: CrackerControlContex
     }
     case 'interact': {
       const target = ctx.interaction.findInteractable(ctx.view());
-      if (target?.kind === 'cracker') crackers.ignite(target.id);
-      else if (!target && crackers.held) crackers.igniteHeld();
+      if (target?.kind === 'cracker') {
+        if (!blocked(ctx, 'ignite')) crackers.ignite(target.id);
+      } else if (!target && crackers.held) {
+        if (!blocked(ctx, 'igniteHeld')) crackers.igniteHeld();
+      }
       return true;
     }
     default:
