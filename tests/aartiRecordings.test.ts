@@ -51,6 +51,7 @@ const approved = (overrides: Partial<ApprovedRecording['provenance']> = {}): App
   file: 'jai-ganesh-deva.ogg',
   durationSeconds: 300,
   url: 'jai-ganesh-deva.ogg',
+  includes: [],
   provenance: {
     performer: 'A family choir',
     sourceUrl: 'https://example.org/recording',

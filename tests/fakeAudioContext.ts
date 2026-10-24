@@ -84,6 +84,8 @@ class FakePanner extends FakeNode {
 
 export class FakeSource extends FakeNode {
   startedAt: number | null = null;
+  /** Seconds into the buffer playback began at. */
+  startOffset = 0;
   stoppedAt: number | null = null;
   onended: (() => void) | null = null;
   buffer: unknown = null;
@@ -91,10 +93,11 @@ export class FakeSource extends FakeNode {
   type = 'sine';
   readonly playbackRate = new FakeParam(1);
   readonly frequency = new FakeParam(440);
-  start(when = 0): void {
+  start(when = 0, offset = 0): void {
     if (this.startedAt !== null) throw new Error('InvalidStateError: start called twice');
-    if (!Number.isFinite(when)) throw new TypeError('start: non-finite');
+    if (!Number.isFinite(when) || !Number.isFinite(offset)) throw new TypeError('start: non-finite');
     this.startedAt = when;
+    this.startOffset = offset;
     this.ctx.sources.push(this);
   }
   stop(when = 0): void {
