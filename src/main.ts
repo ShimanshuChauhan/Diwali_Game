@@ -2,6 +2,10 @@ import * as THREE from 'three';
 import RAPIER from '@dimforge/rapier3d-compat';
 import { FixedStep } from './core/fixedStep';
 import { TUNING } from './core/tuning';
+import { createGameEventBus } from './core/events';
+import { AudioEngine } from './audio/audioEngine';
+import { unlockOnFirstGesture } from './audio/controls';
+import { createEffectsDemo } from './effects/effectsDemo';
 import { createWorld } from './world';
 import { addWorldColliders } from './world/colliders';
 import { createWorldScene } from './world/scene';
@@ -39,15 +43,29 @@ async function boot(): Promise<void> {
     renderer.setSize(window.innerWidth, window.innerHeight);
   });
 
+  const bus = createGameEventBus();
+  const audio = new AudioEngine({ bus });
+  unlockOnFirstGesture(window, audio);
+  const listenerForward = new THREE.Vector3();
+  const effectsDemo = new URLSearchParams(location.search).has('effects-demo')
+    ? createEffectsDemo(scene, camera, renderer)
+    : null;
+
   const loop = new FixedStep({ step: SIM_STEP, maxSteps: MAX_STEPS_PER_FRAME });
   const timer = new THREE.Timer();
 
   renderer.setAnimationLoop((time) => {
     timer.update(time);
-    const { steps } = loop.advance(timer.getDelta());
+    const delta = timer.getDelta();
+    const { steps } = loop.advance(delta);
     for (let i = 0; i < steps; i++) {
       physics.step();
+      audio.update(SIM_STEP);
+      effectsDemo?.update(SIM_STEP);
     }
+    effectsDemo?.frame(delta);
+    camera.getWorldDirection(listenerForward);
+    audio.setListener({ mode: 'firstPerson', position: camera.position, forward: listenerForward, yaw: 0, pitch: 0 });
     renderer.render(scene, camera);
   });
 
