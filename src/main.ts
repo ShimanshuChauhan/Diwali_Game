@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import RAPIER from '@dimforge/rapier3d-compat';
 import { FixedStep } from './core/fixedStep';
 import { createEveningScene } from './core/eveningScene';
+import { createEffectsDemo } from './effects/effectsDemo';
 
 const SIM_STEP = 1 / 60;
 const MAX_STEPS_PER_FRAME = 5;
@@ -32,15 +33,22 @@ async function boot(): Promise<void> {
     renderer.setSize(window.innerWidth, window.innerHeight);
   });
 
+  const effectsDemo = new URLSearchParams(location.search).has('effects-demo')
+    ? createEffectsDemo(scene, camera, renderer)
+    : null;
+
   const loop = new FixedStep({ step: SIM_STEP, maxSteps: MAX_STEPS_PER_FRAME });
   const timer = new THREE.Timer();
 
   renderer.setAnimationLoop((time) => {
     timer.update(time);
-    const { steps } = loop.advance(timer.getDelta());
+    const delta = timer.getDelta();
+    const { steps } = loop.advance(delta);
     for (let i = 0; i < steps; i++) {
       physics.step();
+      effectsDemo?.update(SIM_STEP);
     }
+    effectsDemo?.frame(delta);
     renderer.render(scene, camera);
   });
 
