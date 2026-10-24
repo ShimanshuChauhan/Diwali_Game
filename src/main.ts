@@ -17,6 +17,7 @@ import { DiyaScene, Diyas } from './diyas';
 import { createEffectsDemo } from './effects/effectsDemo';
 import { EffectsRenderer } from './effects/effectsRenderer';
 import { FireworksEffects } from './effects/fireworksEffects';
+import { homesResetHooks, registerHomesReset } from './homes';
 import { Interaction } from './interaction';
 import { createPlacementGhost } from './interaction/ghost';
 import { NeighbourScene, Neighbours } from './neighbours';
@@ -98,6 +99,7 @@ async function boot(): Promise<void> {
   });
 
   const session = new Session({ bus });
+  registerHomesReset(session, homesResetHooks());
   const obstacles = rapierBoomCaster(physics, { margin: TUNING.camera.collisionMargin, exclude: player.collider });
   const rig = new CameraRig({ obstacles, bus, spawnYaw: world.spawnYaw });
   const character = new PlayerCharacter({ mode: rig.mode });
