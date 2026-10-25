@@ -85,3 +85,81 @@ export function fillLaneImpulse(
     far[at] = (far[at] ?? 0) + strength * 0.3;
   }
 }
+
+/**
+ * Where a cracker at your feet in the lane comes back from: the house walls
+ * beside it, the facing houses across the lane (the slapback), the second
+ * trip between them, and a short diffuse wash. Seconds after the bang, and
+ * strength against the direct sound.
+ */
+const ROOM_REFLECTIONS: readonly { readonly at: number; readonly spread: number; readonly strength: number }[] = [
+  { at: 0.011, spread: 0.004, strength: 0.42 },
+  { at: 0.024, spread: 0.006, strength: 0.32 },
+  { at: 0.052, spread: 0.01, strength: 0.5 },
+  { at: 0.098, spread: 0.014, strength: 0.26 },
+  { at: 0.15, spread: 0.02, strength: 0.13 },
+];
+/** Loudness of the diffuse wash under the reflections. */
+const ROOM_DIFFUSE = 0.035;
+/** Taps each reflection scatters into, per side. */
+const ROOM_TAPS = 14;
+/** The wash is cut below this, Hz, so the lane never booms. */
+const ROOM_FLOOR = 300;
+
+/**
+ * A stereo impulse response for the slapback and short tail of a narrow
+ * lane, heard from a few metres off: a handful of reflections, each a
+ * loose scatter of taps (no wall is a perfect mirror) arriving on
+ * alternating sides, over a diffuse wash that dies away in about `seconds` and dulls a
+ * little as it goes. Nothing in it is periodic or below a few hundred hertz,
+ * so it smears a rattle into crackle without ringing at any pitch. Not
+ * normalised: its levels are the echo's against the dry bang.
+ */
+export function fillLaneRoom(
+  left: Float32Array,
+  right: Float32Array,
+  sampleRate: number,
+  seconds: number,
+  random: () => number,
+): void {
+  const length = Math.min(left.length, right.length);
+  left.fill(0);
+  right.fill(0);
+  ROOM_REFLECTIONS.forEach((reflection, k) => {
+    const near = k % 2 === 0 ? left : right;
+    const far = k % 2 === 0 ? right : left;
+    const base = reflection.at * (0.93 + 0.14 * random());
+    // Rough walls scatter each echo into a loose cluster of taps, a different
+    // one on each side: no clean mirror, so the echo never combs into a pitch.
+    for (const [side, scale] of [[near, 1], [far, 0.45]] as const) {
+      for (let tap = 0; tap < ROOM_TAPS; tap++) {
+        const at = base + (tap === 0 ? 0 : random() * reflection.spread * 1.5);
+        const i = Math.round(at * sampleRate);
+        if (i >= length) continue;
+        const sign = tap > 0 && random() < 0.35 ? -1 : 1;
+        const weight = (tap === 0 ? 0.55 : 0.12 + 0.22 * random()) * reflection.strength * scale * sign;
+        side[i] = (side[i] ?? 0) + weight;
+      }
+    }
+  });
+  // The diffuse wash: builds over the first reflections, then decays to -60 dB.
+  const tau = seconds / 6.9;
+  const kFloor = 1 - Math.exp((-2 * Math.PI * ROOM_FLOOR) / sampleRate);
+  let l = 0;
+  let r = 0;
+  let lFloor = 0;
+  let rFloor = 0;
+  for (let i = 0; i < length; i++) {
+    const t = i / sampleRate;
+    const envelope = ROOM_DIFFUSE * Math.min(1, t / 0.03) * Math.exp(-t / tau);
+    // Walls and air soak up some highs: a one-pole low-pass closing from 8 kHz to 2.5 kHz.
+    const cutoff = 2500 + 5500 * Math.exp(-t / 0.1);
+    const k = 1 - Math.exp((-2 * Math.PI * cutoff) / sampleRate);
+    l += k * ((random() * 2 - 1) / Math.sqrt(k) - l);
+    r += k * ((random() * 2 - 1) / Math.sqrt(k) - r);
+    lFloor += kFloor * (l - lFloor);
+    rFloor += kFloor * (r - rFloor);
+    left[i] = left[i]! + (l - lFloor) * envelope;
+    right[i] = right[i]! + (r - rFloor) * envelope;
+  }
+}
