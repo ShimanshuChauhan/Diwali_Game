@@ -6,8 +6,10 @@ import { LADI_LEVELS, ladiPopLevel, SOUNDS } from '../src/audio/sounds';
 import {
   compressorMakeup,
   createNoiseBank,
+  LADI_CLIP,
   LADI_LIMITER,
   LADI_ROOM,
+  ladiClipCurve,
   limiterCurve,
   synthesise,
   type LadiPopSound,
@@ -285,7 +287,32 @@ describe('ladi gain staging', () => {
     // A loud bang within ref distance, panned hard to one side (gain 1 on that side).
     const loud = db(SOUNDS.ladiPops.gain * 1 * BANGER_PEAK);
     expect(loud).toBeGreaterThan(LADI_LIMITER.threshold);
-    expect(busOut(loud)).toBeLessThan(-2.5);
+    expect(busOut(loud)).toBeLessThan(-1.5);
+  });
+
+  it('soft-clips the shock tips the limiter is too slow for, below full scale', () => {
+    const curve = ladiClipCurve();
+    const at = (x: number) => curve[Math.round(((x + 1) / 2) * (curve.length - 1))]!;
+    // Untouched below the knee, so the bangs' bodies keep their shape.
+    expect(at(0.5)).toBeCloseTo(0.5, 2);
+    expect(at(-0.5)).toBeCloseTo(-0.5, 2);
+    // Rounded off above it, never past the ceiling, which sits below full scale.
+    expect(at(1)).toBeLessThanOrEqual(LADI_CLIP.ceiling);
+    expect(at(-1)).toBeGreaterThanOrEqual(-LADI_CLIP.ceiling);
+    expect(db(LADI_CLIP.ceiling)).toBeLessThan(-1);
+    for (let i = 1; i < curve.length; i++) expect(curve[i]!).toBeGreaterThanOrEqual(curve[i - 1]!);
+  });
+
+  it('runs the bus through that clip on its way out', async () => {
+    const bus = createGameEventBus();
+    const ctx = new FakeAudioContext();
+    const audio = new AudioEngine({ bus, createContext: () => ctx.asAudioContext() });
+    await audio.unlock();
+    expect(ctx.shapers).toHaveLength(1);
+    const limiter = ctx.compressors.find((c) => c.threshold.value === LADI_LIMITER.threshold)!;
+    // Limiter, then the makeup trim, then the clip.
+    const trim = limiter.outputs[0] as { outputs: unknown[] };
+    expect(trim.outputs).toContain(ctx.shapers[0]);
   });
 
   it('cannot clip however many bangs pile up', () => {
