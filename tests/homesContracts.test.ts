@@ -37,6 +37,7 @@ type HomesEventName =
   | 'crackerBlocked'
   | 'sweetsEaten'
   | 'sweetsOffered'
+  | 'giftReceived'
   | 'giftExchanged'
   | 'giftPlaced'
   | 'giftAcknowledged'
@@ -61,6 +62,7 @@ const SAMPLES: { readonly [K in HomesEventName]: GameEvents[K] } = {
   crackerBlocked: { action: 'igniteHeld', reason: 'carryingPlate' },
   sweetsEaten: {},
   sweetsOffered: { member: 'grandmother' },
+  giftReceived: { host: 'uncle' },
   giftExchanged: {},
   giftPlaced: { pendingAcknowledgement: true },
   giftAcknowledged: {},

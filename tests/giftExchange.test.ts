@@ -2,12 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { AartiCeremony } from '../src/aarti';
 import type { HeldItem } from '../src/core/contracts';
 import { createGameEventBus, type GameEventBus, type GameEventName, type GameEvents } from '../src/core/events';
-import type { DialogueLine, GiftBoxSnapshot, HomeId, HomeInteractable, LocationId } from '../src/core/homes';
+import type { DialogueLine, GiftBoxSnapshot, GiftHandoverStep, HomeId, HomeInteractable, LocationId } from '../src/core/homes';
 import { TUNING } from '../src/core/tuning';
 import type { CrackerType } from '../src/core/types';
 import {
   FAMILY_GIFT_DIALOGUE,
   GIFT_BEHAVIOUR,
+  GIFT_HANDOVER,
   GiftExchange,
   GiftReactions,
   giftVisibility,
@@ -22,12 +23,13 @@ import {
   registerHomesReset,
   type HandCrackers,
 } from '../src/homes';
-import { HOST_DIALOGUE, Household, Households, NeighbourHosts } from '../src/household';
+import { heldProp, HOST_DIALOGUE, Household, Households, NeighbourHosts, type HeldProp } from '../src/household';
 import { applyHomeAction } from '../src/interaction';
 import { createFamilyHomeLayout, createNeighbourHomeLayout, familyHomeSpots } from '../src/interior';
 import { FAMILY_SWEETS_DIALOGUE } from '../src/sweets';
 import { Session } from '../src/session/session';
 import { homePromptLines } from '../src/ui/homePrompts';
+import { promptLines } from '../src/ui/hudModel';
 
 const STEP = 1 / 60;
 const SONG_LENGTH = 30;
@@ -35,6 +37,8 @@ const familyLayout = createFamilyHomeLayout();
 const neighbourLayout = createNeighbourHomeLayout();
 const { dialogueDuration, fadeDuration } = TUNING.homes;
 const E = { type: 'interact' } as const;
+/** The whole handover, from the box leaving the player's hands to the return box in them. */
+const HANDOVER_TIME = GIFT_HANDOVER.receiving + GIFT_HANDOVER.settingAside + GIFT_HANDOVER.giving;
 
 class StubCrackers implements HandCrackers {
   selected: CrackerType = 'anar';
@@ -52,6 +56,7 @@ type Logged = { [K in GameEventName]: { name: K; payload: GameEvents[K] } }[Game
 function record(bus: GameEventBus): Logged[] {
   const log: Logged[] = [];
   const names: GameEventName[] = [
+    'giftReceived',
     'giftExchanged',
     'giftPlaced',
     'giftAcknowledged',
@@ -67,6 +72,20 @@ function record(bus: GameEventBus): Logged[] {
 
 const place = (boxes: readonly GiftBoxSnapshot[], id: 'outbound' | 'return') => boxes.find((b) => b.id === id)?.place;
 
+/**
+ * Every box in play is drawn in exactly one place: by the gift scene (a
+ * spot, Uncle's side table, the family table, the player's hands) or in a
+ * host's hands. The return box is drawn nowhere until Uncle lifts it.
+ */
+function expectEachBoxOnce(boxes: readonly GiftBoxSnapshot[]): void {
+  const shown = giftVisibility(boxes);
+  const withHost = (id: 'outbound' | 'return') => (place(boxes, id)?.kind === 'host' ? 1 : 0);
+  const outbound = [shown.outboundSpot, shown.outboundReceived, shown.held === 'outbound'].filter(Boolean).length;
+  const returned = [shown.returnSpot, shown.returnTable, shown.held === 'return'].filter(Boolean).length;
+  expect(outbound + withHost('outbound'), JSON.stringify(boxes)).toBe(1);
+  expect(returned + withHost('return'), JSON.stringify(boxes)).toBe(place(boxes, 'return') ? 1 : 0);
+}
+
 /** The gift rules alone, with the player wherever `where` says and aarti ended by hand. */
 function setup() {
   const bus = createGameEventBus();
@@ -78,14 +97,25 @@ function setup() {
   const names = () => log.map((entry) => entry.name);
   const goTo = (location: LocationId) => (where = location);
   const completeAarti = () => bus.emit('aartiCompleted', { song: 'omJaiJagdishHare', participating: false });
-  /** Carry the outbound box next door and hand it over. */
-  const exchange = () => {
+  /** `seconds` of fixed steps. */
+  const run = (seconds: number) => {
+    for (let i = 0; i < Math.round(seconds / STEP); i++) gifts.update(STEP);
+  };
+  /** Carry the outbound box next door and give it to Uncle; with `wait`, see the handover through. */
+  const exchange = (wait = true) => {
     goTo('familyHome');
     expect(gifts.pickUp('outbound')).toEqual({ ok: true });
     goTo('neighbourHome');
     expect(gifts.exchange()).toEqual({ ok: true });
+    if (wait) run(HANDOVER_TIME + STEP);
   };
-  return { bus, crackers, hands, gifts, log, names, goTo, completeAarti, exchange };
+  /** Leave Uncle and Aunty's for the street, as the door fade's midpoint does. */
+  const walkOut = () => {
+    goTo('outdoors');
+    bus.emit('locationChanged', { doorway: 'neighbourHome.exit', from: 'neighbourHome', to: 'outdoors' });
+  };
+  const count = (name: GameEventName) => log.filter((e) => e.name === name).length;
+  return { bus, crackers, hands, gifts, log, names, count, goTo, completeAarti, run, exchange, walkOut };
 }
 
 describe('gift exchange — the outbound box', () => {
@@ -143,30 +173,6 @@ describe('gift exchange — the outbound box', () => {
 });
 
 describe('gift exchange — the one special exchange', () => {
-  it('atomically consumes the outbound box, records the exchange and fills the hands with the return box', () => {
-    const { bus, gifts, hands, log, goTo } = setup();
-    gifts.pickUp('outbound');
-    goTo('neighbourHome');
-    const seen: { event: string; exchanged: boolean; boxes: readonly GiftBoxSnapshot[]; hands: unknown }[] = [];
-    for (const event of ['itemDelivered', 'itemPickedUp', 'giftExchanged'] as const) {
-      bus.on(event, () => seen.push({ event, exchanged: gifts.exchanged, boxes: gifts.boxes(), hands: hands.hands }));
-    }
-    expect(gifts.exchange()).toEqual({ ok: true });
-    // Every listener already sees the finished swap: never both boxes, never neither.
-    for (const s of seen) {
-      expect(s.exchanged).toBe(true);
-      expect(place(s.boxes, 'outbound')).toEqual({ kind: 'delivered' });
-      expect(place(s.boxes, 'return')).toEqual({ kind: 'hands' });
-      expect(s.hands).toEqual({ kind: 'giftBox', box: 'return' });
-    }
-    expect(seen.map((s) => s.event)).toEqual(['itemDelivered', 'itemPickedUp', 'giftExchanged']);
-    expect(log.slice(-3)).toEqual([
-      { name: 'itemDelivered', payload: { item: { kind: 'giftBox', box: 'outbound' } } },
-      { name: 'itemPickedUp', payload: { item: { kind: 'giftBox', box: 'return' } } },
-      { name: 'giftExchanged', payload: {} },
-    ]);
-  });
-
   it('happens once: repeats never duplicate a box or restart the exchange', () => {
     const { gifts, hands, names, exchange } = setup();
     exchange();
@@ -206,6 +212,192 @@ describe('gift exchange — the one special exchange', () => {
     // Its spot is next door, not the family's side table.
     goTo('familyHome');
     expect(gifts.putBack('return')).toEqual({ ok: false, reason: 'wrongLocation' });
+  });
+});
+
+describe('gift exchange — the handover', () => {
+  it('takes the box into Uncle’s hands, sets it aside and hands the return box back, in about four seconds', () => {
+    const { bus, gifts, hands, log, goTo, run } = setup();
+    gifts.pickUp('outbound');
+    goTo('neighbourHome');
+    const seen: { event: string; boxes: readonly GiftBoxSnapshot[]; hands: unknown; step: GiftHandoverStep | null }[] = [];
+    for (const event of ['itemDelivered', 'giftReceived', 'itemPickedUp', 'giftExchanged'] as const) {
+      bus.on(event, () => seen.push({ event, boxes: gifts.boxes(), hands: hands.hands, step: gifts.handover?.step ?? null }));
+    }
+    expect(gifts.exchange()).toEqual({ ok: true });
+    // At once: the box is Uncle's and the player's hands are empty, kept for the return box.
+    expect(place(gifts.boxes(), 'outbound')).toEqual({ kind: 'host', host: 'uncle' });
+    expect(place(gifts.boxes(), 'return')).toBeUndefined();
+    expect(hands.hands).toBeNull();
+    expect(hands.crackerBlock()).toBe('midHandover');
+    expect(gifts.handover).toEqual({ host: 'uncle', step: 'receiving', stepTime: 0, elapsed: 0 });
+    expect(gifts.exchanged).toBe(false);
+
+    // Thanking, then setting it down: still in his hands until it is on the side table.
+    run(GIFT_HANDOVER.receiving - 0.1);
+    expect(gifts.handover?.step).toBe('receiving');
+    run(0.2);
+    expect(gifts.handover?.step).toBe('settingAside');
+    expect(place(gifts.boxes(), 'outbound')).toEqual({ kind: 'host', host: 'uncle' });
+    // The family's box down on the side table, the return box up in his hands.
+    run(GIFT_HANDOVER.settingAside);
+    expect(gifts.handover?.step).toBe('giving');
+    expect(place(gifts.boxes(), 'outbound')).toEqual({ kind: 'delivered' });
+    expect(place(gifts.boxes(), 'return')).toEqual({ kind: 'host', host: 'uncle' });
+    expect(hands.hands).toBeNull();
+    // Held out, then in the player's hands.
+    run(GIFT_HANDOVER.giving - 0.2);
+    expect(gifts.handover?.step).toBe('giving');
+    run(0.1 + STEP);
+    expect(gifts.handover).toBeNull();
+    expect(gifts.exchanged).toBe(true);
+    expect(place(gifts.boxes(), 'return')).toEqual({ kind: 'hands' });
+    expect(hands.hands).toEqual({ kind: 'giftBox', box: 'return' });
+    expect(hands.crackerBlock()).toBe('carryingGift');
+    expect(HANDOVER_TIME).toBeGreaterThanOrEqual(3);
+    expect(HANDOVER_TIME).toBeLessThanOrEqual(5);
+
+    // Each event already sees its own move recorded.
+    expect(seen.map((s) => [s.event, s.step])).toEqual([
+      ['itemDelivered', 'receiving'],
+      ['giftReceived', 'receiving'],
+      ['itemPickedUp', null],
+      ['giftExchanged', null],
+    ]);
+    expect(place(seen[0]!.boxes, 'outbound')).toEqual({ kind: 'host', host: 'uncle' });
+    expect(seen[0]!.hands).toBeNull();
+    expect(place(seen[2]!.boxes, 'return')).toEqual({ kind: 'hands' });
+    expect(seen[3]!.hands).toEqual({ kind: 'giftBox', box: 'return' });
+    expect(log.filter((e) => e.name === 'giftReceived')).toEqual([{ name: 'giftReceived', payload: { host: 'uncle' } }]);
+  });
+
+  it('keeps every box in exactly one place at every step, the return box hidden until Uncle lifts it', () => {
+    const { gifts, run, exchange } = setup();
+    expectEachBoxOnce(gifts.boxes());
+    exchange(false);
+    let t = 0;
+    let firstSeen: number | null = null;
+    while (gifts.handover) {
+      expectEachBoxOnce(gifts.boxes());
+      const returned = place(gifts.boxes(), 'return');
+      if (returned && firstSeen === null) firstSeen = t;
+      // Before then it is in no place at all: not on the side table, not on its console.
+      if (!returned) expect(giftVisibility(gifts.boxes())).toMatchObject({ returnSpot: false, returnTable: false, held: null });
+      run(STEP);
+      t += STEP;
+    }
+    expectEachBoxOnce(gifts.boxes());
+    // First in Uncle's hands as he finishes setting the family's box down, 2.8 s in.
+    expect(firstSeen).toBeCloseTo(GIFT_HANDOVER.receiving + GIFT_HANDOVER.settingAside, 1);
+  });
+
+  it('offers no return box to pick up before Uncle hands it over, nor after a fresh session', () => {
+    const { gifts, goTo, run, exchange, count } = setup();
+    goTo('neighbourHome');
+    expect(gifts.pickUp('return')).toEqual({ ok: false, reason: 'wrongLocation' });
+    expect(gifts.boxes().map((b) => b.id)).toEqual(['outbound']);
+    exchange(false);
+    run(GIFT_HANDOVER.receiving + GIFT_HANDOVER.settingAside - 0.1);
+    expect(gifts.boxes().map((b) => b.id)).toEqual(['outbound']);
+    expect(gifts.pickUp('return')).toEqual({ ok: false, reason: 'wrongLocation' });
+    gifts.reset();
+    expect(gifts.boxes().map((b) => b.id)).toEqual(['outbound']);
+    expect(giftVisibility(gifts.boxes())).toMatchObject({ returnSpot: false, returnTable: false, held: null });
+    expect(count('giftExchanged')).toBe(0);
+  });
+
+  it('happens once: giving again during the handover neither restarts it nor adds a box', () => {
+    const { gifts, hands, count, run, exchange } = setup();
+    exchange(false);
+    run(1);
+    const elapsed = gifts.handover!.elapsed;
+    for (let i = 0; i < 3; i++) expect(gifts.exchange()).toEqual({ ok: false, reason: 'alreadyExchanged' });
+    // Nor can the box be taken back off him, or the return box off the side table early.
+    expect(gifts.pickUp('outbound')).toEqual({ ok: false, reason: 'alreadyExchanged' });
+    expect(gifts.putBack('outbound')).toEqual({ ok: false, reason: 'notHolding' });
+    expect(gifts.handover!.elapsed).toBe(elapsed);
+    run(HANDOVER_TIME);
+    expect(count('giftReceived')).toBe(1);
+    expect(count('giftExchanged')).toBe(1);
+    expect(gifts.boxes()).toHaveLength(2);
+    expect(hands.hands).toEqual({ kind: 'giftBox', box: 'return' });
+  });
+
+  it('runs on the fixed step alone, so a pause freezes it where it is', () => {
+    const { gifts, run, exchange } = setup();
+    exchange(false);
+    run(1);
+    const frozen = { ...gifts.handover! };
+    const boxes = gifts.boxes();
+    for (let i = 0; i < 600; i++) {
+      gifts.update(0);
+      gifts.update(-STEP);
+      gifts.update(Number.NaN);
+    }
+    expect(gifts.handover).toEqual(frozen);
+    expect(gifts.boxes()).toBe(boxes);
+    run(HANDOVER_TIME - 1 + STEP);
+    expect(gifts.exchanged).toBe(true);
+  });
+
+  it.each(['receiving', 'settingAside', 'giving'] as const)(
+    'walking out while %s completes it at once: the player leaves with the return box',
+    (step) => {
+      const { gifts, hands, count, run, exchange, walkOut } = setup();
+      exchange(false);
+      while (gifts.handover?.step !== step) run(STEP);
+      run(0.2);
+      walkOut();
+      expect(gifts.handover).toBeNull();
+      expect(gifts.exchanged).toBe(true);
+      expect(gifts.boxes()).toEqual([
+        { id: 'outbound', place: { kind: 'delivered' } },
+        { id: 'return', place: { kind: 'hands' } },
+      ]);
+      expect(hands.hands).toEqual({ kind: 'giftBox', box: 'return' });
+      expect(giftVisibility(gifts.boxes()).held).toBe('return');
+      expect(count('giftExchanged')).toBe(1);
+      // Nothing more happens later, nor on walking out again.
+      run(HANDOVER_TIME);
+      walkOut();
+      expect(count('giftExchanged')).toBe(1);
+      expect(hands.hands).toEqual({ kind: 'giftBox', box: 'return' });
+    },
+  );
+
+  it('a fresh session mid-handover puts the box back home and frees the hands', () => {
+    const { gifts, hands, count, goTo, run, exchange } = setup();
+    exchange(false);
+    run(GIFT_HANDOVER.receiving + GIFT_HANDOVER.settingAside + 0.1);
+    gifts.reset();
+    hands.reset();
+    expect(gifts.handover).toBeNull();
+    expect(gifts.exchanged).toBe(false);
+    expect(gifts.boxes()).toEqual([{ id: 'outbound', place: { kind: 'spot', home: 'familyHome' } }]);
+    expect(hands.hands).toBeNull();
+    expect(hands.crackerBlock()).toBeNull();
+    run(HANDOVER_TIME);
+    expect(count('giftExchanged')).toBe(0);
+    // And the new session's exchange runs in full.
+    goTo('familyHome');
+    exchange();
+    expect(count('giftReceived')).toBe(2);
+    expect(count('giftExchanged')).toBe(1);
+  });
+
+  it('should the hands no longer wait for it, leaves the return box on its console rather than lose it', () => {
+    const { gifts, hands, count, run, exchange } = setup();
+    exchange(false);
+    run(1);
+    hands.reset();
+    hands.take({ kind: 'sweetsPlate' });
+    run(HANDOVER_TIME);
+    expect(place(gifts.boxes(), 'return')).toEqual({ kind: 'spot', home: 'neighbourHome' });
+    // Seen there, ready to pick up.
+    expect(giftVisibility(gifts.boxes()).returnSpot).toBe(true);
+    expect(hands.hands).toEqual({ kind: 'sweetsPlate' });
+    expect(count('giftExchanged')).toBe(1);
+    expectEachBoxOnce(gifts.boxes());
   });
 });
 
@@ -337,19 +529,38 @@ describe('gift exchange — fresh session', () => {
 
 describe('gift exchange — presentation', () => {
   it('shows each box in exactly one place, keeping the acknowledged return box on the table', () => {
+    // The return box is nowhere to be seen before the handover.
     expect(giftVisibility([{ id: 'outbound', place: { kind: 'spot', home: 'familyHome' } }])).toEqual({
       outboundSpot: true,
+      outboundReceived: false,
       returnSpot: false,
       returnTable: false,
       held: null,
     });
     expect(giftVisibility([{ id: 'outbound', place: { kind: 'hands' } }])).toMatchObject({ outboundSpot: false, held: 'outbound' });
+    // In Uncle's hands it is the household scene's to draw; the return box is still hidden.
+    expect(giftVisibility([{ id: 'outbound', place: { kind: 'host', host: 'uncle' } }])).toEqual({
+      outboundSpot: false,
+      outboundReceived: false,
+      returnSpot: false,
+      returnTable: false,
+      held: null,
+    });
     const exchanged = (place: GiftBoxSnapshot['place']): GiftBoxSnapshot[] => [
       { id: 'outbound', place: { kind: 'delivered' } },
       { id: 'return', place },
     ];
+    // The family's box down on the side table as the return box comes up into Uncle's hands.
+    expect(giftVisibility(exchanged({ kind: 'host', host: 'uncle' }))).toEqual({
+      outboundSpot: false,
+      outboundReceived: true,
+      returnSpot: false,
+      returnTable: false,
+      held: null,
+    });
     expect(giftVisibility(exchanged({ kind: 'hands' }))).toEqual({
       outboundSpot: false,
+      outboundReceived: true,
       returnSpot: false,
       returnTable: false,
       held: 'return',
@@ -390,9 +601,9 @@ function evening() {
   const locations = new Locations({ bus, hands });
   const ceremony = new AartiCeremony({ bus, hands, durationOf: () => SONG_LENGTH, location: () => locations.location });
   const family = new Household({ bus, layout: familyLayout, dialogue: { ...FAMILY_SWEETS_DIALOGUE, ...FAMILY_GIFT_DIALOGUE } });
-  const hosts = new NeighbourHosts({ bus, layout: neighbourLayout, hands, dialogue: { ...HOST_DIALOGUE, ...HOST_GIFT_DIALOGUE } });
-  const household = new Households([family, hosts]);
   const gifts = new GiftExchange({ bus, hands, location: () => locations.location });
+  const hosts = new NeighbourHosts({ bus, layout: neighbourLayout, hands, gifts, dialogue: { ...HOST_DIALOGUE, ...HOST_GIFT_DIALOGUE } });
+  const household = new Households([family, hosts]);
   const reactions = new GiftReactions({ bus, household, location: () => locations.location });
   const session = new Session({ bus });
   registerHomesReset(session, homesResetHooks({ heldItems: hands, locations, aartiCeremony: ceremony, household, giftExchange: gifts }));
@@ -406,6 +617,7 @@ function evening() {
     for (let i = 0; i < Math.round(seconds / STEP); i++) {
       locations.update(STEP);
       ceremony.update(STEP);
+      gifts.update(STEP);
       household.update(STEP);
       reactions.update(STEP);
     }
@@ -416,8 +628,8 @@ function evening() {
   };
   const ctx = { locations, ceremony, hands, gifts, household, hosts };
   const press = (target: HomeInteractable) => expect(applyHomeAction(E, target, ctx)).toBe(true);
-  const giftLines = (cause: 'giftExchanged' | 'giftAcknowledged') => {
-    const catalogue = cause === 'giftExchanged' ? HOST_GIFT_DIALOGUE : FAMILY_GIFT_DIALOGUE;
+  const giftLines = (cause: 'giftReceived' | 'giftExchanged' | 'giftAcknowledged') => {
+    const catalogue = cause === 'giftAcknowledged' ? FAMILY_GIFT_DIALOGUE : HOST_GIFT_DIALOGUE;
     const texts = new Set(Object.values(catalogue[cause] ?? {}).flatMap((v) => (v ?? []).map((l) => l.text)));
     return spoken.filter((l) => texts.has(l.text));
   };
@@ -428,7 +640,9 @@ function evening() {
     expect(hands.hands).toEqual({ kind: 'giftBox', box: 'outbound' });
     go('familyHome', 'exit');
     go('neighbourHome', 'enter');
-    press(host('aunty'));
+    press(host('uncle'));
+    expect(gifts.handover).not.toBeNull();
+    run(HANDOVER_TIME + STEP);
     expect(gifts.exchanged).toBe(true);
     expect(hands.hands).toEqual({ kind: 'giftBox', box: 'return' });
     run(dialogueDuration * 4);
@@ -449,47 +663,120 @@ describe('gift round trip — through the homes', () => {
     expect(gifts.exchanged).toBe(false);
   });
 
-  it('Uncle and Aunty each answer the gift once, one after the other, even mid-welcome', () => {
-    const { go, run, press, giftLines, spoken, hosts } = evening();
+  it('Uncle takes the box, thanks the player holding it, sets it down and hands the return box back; Aunty adds a word', () => {
+    const { go, run, press, giftLines, spoken, hosts, gifts, hands } = evening();
     go('familyHome', 'enter');
     press(familyGiftSpot);
     go('familyHome', 'exit');
     go('neighbourHome', 'enter');
-    // Straight in, before Uncle's welcome has finished.
+    // Straight in, mid-welcome: Uncle is still speaking.
     run(1.5);
+    expect(hosts.members().some((m) => m.line !== null)).toBe(true);
     press(host('uncle'));
+    const view = (id: 'uncle' | 'aunty') => hosts.views().find((v) => v.id === id)!;
+    // The welcome gives way at once.
+    expect(hosts.members().filter((m) => m.line !== null)).toEqual([]);
+    expect(view('uncle').activity).toBe('receivingGift');
+    const uncleHolds: (HeldProp | null)[] = [];
+    let thanksHolding: HeldProp | null | undefined;
     let most = 0;
     for (let t = 0; t < dialogueDuration * 6; t += STEP) {
       run(STEP);
+      const uncle = heldProp(view('uncle'));
+      if (uncleHolds.at(-1) !== uncle) uncleHolds.push(uncle);
+      // What Uncle holds is exactly where the boxes are.
+      const boxes = gifts.boxes();
+      expect(uncle === 'outboundBox', `${t}`).toBe(place(boxes, 'outbound')?.kind === 'host');
+      expect(uncle === 'returnBox', `${t}`).toBe(place(boxes, 'return')?.kind === 'host');
+      // Nobody holds out mithai through the gift moment.
+      expect(heldProp(view('aunty'))).not.toBe('plate');
+      expect(uncle).not.toBe('plate');
+      if (thanksHolding === undefined && giftLines('giftReceived').length > 0) thanksHolding = uncle;
       most = Math.max(most, hosts.members().filter((m) => m.line !== null).length);
     }
+    expect(uncleHolds).toEqual(['outboundBox', 'returnBox', null]);
+    // Uncle thanks the player holding their box, then Aunty speaks once he has handed the return box over.
+    expect(thanksHolding).toBe('outboundBox');
+    expect(giftLines('giftReceived').map((l) => l.member)).toEqual(GIFT_BEHAVIOUR.receiveSpeakers);
     expect(giftLines('giftExchanged').map((l) => l.member)).toEqual(GIFT_BEHAVIOUR.exchangeSpeakers);
-    // The welcome still happened, and never two lines up at once next door.
-    expect(spoken.filter((l) => l.member === 'uncle' || l.member === 'aunty').length).toBeGreaterThan(2);
+    expect(spoken.indexOf(giftLines('giftExchanged')[0]!)).toBeGreaterThan(spoken.indexOf(giftLines('giftReceived')[0]!));
+    expect(hands.hands).toEqual({ kind: 'giftBox', box: 'return' });
+    // Both back at ease, hands unfolded, rather than held in the welcome's namaste.
+    expect(view('uncle').activity).toBe('idle');
+    expect(view('aunty').activity).toBe('idle');
+    // Never two lines up at once next door.
     expect(most).toBe(1);
   });
 
-  it('repeat interactions with the return box in hand greet rather than exchange again', () => {
-    const { go, press, gifts, count, hands } = evening();
+  it('turns Uncle to his side table only while he sets the box down', () => {
+    const { go, run, press, hosts, gifts } = evening();
     go('familyHome', 'enter');
     press(familyGiftSpot);
     go('familyHome', 'exit');
     go('neighbourHome', 'enter');
+    press(host('uncle'));
+    const uncle = () => hosts.views().find((v) => v.id === 'uncle')!;
+    const yaws = new Set<number>();
+    while (gifts.handover) {
+      run(STEP);
+      if (gifts.handover?.step === 'settingAside') expect(uncle().placement.yaw).toBeCloseTo(neighbourLayout.sideTable.yaw);
+      yaws.add(uncle().placement.yaw);
+    }
+    expect(uncle().placement.yaw).toBeCloseTo(neighbourLayout.hosts.uncle.yaw);
+    expect(yaws.size).toBe(2);
+  });
+
+  it('keeps Aunty’s mithai for after the handover', () => {
+    const { go, run, press, hosts, gifts, log } = evening();
+    go('familyHome', 'enter');
+    press(familyGiftSpot);
+    go('familyHome', 'exit');
+    go('neighbourHome', 'enter');
+    press(host('uncle'));
+    expect(hosts.eatMithai()).toEqual({ ok: false, reason: 'midHandover' });
+    expect(log.at(-1)).toEqual({ name: 'itemRejected', payload: { action: 'eat', reason: 'midHandover' } });
+    run(HANDOVER_TIME + STEP);
+    expect(gifts.handover).toBeNull();
+    // The return box fills the hands now, which keeps them from the mithai as any box does.
+    expect(hosts.eatMithai()).toEqual({ ok: false, reason: 'carryingGift' });
+  });
+
+  it('repeat interactions during and after the handover never exchange again', () => {
+    const { go, run, press, gifts, count, hands, spoken } = evening();
+    go('familyHome', 'enter');
+    press(familyGiftSpot);
+    go('familyHome', 'exit');
+    go('neighbourHome', 'enter');
+    // Aunty only greets: the box is Uncle's to take.
     press(host('aunty'));
+    expect(gifts.handover).toBeNull();
+    expect(hands.hands).toEqual({ kind: 'giftBox', box: 'outbound' });
+    press(host('uncle'));
+    const said = spoken.length;
+    for (let i = 0; i < 4; i++) {
+      run(0.5);
+      press(host('uncle'));
+      press(host('aunty'));
+    }
+    // Watching the handover: nobody greets over it, nothing restarts it.
+    expect(spoken.slice(said).map((l) => l.member)).toEqual(['uncle']);
+    run(HANDOVER_TIME);
     press(host('aunty'));
     press(host('uncle'));
+    expect(count('giftReceived')).toBe(1);
     expect(count('giftExchanged')).toBe(1);
     expect(gifts.boxes()).toHaveLength(2);
     expect(hands.hands).toEqual({ kind: 'giftBox', box: 'return' });
   });
 
   it('the return box goes back on the console next door and is picked up again there', () => {
-    const { go, press, gifts, hands } = evening();
+    const { go, run, press, gifts, hands } = evening();
     go('familyHome', 'enter');
     press(familyGiftSpot);
     go('familyHome', 'exit');
     go('neighbourHome', 'enter');
-    press(host('aunty'));
+    press(host('uncle'));
+    run(HANDOVER_TIME + STEP);
     press(neighbourGiftSpot);
     expect(hands.hands).toBeNull();
     expect(gifts.boxes().find((b) => b.id === 'return')?.place).toEqual({ kind: 'spot', home: 'neighbourHome' });
@@ -571,27 +858,56 @@ describe('gift round trip — through the homes', () => {
     go('familyHome', 'exit');
     go('neighbourHome', 'enter');
     press(host('uncle'));
+    run(HANDOVER_TIME + STEP);
     expect(count('giftExchanged')).toBe(2);
-    run(1);
+  });
+
+  it('a fresh session mid-handover clears it with everything else', () => {
+    const { go, run, press, session, gifts, hands, hosts, reactions, count, locations } = evening();
+    go('familyHome', 'enter');
+    press(familyGiftSpot);
+    go('familyHome', 'exit');
+    go('neighbourHome', 'enter');
+    press(host('uncle'));
+    run(2.5);
+    session.reset();
+    expect(locations.location).toBe('outdoors');
+    expect(gifts.handover).toBeNull();
+    expect(gifts.boxes()).toEqual([{ id: 'outbound', place: { kind: 'spot', home: 'familyHome' } }]);
+    expect(hands.hands).toBeNull();
+    expect(hands.crackerBlock()).toBeNull();
+    expect(hosts.views().map((v) => v.activity)).toEqual(['idle', 'idle']);
+    expect(reactions.pending).toEqual([]);
+    run(HANDOVER_TIME);
+    expect(count('giftExchanged')).toBe(0);
   });
 });
 
 describe('gift reactions — pacing', () => {
-  it('drops the neighbours’ thanks if the player walks out before they finish', () => {
-    const { go, run, press, reactions, giftLines } = evening();
+  it('walking out mid-handover leaves with the return box and drops the rest of the moment', () => {
+    const { go, run, press, reactions, giftLines, gifts, hands, count } = evening();
     go('familyHome', 'enter');
     press(familyGiftSpot);
     go('familyHome', 'exit');
     go('neighbourHome', 'enter');
     press(host('uncle'));
     go('neighbourHome', 'exit');
+    expect(gifts.handover).toBeNull();
+    expect(hands.hands).toEqual({ kind: 'giftBox', box: 'return' });
+    expect(count('giftExchanged')).toBe(1);
     expect(reactions.pending).toEqual([]);
     go('neighbourHome', 'enter');
     run(dialogueDuration * 6);
-    expect(giftLines('giftExchanged').length).toBeLessThan(GIFT_BEHAVIOUR.exchangeSpeakers.length);
+    expect(giftLines('giftExchanged')).toEqual([]);
   });
 
-  it('has a line for every speaker in each gift moment', () => {
+  it('has a line for every speaker in each gift moment, none of them holding out mithai', () => {
+    for (const member of GIFT_BEHAVIOUR.receiveSpeakers) {
+      expect(HOST_GIFT_DIALOGUE.giftReceived?.[member]?.length).toBeGreaterThan(0);
+    }
+    for (const lines of [...Object.values(HOST_GIFT_DIALOGUE.giftReceived ?? {}), ...Object.values(HOST_GIFT_DIALOGUE.giftExchanged ?? {})]) {
+      for (const line of lines ?? []) expect(line.gesture).not.toBe('offerMithai');
+    }
     for (const member of GIFT_BEHAVIOUR.exchangeSpeakers) {
       expect(HOST_GIFT_DIALOGUE.giftExchanged?.[member]?.length).toBeGreaterThan(0);
     }
@@ -602,14 +918,30 @@ describe('gift reactions — pacing', () => {
 });
 
 describe('gift prompts', () => {
-  it('offers the handover only before the exchange', () => {
+  it('offers the handover to Uncle, only before the exchange, and nothing while it runs', () => {
     const outbound = { kind: 'giftBox', box: 'outbound' } as const;
+    expect(homePromptLines(host('uncle'), { hands: outbound, exchanged: false })).toEqual([
+      { text: 'E: Give the gift box to Uncle', blocked: false },
+    ]);
     expect(homePromptLines(host('aunty'), { hands: outbound, exchanged: false })).toEqual([
-      { text: 'E: Give the gift box to Aunty', blocked: false },
+      { text: 'E: Greet Aunty', blocked: false },
+      { text: 'Give the gift box to Uncle', blocked: true },
+    ]);
+    expect(homePromptLines(host('uncle'), { hands: null, handingOver: true })).toEqual([]);
+    const neighbourTray: HomeInteractable = { kind: 'tray', id: 'neighbourHome', position: neighbourLayout.hosts.aunty.position };
+    expect(homePromptLines(neighbourTray, { hands: null, handingOver: true })).toEqual([
+      { text: 'Uncle is handing you the return gift — just a moment', blocked: true },
     ]);
     expect(homePromptLines(host('aunty'), { hands: null, exchanged: true })).toEqual([
       { text: 'E: Greet Aunty', blocked: false },
     ]);
+  });
+
+  it('offers no phuljhari while the hands wait for the return box', () => {
+    expect(promptLines('phuljhari', { interactable: null, homes: { hands: null } })).toEqual([
+      { text: 'E: Light phuljhari', blocked: false },
+    ]);
+    expect(promptLines('phuljhari', { interactable: null, homes: { hands: null, handingOver: true } })).toEqual([]);
   });
 
   it('offers to set the return box on the sweets table', () => {

@@ -145,8 +145,10 @@ Ownership rules:
   never resumes, leaves or circles.
 - **Hands** are `HeldItemsModule`'s (`src/homes/heldItems.ts`): the
   ceremony `reserveThali`s, gift exchange `take`s boxes, `returnTo`s them
-  to their designated spots and `deliver`s them (swapping outbound for
-  return in one step), and the cracker controls ask `crackerBlock()` before
+  to their designated spots, `deliver`s them, and `handOver`s the outbound
+  box to Uncle, which leaves the hands empty but spoken for (crackers
+  blocked as `midHandover`) until `receive` brings the return box; and the
+  cracker controls ask `crackerBlock()` before
   select, place, ignite and held ignition, emitting `crackerBlocked`.
   Taking an item puts an unlit phuljhari away (`Crackers.putAway`) and
   brings it back once the hands are free; a lit one refuses the item.
@@ -167,24 +169,35 @@ Ownership rules:
   places and seats, the thali and the gift spots; `familyHomeSpots` hands
   the puja, tray and gift spots to the interaction module. The neighbour
   home (`neighbourHome.ts`) is a second layout over the same assets, with a
-  greeting area, a mithai table and the return gift's console
-  (`neighbourHomeSpots`).
+  greeting area, a mithai table, the return gift's console
+  (`neighbourHomeSpots`) and Uncle's side table for the boxes he exchanges.
 - **Hospitality next door** is `NeighbourHosts`' (`src/household/hosts.ts`):
   on every visit Uncle recognises the player and asks after the family,
   then Aunty offers mithai — with or without a gift, before or after aarti.
+  They act out the gift handover: quiet as it starts, Uncle on each step as
+  an activity (`receivingGift`, `settingGiftAside`, `givingGift`).
   Its `eatMithai` is the neighbour's table and never touches the family
   tray (`trayServed`, `sweetsEaten`). `Households` puts the family and the
   hosts behind the one `HouseholdModule` the interaction, routing, captions
   and reset use.
 - **Gift progression** is `GiftExchange`'s (`src/gifts/giftExchange.ts`):
-  the outbound box starts on the family side table, `exchange` next door
-  records the swap and then `deliver`s outbound for return in one step, and
-  either box goes back on its own spot until delivered. On the sweets table
+  the outbound box starts on the family side table; `exchange` with Uncle
+  starts a handover of about four seconds on the fixed step
+  (`GIFT_HANDOVER`): the box in his hands (`host`) while he thanks the
+  player, set down on his side table (`delivered`) as he brings up the
+  return box (`host`; unseen anywhere before that), which he holds out
+  until it is in the player's hands and
+  `giftExchanged` goes out. Walking out completes it at once; a fresh
+  session drops it. Either box goes back on its own spot until delivered.
+  On the sweets table
   the acknowledgement is `pending` until `aartiCompleted` (heard wherever
   the player is), or immediate after aarti; `giftAcknowledged` fires once.
-  `GiftReactions` queues Uncle and Aunty's thanks and the family's lines so
-  a busy speaker never loses them; the family's wait until the player is
-  home. `GiftScene` draws the boxes on their spots, the table or in hand.
+  `GiftReactions` queues Uncle's thanks, Aunty's word after the handover and
+  the family's lines so a busy speaker never loses them; the family's wait
+  until the player is home. `GiftScene` draws the boxes on their spots,
+  Uncle's side table, the family table or in the player's hand;
+  `HouseholdScene` draws the one in Uncle's hands, read off his pose
+  (`heldProp`) like a plate of mithai.
 - Household state progresses whether or not its home is the active
   location; only presentation is location-gated.
 
@@ -197,7 +210,7 @@ fixed step ─▶ ceremony.update(dt) ─▶ aartiCompleted ─┬▶ Household 
                                                      ├▶ HeldItems (trayServed, thali released)
                                                      └▶ GiftExchange (pending → giftAcknowledged)
 E at tray/person ─▶ HeldItemsModule.pickUpPlate/eat/offer ─▶ sweetsEaten / sweetsOffered ─▶ Household.react
-E at neighbour ─▶ GiftExchangeModule.exchange ─▶ giftExchanged (return box now in hand)
+E at Uncle ─▶ GiftExchangeModule.exchange ─▶ giftReceived ─▶ (fixed step, ~4 s) ─▶ giftExchanged (return box now in hand)
 ```
 
 | Event                                   | Published by    | Typical subscribers                 |
@@ -211,7 +224,7 @@ E at neighbour ─▶ GiftExchangeModule.exchange ─▶ giftExchanged (return b
 | `itemRejected`                          | Held items      | UI                                  |
 | `crackerBlocked`                        | Cracker controls | UI (return-or-deliver prompt)      |
 | `sweetsEaten` / `sweetsOffered`         | Held items      | Household                           |
-| `giftExchanged` / `giftPlaced` / `giftAcknowledged` | Gift exchange | Household, presentation, UI |
+| `giftReceived` / `giftExchanged` / `giftPlaced` / `giftAcknowledged` | Gift exchange | Household, presentation, UI |
 | `giftRejected`                          | Gift exchange   | UI                                  |
 | `householdReacted`                      | Household       | UI (Hinglish text), presentation (gesture) |
 

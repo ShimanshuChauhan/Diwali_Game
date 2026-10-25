@@ -18,5 +18,15 @@ export {
   type NeighbourHostsOptions,
 } from './hosts';
 export { FAMILY_LOOKS, FAMILY_STOOP, HOST_LOOKS, HOUSEHOLD_LOOKS, HOUSEHOLD_STOOP } from './looks';
-export { gesturePose, householdPose, type PoseOptions } from './poses';
+export {
+  facesViewer,
+  gesturePose,
+  heldProp,
+  holdsPlate,
+  householdPose,
+  shownGesture,
+  type HandoverGesture,
+  type HeldProp,
+  type PoseOptions,
+} from './poses';
 export { createSubtitles, subtitlesFor, type Subtitle, type SubtitlesView } from './subtitles';

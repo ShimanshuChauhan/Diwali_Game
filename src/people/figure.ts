@@ -653,12 +653,14 @@ function hairAnchor(name: string, at: THREE.Vector3): THREE.Object3D {
 
 /**
  * A festive person built from `look`. Call `setPose` each frame to animate;
- * `rightHand` is the palm of the right hand, for held items.
+ * `rightHand` and `leftHand` are the palms, for held items.
  */
 export class Figure {
   readonly root = new THREE.Group();
   /** Palm of the right hand. */
   readonly rightHand = new THREE.Object3D();
+  /** Palm of the left hand. */
+  readonly leftHand = new THREE.Object3D();
 
   private readonly body = new THREE.Group();
   private readonly chest = new THREE.Group();
@@ -847,10 +849,9 @@ export class Figure {
         for (let i = 0; i < 3; i++) fore.add(new THREE.TorusGeometry(0.04, 0.006, 6, 12), i === 1 ? '#c8102e' : GOLD, 0, -BODY.forearm + 0.01 + i * 0.014, 0, Math.PI / 2, 0, 0);
       }
       this.keep(fore, elbow, 'figure.forearm');
-      if (index === 1) {
-        this.rightHand.position.y = -BODY.forearm;
-        elbow.add(this.rightHand);
-      }
+      const palm = index === 1 ? this.rightHand : this.leftHand;
+      palm.position.y = -BODY.forearm;
+      elbow.add(palm);
     }
   }
 

@@ -37,8 +37,80 @@ const NAMASTE: Upper = {
  */
 export function householdPose(view: HouseholdMemberView, t: number, options: PoseOptions = {}): FigurePose {
   const lower = lowerBody(view, t, options);
-  const upper = view.line ? gesturePose(view.line.gesture, t) : upperBody(view.activity, view, t);
+  const gesture = shownGesture(view);
+  const upper = gesture ? gesturePose(gesture, t, view.activityTime) : upperBody(view.activity, view, t);
   return { ...lower, ...upper, lean: (upper.lean ?? 0) + (options.stoop ?? 0) };
+}
+
+/**
+ * The gift handover's arm movements (#66). Only the handover activities
+ * make them, never a spoken line, so a gift box is in a host's hands only
+ * while `GiftExchange` has it there.
+ */
+export type HandoverGesture = 'receiveGift' | 'setGiftAside' | 'giveGift';
+
+const HANDOVER_GESTURES: Readonly<Partial<Record<HouseholdActivity, HandoverGesture>>> = {
+  receivingGift: 'receiveGift',
+  settingGiftAside: 'setGiftAside',
+  givingGift: 'giveGift',
+};
+
+/** Something a household member holds between both palms. */
+export type HeldProp = 'plate' | 'outboundBox' | 'returnBox';
+
+type GestureView = Pick<HouseholdMemberView, 'line' | 'activity'>;
+
+/**
+ * The gesture the upper body is showing: a handover step's, whatever is
+ * being said meanwhile (the box stays in both hands); else the spoken
+ * line's; else the one an activity is made of (serving the tray offers its
+ * mithai, greeting folds the hands); or null while an activity moves the
+ * arms its own way.
+ */
+export function shownGesture(view: GestureView): Gesture | HandoverGesture | null {
+  const handover = HANDOVER_GESTURES[view.activity];
+  if (handover) return handover;
+  if (view.line) return view.line.gesture;
+  if (view.activity === 'serving') return 'offerMithai';
+  if (view.activity === 'greeting') return 'namaste';
+  return null;
+}
+
+/**
+ * What `view` holds, if anything, read off the gesture so the prop comes
+ * and goes with the pose — never left in hands doing something else, nor
+ * missing from them: a plate of mithai while offering it; the family's
+ * gift box from taking it until it is set down; the return box while it is
+ * held out to the player.
+ */
+export function heldProp(view: GestureView): HeldProp | null {
+  switch (shownGesture(view)) {
+    case 'offerMithai':
+      return 'plate';
+    case 'receiveGift':
+    case 'setGiftAside':
+      return 'outboundBox';
+    case 'giveGift':
+      return 'returnBox';
+    default:
+      return null;
+  }
+}
+
+/** True while `view` holds out a plate of mithai. */
+export function holdsPlate(view: GestureView): boolean {
+  return heldProp(view) === 'plate';
+}
+
+/**
+ * Standing members face the player while talking to them or handing them
+ * something, but for setting the box down, when they face their own way:
+ * the side table.
+ */
+export function facesViewer(view: GestureView): boolean {
+  const handover = HANDOVER_GESTURES[view.activity];
+  if (handover) return handover !== 'setGiftAside';
+  return view.line !== null;
 }
 
 function lowerBody(view: HouseholdMemberView, t: number, options: PoseOptions): Lower {
@@ -81,12 +153,8 @@ function upperBody(activity: HouseholdActivity, view: HouseholdMemberView, t: nu
         rightSpread: 0.15 + shake * 0.5,
       };
     }
-    case 'serving':
-      return gesturePose('offerMithai', t);
     case 'seated':
       return view.talking ? seatedTalk(t) : seatedListen(t);
-    case 'greeting':
-      return gesturePose('namaste', t);
     case 'gathered':
     case 'idle':
     default: {
@@ -153,9 +221,53 @@ function seatedTalk(t: number): Upper {
   };
 }
 
-/** The upper body for a spoken line's gesture. */
-export function gesturePose(gesture: Gesture, t: number): Upper {
+/** Both hands out at chest height, forearms level: taking the box from the player, or holding the return box out. */
+const BOX_OUT: Upper = { lean: 0.14, headPitch: -0.12, leftArm: 1.05, rightArm: 1.05, leftElbow: 0.5, rightElbow: 0.5, leftSpread: -0.2, rightSpread: -0.2 };
+/** The box drawn in against the chest, forearms level under it. */
+const BOX_HELD: Upper = { lean: 0.06, headPitch: -0.05, leftArm: 0.35, rightArm: 0.35, leftElbow: 1.25, rightElbow: 1.25, leftSpread: -0.22, rightSpread: -0.22 };
+/**
+ * Bent over the side table in front, the box low on both palms: setting the
+ * family's box down on his left, or bringing the return box up from beside
+ * the table on his right (the spreads shift both hands about 14 cm to that side).
+ */
+const BOX_ASIDE = (side: 1 | -1): Upper => ({
+  lean: 0.9,
+  headPitch: 0.1,
+  leftArm: 0.9,
+  rightArm: 0.9,
+  leftElbow: 0.6,
+  rightElbow: 0.6,
+  leftSpread: -0.22 - 0.3 * side,
+  rightSpread: -0.22 + 0.3 * side,
+});
+const BOX_DOWN_LEFT = BOX_ASIDE(-1);
+const BOX_UP_RIGHT = BOX_ASIDE(1);
+
+/** Seconds the handover gestures take to reach each pose. */
+const HANDOVER_TIMING = { take: 0.25, drawIn: 0.5, lower: 0.5, lift: 0.3, offer: 0.4 } as const;
+
+/**
+ * The upper body for a gesture: a spoken line's, or a handover step's.
+ * `since` is seconds into the gesture, for the handover's reaches; the
+ * spoken gestures loop on `t` alone.
+ */
+export function gesturePose(gesture: Gesture | HandoverGesture, t: number, since = Infinity): Upper {
   switch (gesture) {
+    case 'receiveGift': {
+      // Out at arm's length, taking it; drawn in to the chest; then a grateful nod over it.
+      const { take, drawIn } = HANDOVER_TIMING;
+      if (since < take + drawIn) return blend(BOX_OUT, BOX_HELD, (since - take) / drawIn);
+      const nod = Math.max(0, Math.sin((since - take - drawIn) * 3));
+      return { ...BOX_HELD, lean: (BOX_HELD.lean ?? 0) + 0.12 * nod, headPitch: -0.05 - 0.2 * nod };
+    }
+    case 'setGiftAside':
+      return blend(BOX_HELD, BOX_DOWN_LEFT, since / HANDOVER_TIMING.lower);
+    case 'giveGift': {
+      // Up from the side table to the chest, then out to the player, held there.
+      const { lift, offer } = HANDOVER_TIMING;
+      if (since < lift) return blend(BOX_UP_RIGHT, BOX_HELD, since / lift);
+      return blend(BOX_HELD, BOX_OUT, (since - lift) / offer);
+    }
     case 'wave': {
       // Right hand up beside the head, waving the player over.
       const wave = Math.sin(t * 7) * 0.35;
@@ -187,9 +299,20 @@ export function gesturePose(gesture: Gesture, t: number): Upper {
     case 'clap':
       return clapping(t);
     case 'offerMithai':
-      // Both hands forward over the tray, offering.
-      return { lean: 0.15, headPitch: -0.15, leftArm: 1.05, rightArm: 1.05, leftElbow: 0.55, rightElbow: 0.55, leftSpread: -0.15, rightSpread: -0.15 };
+      // Both hands forward, forearms level and close together, holding up a plate of mithai.
+      return { lean: 0.15, headPitch: -0.15, leftArm: 0.8, rightArm: 0.8, leftElbow: 0.8, rightElbow: 0.8, leftSpread: -0.25, rightSpread: -0.25 };
     case 'cheekPinch':
       return { lean: 0.1, leftArm: 0.1, leftElbow: 0.3, leftSpread: 0.08, rightArm: 1.3, rightElbow: 0.9, rightSpread: -0.1 };
   }
+}
+
+const UPPER_KEYS = ['lean', 'headPitch', 'headYaw', 'leftArm', 'rightArm', 'leftSpread', 'rightSpread', 'leftElbow', 'rightElbow'] as const;
+
+/** From `a` to `b` by `k` (clamped, eased), joint by joint; an omitted joint is at rest. */
+function blend(a: Upper, b: Upper, k: number): Upper {
+  const x = Math.min(1, Math.max(0, k));
+  const e = x * x * (3 - 2 * x);
+  const out: { -readonly [K in keyof Upper]: Upper[K] } = {};
+  for (const key of UPPER_KEYS) out[key] = (a[key] ?? 0) + ((b[key] ?? 0) - (a[key] ?? 0)) * e;
+  return out;
 }

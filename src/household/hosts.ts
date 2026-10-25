@@ -4,6 +4,8 @@ import {
   NEIGHBOUR_HOSTS,
   type CommandResult,
   type DialogueLine,
+  type GiftExchangeModule,
+  type GiftHandoverStep,
   type HandItem,
   type HouseholdActivity,
   type HouseholdMemberId,
@@ -23,6 +25,8 @@ import { HOST_DIALOGUE, HOST_DIALOGUE_AFTER_AARTI } from './hostDialogue';
 /** Where Uncle and Aunty stand; `NeighbourHomeLayout` provides it. */
 export interface HostsLayout {
   readonly hosts: Readonly<Record<NeighbourHostId, Placement>>;
+  /** The gift receiver turns to this facing to set the box down and lift the return box. */
+  readonly sideTable?: { readonly yaw: number };
 }
 
 /** Placeholder hospitality tuning; times in seconds. */
@@ -37,17 +41,27 @@ export const HOSTS_BEHAVIOUR = {
   eatResponders: ['aunty', 'uncle'] as readonly NeighbourHostId[],
 } as const;
 
+/** What the receiver of the gift does at each handover step. */
+const HANDOVER_ACTIVITY: Readonly<Record<GiftHandoverStep, HouseholdActivity>> = {
+  receiving: 'receivingGift',
+  settingAside: 'settingGiftAside',
+  giving: 'givingGift',
+};
+const HANDOVER_ACTIVITIES: readonly HouseholdActivity[] = Object.values(HANDOVER_ACTIVITY);
+
 /** What eating next door needs to know about the hands. `HeldItems` satisfies it. */
 export interface HostHands {
   readonly hands: HandItem | null;
 }
 
 export interface NeighbourHostsOptions {
-  /** Follows `locationChanged` and `aartiCompleted`; publishes `householdReacted` and `itemRejected`. */
+  /** Follows `locationChanged`, `aartiCompleted` and the gift events; publishes `householdReacted` and `itemRejected`. */
   readonly bus: GameEventBus;
   readonly layout: HostsLayout;
   /** Without it, nothing in hand keeps the player from eating. */
   readonly hands?: HostHands;
+  /** The gift handover the receiver acts out; without it, nobody does. */
+  readonly gifts?: Pick<GiftExchangeModule, 'handover'>;
   readonly dialogue?: DialogueCatalogue;
   /** Greetings used instead once aarti has completed at home. */
   readonly afterAarti?: DialogueCatalogue;
@@ -95,7 +109,13 @@ const OK: CommandResult<ItemRejection> = Object.freeze({ ok: true });
  *   from their mithai table whenever their hands are free of a gift box
  *   (`eatMithai`). This is not the family tray: it is never gated on aarti
  *   and publishes no `sweetsEaten`, which belongs to the family's tray.
- * - The special gift exchange (#66) is not handled here.
+ * - The special gift exchange (#66) is decided by `GiftExchange`; the hosts
+ *   act it out. As the box changes hands they fall quiet — any line cut
+ *   short, cooldowns cleared, the rest of the welcome dropped — so Uncle's
+ *   thanks comes at once and nobody is holding out mithai meanwhile; Uncle
+ *   then takes each handover step as an activity (`receivingGift`,
+ *   `settingGiftAside`, `givingGift`), which is what his hands hold.
+ *   Mithai waits until the handover is done.
  *
  * Time is the fixed step from `update(dt)`, so pausing freezes the welcome
  * and lines. Reactions are bounded exactly like the family's: one line per
@@ -106,6 +126,7 @@ export class NeighbourHosts implements HouseholdModule {
   private readonly bus: GameEventBus;
   private readonly layout: HostsLayout;
   private readonly hands: HostHands | undefined;
+  private readonly gifts: Pick<GiftExchangeModule, 'handover'> | undefined;
   private readonly dialogue: DialogueCatalogue;
   private readonly later: DialogueCatalogue;
   private readonly tuning: Tuning;
@@ -127,6 +148,7 @@ export class NeighbourHosts implements HouseholdModule {
     this.bus = options.bus;
     this.layout = options.layout;
     this.hands = options.hands;
+    this.gifts = options.gifts;
     this.dialogue = options.dialogue ?? HOST_DIALOGUE;
     this.later = options.afterAarti ?? HOST_DIALOGUE_AFTER_AARTI;
     this.tuning = options.tuning ?? TUNING;
@@ -140,6 +162,8 @@ export class NeighbourHosts implements HouseholdModule {
     this.unsubscribes.push(
       this.bus.on('locationChanged', ({ to }) => this.arrive(to)),
       this.bus.on('aartiCompleted', () => (this.aartiDone = true)),
+      this.bus.on('giftReceived', () => this.makeRoom()),
+      this.bus.on('giftExchanged', () => this.followHandover()),
     );
   }
 
@@ -199,6 +223,7 @@ export class NeighbourHosts implements HouseholdModule {
    */
   eatMithai(): CommandResult<ItemRejection> {
     if (this.location !== 'neighbourHome') return this.reject('outOfReach');
+    if (this.gifts?.handover) return this.reject('midHandover');
     const held = this.hands?.hands?.kind;
     if (held === 'giftBox') return this.reject('carryingGift');
     if (held === 'thali') return this.reject('holdingThali');
@@ -221,6 +246,7 @@ export class NeighbourHosts implements HouseholdModule {
       }
     }
     this.stepWelcome(dt);
+    this.followHandover();
   }
 
   /** Fresh session: no visits yet, aarti not done, both hosts quiet in their places. */
@@ -284,6 +310,38 @@ export class NeighbourHosts implements HouseholdModule {
         return;
       case 'done':
         return;
+    }
+  }
+
+  // ── the gift handover ──────────────────────────────────────────────────
+
+  /** The box is changing hands: quiet, hands unfolded, with nothing left to say or wait for. */
+  private makeRoom(): void {
+    this.welcome = 'done';
+    for (const host of this.roster) {
+      host.view.line = null;
+      host.view.talking = false;
+      host.lineLeft = 0;
+      host.cooldown = 0;
+      if (host.view.activity === 'greeting') this.setActivity(host, 'idle');
+    }
+    this.followHandover();
+  }
+
+  /**
+   * The receiver on the handover's current step, turned to the side table
+   * while setting the box down; back to idle, facing the room, once it is over.
+   */
+  private followHandover(): void {
+    const handover = this.gifts?.handover ?? null;
+    for (const host of this.roster) {
+      let activity: HouseholdActivity | null = null;
+      if (handover?.host === host.id) activity = HANDOVER_ACTIVITY[handover.step];
+      else if (HANDOVER_ACTIVITIES.includes(host.view.activity)) activity = 'idle';
+      if (!activity || host.view.activity === activity) continue;
+      this.setActivity(host, activity);
+      const yaw = activity === 'settingGiftAside' ? this.layout.sideTable?.yaw : undefined;
+      host.view.placement = { position: host.view.placement.position, yaw: yaw ?? this.layout.hosts[host.id].yaw };
     }
   }
 

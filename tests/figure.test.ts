@@ -45,6 +45,20 @@ describe('festive figures', () => {
     expect(palm.distanceTo(target)).toBeLessThan(0.005);
   });
 
+  it('has a palm at the end of each forearm, mirrored left and right, for things held in both hands', () => {
+    const figure = new Figure(LOOKS[0]!);
+    figure.setPose({ leftArm: 0.8, rightArm: 0.8, leftElbow: 0.8, rightElbow: 0.8, leftSpread: -0.25, rightSpread: -0.25 });
+    figure.root.updateMatrixWorld(true);
+    const left = figure.leftHand.getWorldPosition(new THREE.Vector3());
+    const right = figure.rightHand.getWorldPosition(new THREE.Vector3());
+    expect(left.x).toBeCloseTo(-right.x);
+    expect(left.y).toBeCloseTo(right.y);
+    expect(left.z).toBeCloseTo(right.z);
+    expect(left.x).toBeLessThan(0);
+    // Forward of the chest, at about elbow height.
+    expect(left.z).toBeLessThan(-0.3);
+  });
+
   it('raises the hands above the head when posed to cheer', () => {
     const figure = new Figure(LOOKS[2]!);
     const tops = (name: string) => {

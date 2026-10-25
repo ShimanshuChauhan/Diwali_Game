@@ -2,11 +2,13 @@ import * as THREE from 'three';
 import type { HouseholdMemberId } from '../core/homes';
 import type { Vec3 } from '../core/types';
 import type { InteriorAssets, InteriorLayout } from '../interior';
+import { buildGiftBox } from '../gifts/giftScene';
 import { facing } from '../interior/layout';
 import { BODY, Figure } from '../people/figure';
+import { buildSweetPlate, SweetGeometry } from '../sweets/sweetsScene';
 import type { HouseholdMemberView } from './household';
 import { HOUSEHOLD_LOOKS, HOUSEHOLD_STOOP } from './looks';
-import { householdPose } from './poses';
+import { facesViewer, heldProp, householdPose, type HeldProp } from './poses';
 
 /** Radians per second a figure turns toward the player it is talking to. */
 const TURN_SPEED = 5;
@@ -14,6 +16,22 @@ const TURN_SPEED = 5;
 const MAX_HEAD_TURN = 0.8;
 /** How far below the palm the hand bell hangs, metres. */
 const BELL_DROP = 0.07;
+/**
+ * How each prop rests on the palms (metres, before scaling): its base this
+ * far above them, on top of the hands, and this far ahead, so the hands are
+ * under it rather than at its back edge.
+ */
+const PROP_REST: Readonly<Record<HeldProp, { readonly lift: number; readonly reach: number }>> = {
+  plate: { lift: 0.035, reach: 0.03 },
+  outboundBox: { lift: 0.035, reach: 0.02 },
+  returnBox: { lift: 0.035, reach: 0.02 },
+};
+const PROP_NAMES: Readonly<Record<HeldProp, string>> = {
+  plate: 'household.plate',
+  outboundBox: 'household.gift.outbound',
+  returnBox: 'household.gift.return',
+};
+const PROPS = Object.keys(PROP_NAMES) as readonly HeldProp[];
 
 /**
  * Top of the furniture under a seat at `position`, or 0 on open floor: the
@@ -39,10 +57,14 @@ export interface HouseholdSceneOptions {
   readonly parent: THREE.Object3D;
   /** Shared interior materials; the hand bell reuses their brass. */
   readonly assets: InteriorAssets;
+  /** Uncle and Aunty's home: each figure can also hold either gift box, for the handover. */
+  readonly giftBoxes?: boolean;
 }
 
 interface Drawn {
   readonly figure: Figure;
+  /** What the figure can hold on its palms, each hidden but while held. */
+  readonly props: Readonly<Partial<Record<HeldProp, THREE.Group>>>;
   readonly seatBob: number;
   readonly stoop: number;
   /** Shown facing; turns toward the player while they are being spoken to. */
@@ -53,12 +75,18 @@ interface Drawn {
  * Draws a household as festive `Figure`s from its views — the family at
  * home, or Uncle and Aunty next door: placed and faced from the snapshot,
  * posed for the activity or the gesture of the line being spoken, with a
- * brass hand bell for whoever rings it during aarti. Nothing here decides
- * behaviour.
+ * brass hand bell for whoever rings it during aarti and whatever a member
+ * holds (`heldProp`) on their palms: a plate of mithai while offering it,
+ * next door a gift box through the handover. Nothing here decides behaviour.
  *
  * At most five figures of about a dozen draw calls each, sharing the figures' one
- * material, plus the bell. Nothing is dropped on Low: gestures are whole-arm
- * poses that read from the silhouette.
+ * material, plus the bell. Each figure carries its own props, hidden but
+ * while held: a plate of five small meshes over one `SweetGeometry` for the
+ * whole household, and next door the two gift boxes of four meshes each over
+ * the interiors' unit box; all on the interior's materials, so no GPU
+ * resources of their own. Nothing is dropped on Low: gestures are whole-arm
+ * poses that read from the silhouette, and the prop is what makes an offer
+ * or a handover read as one.
  */
 export class HouseholdScene {
   readonly object = new THREE.Group();
@@ -67,8 +95,11 @@ export class HouseholdScene {
   private readonly drawn: Drawn[] = [];
   private readonly bell: THREE.Mesh;
   private readonly bellGeometry: THREE.BufferGeometry;
+  private readonly sweets = new SweetGeometry();
   private readonly handQuaternion = new THREE.Quaternion();
   private readonly drop = new THREE.Vector3();
+  private readonly leftPalm = new THREE.Vector3();
+  private readonly rightPalm = new THREE.Vector3();
   private time = 0;
 
   constructor(options: HouseholdSceneOptions) {
@@ -85,7 +116,20 @@ export class HouseholdScene {
       const seat = options.layout.seats?.[id];
       const top = seat ? seatHeight(options.layout, seat.position) : 0;
       const seatBob = top / scale + 0.05 - BODY.hipY;
-      this.drawn.push({ figure, seatBob, stoop: HOUSEHOLD_STOOP[id], yaw: view.placement.yaw });
+      // In the figure's own space, so they scale with them and stay level as they turn.
+      const props: Partial<Record<HeldProp, THREE.Group>> = { plate: buildSweetPlate(this.sweets, options.assets).plate };
+      if (options.giftBoxes) {
+        props.outboundBox = buildGiftBox(options.assets, 'outbound');
+        props.returnBox = buildGiftBox(options.assets, 'return');
+      }
+      for (const prop of PROPS) {
+        const group = props[prop];
+        if (!group) continue;
+        group.name = PROP_NAMES[prop];
+        group.visible = false;
+        figure.root.add(group);
+      }
+      this.drawn.push({ figure, props, seatBob, stoop: HOUSEHOLD_STOOP[id], yaw: view.placement.yaw });
     }
     // A small ghanti: a cone, mouth down, under the ringer's fist.
     this.bellGeometry = new THREE.ConeGeometry(0.045, 0.08, 12);
@@ -110,8 +154,8 @@ export class HouseholdScene {
       figure.root.position.set(position.x, position.y, position.z);
 
       const seated = view.activity === 'seated';
-      const towardViewer = viewer && view.line && !view.walking ? facing(position, viewer) : null;
-      // Standing members turn to the player they are talking to; seated ones turn their head.
+      const towardViewer = viewer && facesViewer(view) && !view.walking ? facing(position, viewer) : null;
+      // Standing members turn to the player they are talking to or handing something; seated ones turn their head.
       const wantYaw = towardViewer ?? yaw;
       drawn.yaw = view.walking || seated ? yaw : turnToward(drawn.yaw, wantYaw, TURN_SPEED * dt);
       figure.root.rotation.y = drawn.yaw;
@@ -121,6 +165,7 @@ export class HouseholdScene {
         const turn = Math.max(-MAX_HEAD_TURN, Math.min(MAX_HEAD_TURN, angleDelta(drawn.yaw, towardViewer)));
         figure.setPose({ ...pose, headYaw: turn });
       } else figure.setPose(pose);
+      this.placeProp(drawn, heldProp(view));
       if (view.activity === 'ringingBell' && !view.line) ringer = figure;
     }
     this.placeBell(ringer);
@@ -130,8 +175,29 @@ export class HouseholdScene {
     for (const { figure } of this.drawn) figure.dispose();
     this.bell.removeFromParent();
     this.bellGeometry.dispose();
+    this.sweets.dispose();
     this.object.removeFromParent();
     this.object.clear();
+  }
+
+  /**
+   * Show only the held prop, resting on top of both palms, centred between
+   * them and level: it follows the hands whatever the arms do, so it is
+   * never left floating. A prop this figure lacks is not drawn.
+   */
+  private placeProp({ figure, props }: Drawn, held: HeldProp | null): void {
+    for (const prop of PROPS) {
+      const group = props[prop];
+      if (group) group.visible = prop === held;
+    }
+    const shown = held ? props[held] : undefined;
+    if (!held || !shown) return;
+    const { root } = figure;
+    root.worldToLocal(figure.leftHand.getWorldPosition(this.leftPalm));
+    root.worldToLocal(figure.rightHand.getWorldPosition(this.rightPalm));
+    shown.position.addVectors(this.leftPalm, this.rightPalm).multiplyScalar(0.5);
+    shown.position.y += PROP_REST[held].lift;
+    shown.position.z -= PROP_REST[held].reach;
   }
 
   /** Hang the bell from the ringer's right hand, mouth down whatever the arm does. */

@@ -225,16 +225,18 @@ async function boot(): Promise<void> {
     if (to === 'familyHome') for (const song of AARTI_SONG_IDS) aartiAudio.load(song).catch(() => undefined);
   });
   const family = new Household({ bus, layout: familyHome, dialogue: { ...FAMILY_SWEETS_DIALOGUE, ...FAMILY_GIFT_DIALOGUE } });
+  // Ahead of the hosts, who act out its handover.
+  const gifts = new GiftExchange({ bus, hands: heldItems, location: () => locations.location });
   const hosts = new NeighbourHosts({
     bus,
     layout: neighbourHome,
     hands: heldItems,
+    gifts,
     dialogue: { ...HOST_DIALOGUE, ...HOST_GIFT_DIALOGUE },
   });
   const household = new Households([family, hosts]);
   const sweetsReactions = new SweetsReactions({ bus, household: family });
   session.register(sweetsReactions);
-  const gifts = new GiftExchange({ bus, hands: heldItems, location: () => locations.location });
   const giftReactions = new GiftReactions({ bus, household, location: () => locations.location });
   session.register(giftReactions);
   registerHomesReset(
@@ -311,13 +313,24 @@ async function boot(): Promise<void> {
   const sweetsScene = new SweetsScene({ layout: familyHome, parent: familyHomeScene.root, assets: interiorAssets, bus });
   const neighbourHomeScene = buildInteriorScene(neighbourHome, interiorAssets);
   scene.add(neighbourHomeScene.root);
-  const hostsScene = new HouseholdScene({ household: hosts, layout: neighbourHome, parent: neighbourHomeScene.root, assets: interiorAssets });
+  const hostsScene = new HouseholdScene({
+    household: hosts,
+    layout: neighbourHome,
+    parent: neighbourHomeScene.root,
+    assets: interiorAssets,
+    giftBoxes: true,
+  });
   const giftScene = new GiftScene({
     assets: interiorAssets,
     familyHome: familyHomeScene.root,
     neighbourHome: neighbourHomeScene.root,
     held: scene,
-    places: { outboundSpot: familyHomeSpots(familyHome).giftSpot!, returnSpot: neighbourHome.giftSpot, table: familyHome.giftTable },
+    places: {
+      outboundSpot: familyHomeSpots(familyHome).giftSpot!,
+      returnSpot: neighbourHome.giftSpot,
+      table: familyHome.giftTable,
+      received: neighbourHome.sideTable.received,
+    },
   });
   const subtitles = createSubtitles(document.body);
   // In hand in either location, like the phuljhari, so it is not part of the street.
@@ -442,6 +455,8 @@ async function boot(): Promise<void> {
       neighbours.update(SIM_STEP);
       locations.update(SIM_STEP);
       ceremony.update(SIM_STEP);
+      // The handover's step first, so the hosts act out the same one this step.
+      gifts.update(SIM_STEP);
       household.update(SIM_STEP);
       sweetsReactions.update(SIM_STEP);
       giftReactions.update(SIM_STEP);
@@ -536,6 +551,7 @@ async function boot(): Promise<void> {
         trayServed: heldItems.trayServed,
         aarti,
         exchanged: gifts.exchanged,
+        handingOver: gifts.handover !== null,
         doorway: (id) => locations.doorway(id),
         doorHint,
       },

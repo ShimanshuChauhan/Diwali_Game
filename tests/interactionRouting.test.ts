@@ -7,6 +7,7 @@ import type {
   CommandResult,
   GiftBoxId,
   GiftBoxSnapshot,
+  GiftHandover,
   GiftRejection,
   HandItem,
   HomeInteractable,
@@ -444,6 +445,10 @@ describe('home prompts per state', () => {
   it('greets uncle and aunty, and offers the gift box until it is exchanged', () => {
     expect(texts(person('aunty'), state())).toEqual(['E: Greet Aunty']);
     expect(texts(person('uncle'), state({ hands: OUTBOUND }))).toEqual(['E: Give the gift box to Uncle']);
+    expect(texts(person('aunty'), state({ hands: OUTBOUND }))).toEqual(['E: Greet Aunty', 'Give the gift box to Uncle']);
+    // Mid-handover there is nothing to do but watch.
+    expect(texts(person('uncle'), state({ handingOver: true }))).toEqual([]);
+    expect(texts(person('aunty'), state({ handingOver: true }))).toEqual([]);
     expect(texts(person('uncle'), state({ hands: OUTBOUND, exchanged: true }))).toEqual(['E: Greet Uncle']);
     expect(texts(person('uncle'), state({ hands: RETURN_BOX }))).toEqual(['E: Greet Uncle']);
   });
@@ -544,6 +549,7 @@ const OK = { ok: true } as const;
 /** Records the gift and household calls; the real modules arrive with #61 and #66. */
 class FakeGifts {
   readonly calls: string[] = [];
+  handover: GiftHandover | null = null;
   pickUp(box: GiftBoxId): CommandResult<GiftRejection> {
     this.calls.push(`pickUp:${box}`);
     return OK;
@@ -714,13 +720,27 @@ describe('home action routing', () => {
     expect(hands.hands).toBeNull();
   });
 
-  it('gives the gift box to the neighbours, or greets them', () => {
+  it('gives the gift box to Uncle, or greets the neighbours', () => {
     const { ctx, hands, gifts, reactions } = homes();
     applyHomeAction(E, person('aunty'), ctx);
     hands.take(OUTBOUND);
+    // Aunty greets; the box is Uncle's to take.
+    applyHomeAction(E, person('aunty'), ctx);
     applyHomeAction(E, person('uncle'), ctx);
-    expect(reactions).toEqual([['aunty', 'welcome']]);
+    expect(reactions).toEqual([
+      ['aunty', 'welcome'],
+      ['aunty', 'welcome'],
+    ]);
     expect(gifts.calls).toEqual(['exchange']);
+  });
+
+  it('uses up E on either neighbour during the handover, greeting nobody and starting nothing', () => {
+    const { ctx, gifts, reactions } = homes();
+    gifts.handover = { host: 'uncle', step: 'receiving', stepTime: 0.5, elapsed: 0.5 };
+    expect(applyHomeAction(E, person('uncle'), ctx)).toBe(true);
+    expect(applyHomeAction(E, person('aunty'), ctx)).toBe(true);
+    expect(reactions).toEqual([]);
+    expect(gifts.calls).toEqual([]);
   });
 
   it('takes E at a door ahead of the held phuljhari', () => {

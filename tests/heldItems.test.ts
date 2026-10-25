@@ -350,6 +350,80 @@ describe('delivering', () => {
   });
 });
 
+describe('handing over to be answered', () => {
+  it('empties the hands but keeps them spoken for until the answer is received', () => {
+    const s = setup('phuljhari');
+    hold(s, OUTBOUND);
+    s.clear();
+    expect(s.hands.handOver('giftBox')).toEqual({ ok: true });
+    expect(s.hands.hands).toBeNull();
+    expect(s.hands.state).toEqual({ kind: 'empty' });
+    expect(s.hands.crackerBlock()).toBe('midHandover');
+    // The put-away phuljhari waits: it would only be put away again.
+    expect(s.crackers.held).toBeNull();
+    expect(s.log).toEqual([{ name: 'itemDelivered', payload: { item: OUTBOUND } }]);
+    s.clear();
+    expect(s.hands.receive(RETURN_BOX)).toEqual({ ok: true });
+    expect(s.hands.hands).toEqual(RETURN_BOX);
+    expect(s.hands.crackerBlock()).toBe('carryingGift');
+    expect(s.log).toEqual([{ name: 'itemPickedUp', payload: { item: RETURN_BOX } }]);
+    // Free for real once the return box is delivered: the phuljhari comes back.
+    s.hands.deliver('giftBox');
+    expect(s.hands.crackerBlock()).toBeNull();
+    expect(s.hands.state).toEqual({ kind: 'sparkler', lit: false });
+  });
+
+  it('takes nothing else and eats nothing meanwhile', () => {
+    const s = setup();
+    hold(s, OUTBOUND);
+    s.hands.handOver('giftBox');
+    s.serveTray();
+    expect(s.hands.take(PLATE)).toEqual({ ok: false, reason: 'midHandover' });
+    expect(s.hands.pickUpPlate()).toEqual({ ok: false, reason: 'midHandover' });
+    expect(s.hands.reserveThali()).toEqual({ ok: false, reason: 'midHandover' });
+    expect(s.hands.eat()).toEqual({ ok: false, reason: 'midHandover' });
+    expect(lastRejection(s.log)).toEqual({ action: 'eat', reason: 'midHandover' });
+    expect(s.hands.hands).toBeNull();
+  });
+
+  it('blocks every cracker action meanwhile, with its own prompt', () => {
+    const s = setup('phuljhari');
+    hold(s, OUTBOUND);
+    s.hands.handOver('giftBox');
+    s.clear();
+    const ctx = { ...controls(s), hands: s.hands };
+    expect(applyCrackerAction(SELECT(1 as SelectSlot), ctx)).toBe(true);
+    expect(applyCrackerAction(PLACE, ctx)).toBe(true);
+    expect(s.names()).toEqual(['crackerBlocked', 'crackerBlocked']);
+    expect(s.log.map((e) => e.payload)).toEqual([
+      { action: 'select', reason: 'midHandover' },
+      { action: 'igniteHeld', reason: 'midHandover' },
+    ]);
+    expect(s.crackers.held).toBeNull();
+    expect(CRACKER_BLOCKED_TEXT.midHandover).toMatch(/return gift/);
+  });
+
+  it('hands over only what is held, and receives only an answer', () => {
+    const s = setup();
+    expect(s.hands.handOver('giftBox')).toEqual({ ok: false, reason: 'notHolding' });
+    expect(s.hands.receive(RETURN_BOX)).toEqual({ ok: false, reason: 'notHolding' });
+    hold(s, PLATE);
+    expect(s.hands.handOver('giftBox')).toEqual({ ok: false, reason: 'notHolding' });
+    expect(s.hands.receive(RETURN_BOX)).toEqual({ ok: false, reason: 'handsFull' });
+    expect(s.hands.hands).toEqual(PLATE);
+  });
+
+  it('is forgotten by a fresh session: free, unblocked hands', () => {
+    const s = setup();
+    hold(s, OUTBOUND);
+    s.hands.handOver('giftBox');
+    s.hands.reset();
+    expect(s.hands.crackerBlock()).toBeNull();
+    expect(s.hands.receive(RETURN_BOX)).toEqual({ ok: false, reason: 'notHolding' });
+    expect(s.hands.take(PLATE)).toEqual({ ok: true });
+  });
+});
+
 describe('the thali', () => {
   it('is reserved over a selected cracker and blocks crackers until released', () => {
     const s = setup('phuljhari');

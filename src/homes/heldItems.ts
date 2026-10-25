@@ -69,6 +69,7 @@ export const CRACKER_BLOCKED_TEXT: Readonly<Record<CrackerHandsRejection, string
   carryingPlate: 'Hands full — offer the plate or put it back on the sweets table',
   carryingGift: 'Hands full — deliver the gift box or put it back on its spot',
   holdingThali: 'Holding the thali — leave aarti to free your hands',
+  midHandover: 'Uncle is handing you the return gift — just a moment',
 };
 
 /** Player-facing wording for a refused item command. */
@@ -77,6 +78,7 @@ export const ITEM_REJECTION_TEXT: Readonly<Record<ItemRejection, string>> = {
   carryingPlate: CRACKER_BLOCKED_TEXT.carryingPlate,
   carryingGift: CRACKER_BLOCKED_TEXT.carryingGift,
   holdingThali: CRACKER_BLOCKED_TEXT.holdingThali,
+  midHandover: CRACKER_BLOCKED_TEXT.midHandover,
   sparklerLit: 'Let the phuljhari burn out, or switch crackers, first',
   trayNotServed: 'Sweets come out after aarti',
   notHolding: 'You are not carrying that',
@@ -94,7 +96,13 @@ const OK: CommandResult<ItemRejection> = Object.freeze({ ok: true });
  * the hand; a lit one must burn out or be switched away first) and blocks
  * every cracker action until the hands are free again, when a put-away
  * phuljhari comes back. Ground crackers already placed or lit keep their
- * lifecycle; nothing here touches them. Renderer-free.
+ * lifecycle; nothing here touches them.
+ *
+ * A gift handed over to be answered (`handOver`) leaves the hands empty but
+ * spoken for until the answer arrives (`receive`): crackers stay blocked and
+ * nothing else is taken meanwhile, so the return box always has free hands
+ * to land in and a put-away phuljhari waits until they are free for real.
+ * Renderer-free.
  */
 export class HeldItems implements HeldItemsModule {
   private readonly bus: GameEventBus;
@@ -105,6 +113,8 @@ export class HeldItems implements HeldItemsModule {
   private served = false;
   /** A phuljhari was put away for the current item and returns with free hands. */
   private stowedPhuljhari = false;
+  /** Emptied by `handOver`, waiting for `receive`. */
+  private awaiting = false;
 
   constructor(options: HeldItemsOptions) {
     this.bus = options.bus;
@@ -123,6 +133,7 @@ export class HeldItems implements HeldItemsModule {
   /** What the hands hold right now, crackers included. */
   get state(): HandState {
     if (this.item) return this.item;
+    if (this.awaiting) return { kind: 'empty' };
     const held = this.crackers.held;
     if (held) return { kind: 'sparkler', lit: held.lit };
     const type = this.crackers.selected;
@@ -130,7 +141,8 @@ export class HeldItems implements HeldItemsModule {
   }
 
   crackerBlock(): CrackerHandsRejection | null {
-    return this.item ? BLOCKED_BY[this.item.kind] : null;
+    if (this.item) return BLOCKED_BY[this.item.kind];
+    return this.awaiting ? 'midHandover' : null;
   }
 
   take(item: HandItem): CommandResult<ItemRejection> {
@@ -164,6 +176,24 @@ export class HeldItems implements HeldItemsModule {
     return OK;
   }
 
+  handOver(kind: HandItemKind): CommandResult<ItemRejection> {
+    const item = this.item;
+    if (item?.kind !== kind) return this.reject('deliver', 'notHolding');
+    this.item = null;
+    this.awaiting = true;
+    this.bus.emit('itemDelivered', { item });
+    return OK;
+  }
+
+  receive(item: HandItem): CommandResult<ItemRejection> {
+    // Only the answer to a handover; anything else goes through `take`.
+    if (!this.awaiting) return this.reject('take', this.item ? 'handsFull' : 'notHolding');
+    this.awaiting = false;
+    this.item = item;
+    this.bus.emit('itemPickedUp', { item });
+    return OK;
+  }
+
   pickUpPlate(): CommandResult<ItemRejection> {
     if (!this.served) return this.reject('pickUpPlate', 'trayNotServed');
     return this.occupy({ kind: 'sweetsPlate' }, 'pickUpPlate');
@@ -176,6 +206,7 @@ export class HeldItems implements HeldItemsModule {
 
   eat(): CommandResult<ItemRejection> {
     if (!this.served) return this.reject('eat', 'trayNotServed');
+    if (this.awaiting) return this.reject('eat', 'midHandover');
     // The plate is sweets too; a box or the thali keeps both hands busy.
     const kind = this.item?.kind;
     if (kind === 'giftBox' || kind === 'thali') return this.reject('eat', BLOCKED_BY[kind]);
@@ -194,6 +225,7 @@ export class HeldItems implements HeldItemsModule {
     this.item = null;
     this.served = false;
     this.stowedPhuljhari = false;
+    this.awaiting = false;
   }
 
   dispose(): void {
@@ -204,6 +236,7 @@ export class HeldItems implements HeldItemsModule {
 
   private occupy(item: HandItem, action: ItemAction): CommandResult<ItemRejection> {
     if (this.item) return this.reject(action, BLOCKED_BY[this.item.kind]);
+    if (this.awaiting) return this.reject(action, 'midHandover');
     const held = this.crackers.held;
     if (held?.lit) return this.reject(action, 'sparklerLit');
     if (held) {
