@@ -9,6 +9,8 @@ import {
   type CoreSpec,
   type EmitterPreset,
   type GlowLightSpec,
+  type LadiPopPart,
+  type LadiPopSpec,
   type NozzleSpec,
   type PatternShape,
   type RimSpec,
@@ -17,7 +19,9 @@ import {
 
 /**
  * Renderer-free fireworks simulation: a fixed pool of emitters spraying into
- * one shared `ParticlePool`, plus a `FlashPool` of short-lived lights.
+ * one shared `ParticlePool`, plus a `FlashPool` of short-lived lights and a
+ * small `matte` pool for things that are seen rather than glow (a ladi's
+ * paper shreds and smoke). Both particle pools share the one particle budget.
  *
  * An emitter is one "active effect" from spawn until it has stopped emitting
  * and its last particle has died, at which point its slot is reclaimed. All
@@ -106,6 +110,12 @@ interface EmitterSlot {
   endColour: Float32Array;
 }
 
+/**
+ * Share of the particle budget (and of the capacity) the matte pool may
+ * hold at most; the rest of the budget stays with the glowing sparks.
+ */
+const MATTE_SHARE = 0.06;
+
 /** Most tail sparks a burst star may have. */
 const MAX_TAIL = 8;
 
@@ -130,6 +140,8 @@ export function burstSparkCount(pattern: BurstPattern, countScale = 1): number {
 
 export class FireworksEngine {
   readonly particles: ParticlePool;
+  /** Normal-blended paper and smoke, drawn under the sparks. Unowned: they never hold an effect open. */
+  readonly matte: ParticlePool;
   readonly flashes: FlashPool;
   /** Updated in place every step; safe to hold onto (e.g. a perf overlay). */
   readonly stats: EngineStats;
@@ -138,6 +150,9 @@ export class FireworksEngine {
   private readonly emitters: EmitterSlot[] = [];
   private readonly random: () => number;
   private readonly spec = createParticleSpec();
+  private readonly matteSpec = createParticleSpec();
+  /** Live sparks and matte particles together stay under this. */
+  private particleBudget: number;
   private readonly arms = new Float32Array(MAX_ARMS * 3);
   private readonly scratch = new Float32Array(3);
   private readonly axisU = new Float32Array(3);
@@ -158,6 +173,8 @@ export class FireworksEngine {
   constructor(options: EngineOptions) {
     this.random = options.random ?? Math.random;
     this.particles = new ParticlePool(options.particleCapacity, this.random);
+    this.matte = new ParticlePool(Math.max(1, Math.ceil(options.particleCapacity * MATTE_SHARE)), this.random);
+    this.particleBudget = options.particleCapacity;
     this.flashes = new FlashPool(options.flashCapacity);
     for (let i = 0; i < options.emitterCapacity; i++) {
       this.emitters.push({
@@ -205,7 +222,7 @@ export class FireworksEngine {
       activeEffects: 0,
       liveParticles: 0,
       dynamicLights: 0,
-      particleLimit: this.particles.limit,
+      particleLimit: this.particleBudget,
       effectLimit: this.effectLimit,
       lightLimit: this.flashes.limit,
       droppedParticles: 0,
@@ -216,7 +233,9 @@ export class FireworksEngine {
   }
 
   applyBudget(budget: EngineBudget): void {
-    this.particles.setLimit(budget.maxParticles);
+    this.particleBudget = Math.max(0, Math.min(this.particles.capacity, Math.floor(budget.maxParticles)));
+    this.matte.setLimit(this.particleBudget * MATTE_SHARE);
+    this.shareBudget();
     this.flashes.setLimit(budget.maxDynamicLights);
     this.effectLimit = Math.max(0, Math.min(this.emitters.length, Math.floor(budget.maxActiveEffects)));
     this.countScale = Math.max(0, budget.countScale);
@@ -315,6 +334,74 @@ export class FireworksEngine {
     return this.resolve(handle);
   }
 
+  /**
+   * One ladi banger going off at (x, y, z), added to the ladi's burning
+   * stream `handle`, whose hot point hops there: a tiny flash, sparks, red
+   * paper and smoke. A loud one bangs bigger and, only when a light is idle,
+   * briefly lights the ground, so pops never take a light from another
+   * firework. Returns false for a stale handle.
+   */
+  pop(handle: EffectHandle, x: number, y: number, z: number, pop: LadiPopSpec, loud: boolean): boolean {
+    const emitter = this.resolve(handle);
+    if (!emitter) return false;
+    const index = handle % HANDLE_STRIDE;
+    emitter.x = x;
+    emitter.y = y;
+    emitter.z = z;
+    const scale = loud ? pop.loudScale : 1;
+    const spec = this.spec;
+    const preset = emitter.preset;
+    const dir = this.scratch;
+
+    // The bang: a brief white-hot sprite.
+    const core = pop.core;
+    this.fillSpec(index, emitter, preset, 0, 0, 0, 0, 1);
+    writeLinear(core.colour, this.axisU, 0);
+    spec.r0 = this.axisU[0]! * core.brightness;
+    spec.g0 = this.axisU[1]! * core.brightness;
+    spec.b0 = this.axisU[2]! * core.brightness;
+    spec.r1 = spec.g1 = spec.b1 = 0;
+    spec.life = core.life;
+    spec.size0 = core.size * scale;
+    spec.size1 = core.size * scale * 1.3;
+    spec.gravity = 0;
+    spec.drag = 0;
+    spec.flicker = 0;
+    this.spawn(emitter);
+
+    const sparks = pop.sparks;
+    writeLinear(sparks.colour, this.axisU, 0);
+    const sparkCount = Math.max(2, Math.round(sparks.count * this.countScale * scale));
+    for (let k = 0; k < sparkCount; k++) {
+      upward(this.random, dir, sparks.spread);
+      const speed = lerp(sparks.speed.min, sparks.speed.max, this.random());
+      this.fillSpec(index, emitter, preset, dir[0]! * speed, dir[1]! * speed, dir[2]! * speed, 0, 1);
+      spec.life = lerp(sparks.life.min, sparks.life.max, this.random());
+      spec.r0 = this.axisU[0]! * sparks.brightness;
+      spec.g0 = this.axisU[1]! * sparks.brightness;
+      spec.b0 = this.axisU[2]! * sparks.brightness;
+      spec.r1 = spec.r0 * sparks.fade;
+      spec.g1 = spec.g0 * sparks.fade;
+      spec.b1 = spec.b0 * sparks.fade;
+      spec.size0 = sparks.size0;
+      spec.size1 = sparks.size1;
+      spec.gravity = sparks.gravity;
+      spec.drag = sparks.drag;
+      spec.flicker = 0.5;
+      this.spawn(emitter);
+    }
+
+    this.scatterMatte(x, y, z, pop.paper, 1, 0.9);
+    this.scatterMatte(x, y, z, pop.smoke, pop.smoke.opacity, 0.4);
+
+    if (loud && this.flashes.activeCount < this.flashes.limit) {
+      const flash = pop.flash;
+      this.flashes.trigger(x, y + 0.35, z, core.colour, flash.peak, flash.range, flash.duration);
+    }
+    this.refreshStats();
+    return true;
+  }
+
   /** Light a short flash without particles. Returns false if none was free. */
   flash(x: number, y: number, z: number, colour: number, peak: number, range: number, duration: number): boolean {
     const lit = this.flashes.trigger(x, y, z, colour, peak, range, duration) >= 0;
@@ -336,6 +423,8 @@ export class FireworksEngine {
 
     this.updateBreaks(dt);
     this.particles.update(dt);
+    this.matte.update(dt);
+    this.shareBudget();
     this.flashes.update(dt);
 
     for (let i = 0; i < this.emitters.length; i++) {
@@ -348,6 +437,8 @@ export class FireworksEngine {
   /** Drop every effect, particle and flash (fresh session). */
   reset(): void {
     this.particles.clear();
+    this.matte.clear();
+    this.shareBudget();
     this.flashes.clear();
     for (let i = 0; i < this.emitters.length; i++) {
       if (this.emitters[i]!.inUse) this.release(i);
@@ -994,6 +1085,53 @@ export class FireworksEngine {
     this.emitters[owner]!.pending = 0;
   }
 
+  /**
+   * Toss `part.count` (scaled) matte particles up from (x, y, z), within the
+   * shared particle budget. `lift` is how upright their throw is, 0–1.
+   */
+  private scatterMatte(x: number, y: number, z: number, part: LadiPopPart, opacity: number, lift: number): void {
+    const spec = this.matteSpec;
+    const dir = this.scratch;
+    const colour = this.axisW;
+    writeLinear(part.colour, colour, 0);
+    const count = Math.max(1, Math.round(part.count * this.countScale));
+    for (let k = 0; k < count; k++) {
+      if (this.particles.count + this.matte.count >= this.particleBudget) {
+        this.counters.droppedParticles++;
+        continue;
+      }
+      upward(this.random, dir, Math.PI / 2 * (1 - lift) + 0.3);
+      const speed = lerp(part.speed.min, part.speed.max, this.random());
+      spec.x = x;
+      spec.y = y;
+      spec.z = z;
+      spec.vx = dir[0]! * speed;
+      spec.vy = dir[1]! * speed;
+      spec.vz = dir[2]! * speed;
+      spec.life = lerp(part.life.min, part.life.max, this.random());
+      spec.r0 = colour[0]!;
+      spec.g0 = colour[1]!;
+      spec.b0 = colour[2]!;
+      spec.r1 = colour[0]! * part.fade;
+      spec.g1 = colour[1]! * part.fade;
+      spec.b1 = colour[2]! * part.fade;
+      spec.size0 = part.size0;
+      spec.size1 = part.size1;
+      spec.gravity = part.gravity;
+      spec.drag = part.drag;
+      spec.flicker = 0;
+      spec.opacity = opacity;
+      spec.owner = -1;
+      if (!this.matte.spawn(spec)) this.counters.droppedParticles++;
+    }
+    this.shareBudget();
+  }
+
+  /** Whatever the matte pool holds is taken off the sparks' share of the budget. */
+  private shareBudget(): void {
+    this.particles.setLimit(this.particleBudget - this.matte.count);
+  }
+
   private fillSpec(
     index: number,
     emitter: EmitterSlot,
@@ -1088,9 +1226,9 @@ export class FireworksEngine {
     for (const emitter of this.emitters) if (emitter.inUse) active++;
     const stats = this.counters;
     stats.activeEffects = active;
-    stats.liveParticles = this.particles.count;
+    stats.liveParticles = this.particles.count + this.matte.count;
     stats.dynamicLights = this.flashes.activeCount;
-    stats.particleLimit = this.particles.limit;
+    stats.particleLimit = this.particleBudget;
     stats.effectLimit = this.effectLimit;
     stats.lightLimit = this.flashes.limit;
   }
@@ -1112,6 +1250,17 @@ function randomUnit(random: () => number, out: Float32Array, offset: number): vo
   out[offset] = s * Math.cos(phi);
   out[offset + 1] = u;
   out[offset + 2] = s * Math.sin(phi);
+}
+
+/** Random unit vector within `spread` radians of straight up. */
+function upward(random: () => number, out: Float32Array, spread: number): void {
+  const cosMax = Math.cos(Math.min(Math.PI, spread));
+  const cosT = 1 - random() * (1 - cosMax);
+  const sinT = Math.sqrt(Math.max(0, 1 - cosT * cosT));
+  const phi = random() * Math.PI * 2;
+  out[0] = Math.cos(phi) * sinT;
+  out[1] = cosT;
+  out[2] = Math.sin(phi) * sinT;
 }
 
 function normalise(v: Float32Array, offset: number): void {

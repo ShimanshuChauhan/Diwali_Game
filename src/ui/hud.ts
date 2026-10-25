@@ -16,7 +16,7 @@ function style(element: HTMLElement, rules: readonly string[]): void {
 }
 
 /**
- * DOM overlay for the HUD: hotbar of the four crackers with the selection
+ * DOM overlay for the HUD: hotbar of the five crackers with the selection
  * highlighted, a first-person crosshair, contextual prompt lines and a
  * fading rejection message. It never takes pointer events, so clicks still
  * reach the canvas.

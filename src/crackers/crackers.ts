@@ -9,6 +9,7 @@ import type {
 } from '../core/contracts';
 import type { Unsubscribe } from '../core/eventBus';
 import type { GameEventBus } from '../core/events';
+import { ladiBangerCentre, type LadiChain } from '../core/ladi';
 import { TUNING, type Tuning } from '../core/tuning';
 import {
   CRACKER_TYPES,
@@ -20,6 +21,7 @@ import {
   type Vec3,
 } from '../core/types';
 import { crackerDefinitions, type CrackerDefinitions } from './definitions';
+import { rollLadiChain } from './ladi';
 import { rollRocketVariant, type RocketVariant } from './rocket';
 
 /**
@@ -35,7 +37,7 @@ export interface CrackersOptions {
   readonly bus: GameEventBus;
   readonly admission?: CrackerAdmission;
   readonly tuning?: Tuning;
-  /** Rocket variation source; `Math.random` by default. */
+  /** Rocket and ladi variation source; `Math.random` by default. */
   readonly random?: () => number;
   /** Where the held phuljhari is, read when it is lit and every step after. */
   readonly handPosition?: () => Vec3;
@@ -55,11 +57,17 @@ interface CrackerRecord {
   readonly type: CrackerType;
   state: CrackerState;
   readonly position: MutableVec3;
+  /** Which way it lies; a ladi's string runs this way from its fuse. */
+  readonly heading: number;
   stateTime: number;
-  /** Seconds active before finishing; rockets take their variant's ascent. */
+  /** Seconds active before finishing; rockets take their variant's ascent, ladis their chain. */
   activeDuration: number;
   /** Rolled at ignition. */
   variant: RocketVariant | null;
+  /** A ladi's pops, rolled at ignition. */
+  chain: LadiChain | null;
+  /** Ladi bangers popped so far; the next pop is `chain.pops[popped]`. */
+  popped: number;
 }
 
 const ORIGIN: Vec3 = { x: 0, y: 0, z: 0 };
@@ -72,7 +80,9 @@ function isLit(record: CrackerRecord): boolean {
 /**
  * The crackers module: selection, placement, separate one-time ignition and
  * the placed → fuseBurning → active → finished lifecycle, plus the phuljhari
- * as a held item. Publishes every transition on the bus for effects, audio
+ * as a held item. An active ladi publishes a `ladiPop` per banger as the
+ * fire runs along its string, on the same fixed step, so the pops freeze
+ * with the game when it pauses. Publishes every transition on the bus for effects, audio
  * and UI; renderer-free.
  *
  * Supply is unlimited. Placement and ignition are bounded by `caps`
@@ -133,6 +143,11 @@ export class Crackers implements CrackersModule {
     return count;
   }
 
+  /** The rolled pops of a lit ladi, e.g. for its sound. */
+  ladiChain(id: CrackerId): LadiChain | null {
+    return this.find(id)?.chain ?? null;
+  }
+
   /** The rolled flight of a lit rocket, e.g. for its trail or sound. */
   rocketVariant(id: CrackerId): RocketVariant | null {
     return this.find(id)?.variant ?? null;
@@ -155,12 +170,12 @@ export class Crackers implements CrackersModule {
   }
 
   place(preview: PlacementPreview): PlaceResult {
-    const { type, position } = preview;
+    const { type, position, heading } = preview;
     if (isHandheld(type)) return this.rejectPlacement(type, 'handheldOnly');
     const refused = this.admission?.admitPlacement(type) ?? null;
     if (refused) return this.rejectPlacement(type, refused);
     if (this.ground.length >= this.tuning.caps.maxPlacedCrackers) return this.rejectPlacement(type, 'capacity');
-    const record = this.create(type, position);
+    const record = this.create(type, position, heading ?? 0);
     this.ground.push(record);
     this.bus.emit('crackerPlaced', { id: record.id, type, position: { ...record.position } });
     return { ok: true, id: record.id };
@@ -243,15 +258,18 @@ export class Crackers implements CrackersModule {
     return this.ground.find((r) => r.id === id) ?? null;
   }
 
-  private create(type: CrackerType, position: Vec3): CrackerRecord {
+  private create(type: CrackerType, position: Vec3, heading = 0): CrackerRecord {
     return {
       id: `cracker-${this.nextId++}`,
       type,
       state: 'placed',
       position: { x: position.x, y: position.y, z: position.z },
+      heading,
       stateTime: 0,
       activeDuration: this.definitions[type].activeDuration,
       variant: null,
+      chain: null,
+      popped: 0,
     };
   }
 
@@ -266,8 +284,13 @@ export class Crackers implements CrackersModule {
       record.variant = rollRocketVariant(this.definitions.rocket, this.random);
       record.activeDuration = record.variant.ascent;
     }
+    if (record.type === 'ladi') {
+      record.chain = rollLadiChain(this.definitions.ladi, this.random);
+      record.activeDuration = record.chain.duration;
+    }
     if (record === this.heldRecord) this.setHeld(record);
-    this.bus.emit('fuseLit', { id: record.id, type: record.type, position: { ...record.position } });
+    const heading = record.chain ? record.heading : undefined;
+    this.bus.emit('fuseLit', { id: record.id, type: record.type, position: { ...record.position }, heading });
     return OK;
   }
 
@@ -284,8 +307,10 @@ export class Crackers implements CrackersModule {
         const flight = variant
           ? { ascent: variant.ascent, apexHeight: variant.apexHeight, drift: variant.drift }
           : undefined;
-        this.bus.emit('crackerActive', { id: record.id, type: record.type, position: { ...record.position }, flight });
+        const ladi = record.chain ? { chain: record.chain, heading: record.heading } : undefined;
+        this.bus.emit('crackerActive', { id: record.id, type: record.type, position: { ...record.position }, flight, ladi });
       } else if (record.state === 'active') {
+        if (record.chain) this.popDue(record);
         if (record.stateTime < record.activeDuration) return;
         record.stateTime -= record.activeDuration;
         this.finish(record);
@@ -293,6 +318,17 @@ export class Crackers implements CrackersModule {
       } else {
         return;
       }
+    }
+  }
+
+  /** Set off every banger whose time has come, in order, one `ladiPop` each. */
+  private popDue(record: CrackerRecord): void {
+    const pops = record.chain!.pops;
+    while (record.popped < pops.length && pops[record.popped]!.time <= record.stateTime) {
+      const index = record.popped++;
+      const pop = pops[index]!;
+      const position = ladiBangerCentre(record.position, record.heading, pop.banger, { x: 0, y: 0, z: 0 });
+      this.bus.emit('ladiPop', { id: record.id, index, banger: pop.banger, position, loud: pop.loud });
     }
   }
 

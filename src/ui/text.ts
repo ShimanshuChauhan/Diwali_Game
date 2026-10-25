@@ -10,6 +10,7 @@ export const CRACKER_LABELS: Readonly<Record<CrackerType, string>> = {
   anar: 'Anar',
   chakri: 'Chakri',
   rocket: 'Rocket',
+  ladi: 'Ladi',
 };
 
 export const QUALITY_LABELS: Readonly<Record<QualityLevel, string>> = {
@@ -63,7 +64,7 @@ export const CONTROLS_HELP: readonly (readonly [string, string])[] = [
   ['WASD', 'Move'],
   ['Shift', 'Run'],
   ['Mouse', 'Look'],
-  ['1–4', 'Select phuljhari · anar · chakri · rocket'],
+  ['1–5', 'Select phuljhari · anar · chakri · rocket · ladi'],
   ['Click', 'Place the selected ground cracker'],
   ['E', 'Light a nearby cracker or diya, or the held phuljhari; use doors, the puja, sweets and people'],
   ['V', 'Switch first / third person'],

@@ -38,6 +38,11 @@ export interface ParticleSpec {
   gravity: number;
   /** 0–1 random brightness flicker. */
   flicker: number;
+  /**
+   * Peak alpha, 0–1. Additive sparks ignore alpha; normal-blended smoke
+   * uses it to stay see-through. 1 by default.
+   */
+  opacity: number;
   /** Emitter slot that owns this particle, or -1. */
   owner: number;
 }
@@ -62,6 +67,7 @@ export function createParticleSpec(): ParticleSpec {
     drag: 0,
     gravity: 1,
     flicker: 0,
+    opacity: 1,
     owner: -1,
   };
 }
@@ -86,6 +92,7 @@ export class ParticlePool {
   private readonly drags: Float32Array;
   private readonly gravities: Float32Array;
   private readonly flickers: Float32Array;
+  private readonly opacities: Float32Array;
   private readonly owners: Int32Array;
 
   private live = 0;
@@ -114,6 +121,7 @@ export class ParticlePool {
     this.drags = new Float32Array(capacity);
     this.gravities = new Float32Array(capacity);
     this.flickers = new Float32Array(capacity);
+    this.opacities = new Float32Array(capacity);
     this.owners = new Int32Array(capacity);
   }
 
@@ -164,6 +172,7 @@ export class ParticlePool {
     this.drags[i] = spec.drag;
     this.gravities[i] = spec.gravity;
     this.flickers[i] = spec.flicker;
+    this.opacities[i] = spec.opacity;
     this.owners[i] = spec.owner;
     this.writeAppearance(i, 0);
     return true;
@@ -228,7 +237,7 @@ export class ParticlePool {
     const sc = this.startColours;
     const ec = this.endColours;
     // Hold full brightness early, then ease out.
-    let alpha = 1 - t * t;
+    let alpha = (1 - t * t) * this.opacities[i]!;
     const flicker = this.flickers[i]!;
     if (flicker > 0) alpha *= 1 - flicker * this.random();
     const c = this.colours;
@@ -266,6 +275,7 @@ export class ParticlePool {
     this.drags[to] = this.drags[from]!;
     this.gravities[to] = this.gravities[from]!;
     this.flickers[to] = this.flickers[from]!;
+    this.opacities[to] = this.opacities[from]!;
     this.owners[to] = this.owners[from]!;
   }
 }

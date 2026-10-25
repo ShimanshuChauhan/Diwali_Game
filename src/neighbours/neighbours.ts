@@ -192,9 +192,9 @@ export class Neighbours implements NeighboursModule {
         bus.on('sessionReset', () => this.reset()),
         bus.on('burst', ({ position }) => this.react(position)),
         bus.on('crackerActive', ({ type, position }) => {
-          // Fountains and wheels draw a crowd; a rocket's launch waits for its burst
-          // and the handheld phuljhari is the player's own.
-          if (type === 'anar' || type === 'chakri') this.react(position);
+          // Fountains, wheels and a rattling ladi draw a crowd; a rocket's launch
+          // waits for its burst and the handheld phuljhari is the player's own.
+          if (type === 'anar' || type === 'chakri' || type === 'ladi') this.react(position);
         }),
       );
     }

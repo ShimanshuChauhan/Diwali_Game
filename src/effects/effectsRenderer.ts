@@ -3,8 +3,9 @@ import type { FireworksEngine } from './fireworksEngine';
 
 /**
  * Draws a `FireworksEngine`: one `THREE.Points` over the shared particle
- * buffers with an additive soft-sprite shader, plus a small pool of point
- * lights mirroring the flash slots.
+ * buffers with an additive soft-sprite shader, a second, normal-blended one
+ * under it for the matte pool (paper shreds and smoke), plus a small pool of
+ * point lights mirroring the flash slots.
  *
  * The GPU attributes wrap the engine's own typed arrays, so a frame only
  * uploads the live range; nothing is allocated per frame.
@@ -37,6 +38,42 @@ const FRAGMENT_SHADER = /* glsl */ `
   }
 `;
 
+/**
+ * Matte particles: premultiplied colour over what is behind. Puffs at least
+ * `SMOKE_SIZE` across are soft round smoke; smaller ones are crisp paper
+ * flecks, square on to the view.
+ */
+const SMOKE_SIZE = 0.05;
+
+const MATTE_VERTEX_SHADER = /* glsl */ `
+  attribute vec4 aColour;
+  attribute float aSize;
+  uniform float uPixelsPerMetre;
+  varying vec4 vColour;
+  varying float vSoft;
+  void main() {
+    vColour = aColour;
+    vSoft = step(${SMOKE_SIZE.toFixed(3)}, aSize);
+    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+    gl_Position = projectionMatrix * mvPosition;
+    gl_PointSize = max(1.0, aSize * uPixelsPerMetre / max(0.1, -mvPosition.z));
+  }
+`;
+
+const MATTE_FRAGMENT_SHADER = /* glsl */ `
+  varying vec4 vColour;
+  varying float vSoft;
+  void main() {
+    vec2 p = gl_PointCoord * 2.0 - 1.0;
+    float r2 = dot(p, p);
+    // Smoke fades from its middle; a paper fleck is a solid little square.
+    float cover = mix(1.0, exp(-r2 * 3.0) * step(r2, 1.0), vSoft);
+    gl_FragColor = vec4(vColour.rgb * cover, vColour.a * cover);
+    #include <tonemapping_fragment>
+    #include <colorspace_fragment>
+  }
+`;
+
 interface UpdateRange {
   start: number;
   count: number;
@@ -51,7 +88,15 @@ export class EffectsRenderer {
   private readonly positionAttr: THREE.BufferAttribute;
   private readonly colourAttr: THREE.BufferAttribute;
   private readonly sizeAttr: THREE.BufferAttribute;
+  private readonly matteGeometry = new THREE.BufferGeometry();
+  private readonly matteMaterial: THREE.ShaderMaterial;
+  private readonly mattePositionAttr: THREE.BufferAttribute;
+  private readonly matteColourAttr: THREE.BufferAttribute;
+  private readonly matteSizeAttr: THREE.BufferAttribute;
   private readonly ranges: UpdateRange[] = [
+    { start: 0, count: 0 },
+    { start: 0, count: 0 },
+    { start: 0, count: 0 },
     { start: 0, count: 0 },
     { start: 0, count: 0 },
     { start: 0, count: 0 },
@@ -82,6 +127,32 @@ export class EffectsRenderer {
     this.points.frustumCulled = false;
     this.points.renderOrder = 10;
     this.object.add(this.points);
+
+    const matte = engine.matte;
+    this.mattePositionAttr = new THREE.BufferAttribute(matte.positions, 3).setUsage(THREE.DynamicDrawUsage);
+    this.matteColourAttr = new THREE.BufferAttribute(matte.colours, 4).setUsage(THREE.DynamicDrawUsage);
+    this.matteSizeAttr = new THREE.BufferAttribute(matte.sizes, 1).setUsage(THREE.DynamicDrawUsage);
+    this.matteGeometry.setAttribute('position', this.mattePositionAttr);
+    this.matteGeometry.setAttribute('aColour', this.matteColourAttr);
+    this.matteGeometry.setAttribute('aSize', this.matteSizeAttr);
+    this.matteGeometry.setDrawRange(0, 0);
+    this.matteGeometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(), Infinity);
+    this.matteMaterial = new THREE.ShaderMaterial({
+      vertexShader: MATTE_VERTEX_SHADER,
+      fragmentShader: MATTE_FRAGMENT_SHADER,
+      // Share the sparks' scale uniform, so a resize sets both.
+      uniforms: { uPixelsPerMetre: this.material.uniforms.uPixelsPerMetre! },
+      blending: THREE.CustomBlending,
+      blendSrc: THREE.OneFactor,
+      blendDst: THREE.OneMinusSrcAlphaFactor,
+      depthWrite: false,
+      transparent: true,
+    });
+    const mattePoints = new THREE.Points(this.matteGeometry, this.matteMaterial);
+    mattePoints.frustumCulled = false;
+    // Under the sparks, so a pop's flash glows through its own smoke.
+    mattePoints.renderOrder = 9;
+    this.object.add(mattePoints);
     this.syncLightCount();
   }
 
@@ -119,6 +190,13 @@ export class EffectsRenderer {
       this.markRange(this.colourAttr, this.ranges[1]!, count * 4);
       this.markRange(this.sizeAttr, this.ranges[2]!, count);
     }
+    const matte = this.engine.matte.count;
+    this.matteGeometry.setDrawRange(0, matte);
+    if (matte > 0) {
+      this.markRange(this.mattePositionAttr, this.ranges[3]!, matte * 3);
+      this.markRange(this.matteColourAttr, this.ranges[4]!, matte * 4);
+      this.markRange(this.matteSizeAttr, this.ranges[5]!, matte);
+    }
 
     const slots = this.engine.flashes.slots;
     for (let i = 0; i < this.lights.length; i++) {
@@ -138,6 +216,8 @@ export class EffectsRenderer {
   dispose(): void {
     this.geometry.dispose();
     this.material.dispose();
+    this.matteGeometry.dispose();
+    this.matteMaterial.dispose();
     for (const light of this.lights) light.dispose();
     this.lights = [];
     this.object.clear();

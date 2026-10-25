@@ -13,6 +13,8 @@ const SHAPES: Readonly<Record<Exclude<CrackerType, 'phuljhari'>, readonly [numbe
   anar: [0.12, 0.3],
   chakri: [0.18, 0.06],
   rocket: [0.05, 0.6],
+  // The ladi's string lies across the middle of its footprint, whichever way it runs.
+  ladi: [0.4, 0.03],
 };
 
 export interface PlacementGhost {

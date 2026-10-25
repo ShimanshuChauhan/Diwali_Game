@@ -3,6 +3,7 @@ import type { GameEventBus } from '../core/events';
 import type { Unsubscribe } from '../core/eventBus';
 import { DEFAULT_QUALITY, qualityProfile, type QualityProfile } from '../core/quality';
 import { TUNING, type Tuning } from '../core/tuning';
+import type { LadiChain } from '../core/ladi';
 import type { BurstPattern, CrackerId, Vec3 } from '../core/types';
 import { AmbienceScheduler, type AmbientEvent } from './ambience';
 import {
@@ -11,6 +12,8 @@ import {
   DISTANT_BOMB_DURATION,
   DISTANT_POP_DURATION,
   DISTANT_SHELL_DURATION,
+  LADI_BATCH,
+  LADI_RING,
   LADI_TAIL,
   SOUNDS,
   STOP_FADE,
@@ -22,6 +25,7 @@ import {
   silence,
   startTownCrackle,
   synthesise,
+  type LadiPopSound,
   type NoiseBank,
   type SynthVoice,
 } from './synth';
@@ -77,6 +81,13 @@ interface PlayOptions {
   readonly moveTo?: Vec3;
   readonly distance?: number;
   readonly pattern?: BurstPattern;
+  readonly pops?: readonly LadiPopSound[];
+}
+
+/** A burning ladi's pops, and the first one no batch has played yet. */
+interface LadiSound {
+  readonly chain: LadiChain;
+  next: number;
 }
 
 /**
@@ -93,6 +104,7 @@ export class AudioEngine implements AudioModule, Steppable {
   private readonly pool: VoicePool;
   private readonly voices = new Map<VoiceId, SynthVoice>();
   private readonly crackerVoices = new Map<CrackerId, VoiceId[]>();
+  private readonly ladis = new Map<CrackerId, LadiSound>();
   private readonly ambienceScheduler: AmbienceScheduler;
   private readonly unsubscribes: Unsubscribe[] = [];
   private readonly createContext: () => AudioContext | null;
@@ -215,6 +227,7 @@ export class AudioEngine implements AudioModule, Steppable {
     this.pool.clear();
     this.voices.clear();
     this.crackerVoices.clear();
+    this.ladis.clear();
     this.ambienceScheduler.reset();
   }
 
@@ -233,8 +246,11 @@ export class AudioEngine implements AudioModule, Steppable {
       bus.on('fuseLit', ({ id, type, position }) => {
         this.playFor(id, 'fuseHiss', { position, duration: crackers.fuse[type] });
       }),
-      bus.on('crackerActive', ({ id, type, position, flight }) => {
+      bus.on('crackerActive', ({ id, type, position, flight, ladi }) => {
         this.stopCracker(id);
+        if (ladi) this.ladis.set(id, { chain: ladi.chain, next: 0 });
+        const sound = ACTIVE_SOUND[type];
+        if (!sound) return;
         const duration = flight?.ascent ?? crackers.activeDuration[type];
         // The whistle rises to where the rocket will burst.
         const moveTo =
@@ -245,9 +261,14 @@ export class AudioEngine implements AudioModule, Steppable {
                 z: position.z + (flight?.drift.z ?? 0),
               }
             : undefined;
-        this.playFor(id, ACTIVE_SOUND[type], { position, duration, moveTo });
+        this.playFor(id, sound, { position, duration, moveTo });
       }),
-      bus.on('crackerFinished', ({ id }) => this.stopCracker(id)),
+      bus.on('ladiPop', ({ id, index, position }) => this.playLadiBatch(id, index, position)),
+      bus.on('crackerFinished', ({ id }) => {
+        this.stopCracker(id);
+        // Its last batch rings on; there is nothing left to schedule.
+        this.ladis.delete(id);
+      }),
       bus.on('burst', ({ position, pattern }) => {
         const distance = this.listener ? distanceBetween(this.listener.position, position) : 0;
         this.play('burst', { position, duration: BURST_DURATION, delay: distance / SPEED_OF_SOUND, pattern });
@@ -330,6 +351,29 @@ export class AudioEngine implements AudioModule, Steppable {
     else this.crackerVoices.set(id, [voice]);
   }
 
+  /**
+   * At a pop no batch covers yet, play it and the pops right after it as one
+   * voice. A batch is not tied to the cracker, so the ladi finishing never
+   * cuts its last bangs short; pause and reset still silence it.
+   */
+  private playLadiBatch(id: CrackerId, index: number, position: Vec3): void {
+    const ladi = this.ladis.get(id);
+    if (!ladi || index < ladi.next) return;
+    const pops = ladi.chain.pops;
+    const first = pops[index];
+    if (!first) return;
+    const batch: LadiPopSound[] = [];
+    let i = index;
+    for (; i < pops.length && pops[i]!.time - first.time < LADI_BATCH; i++) {
+      const pop = pops[i]!;
+      batch.push({ at: pop.time - first.time, level: pop.loud ? 1 : 0.5 + 0.3 * this.random() });
+    }
+    // Later pops start the next batch even if this one found no voice.
+    ladi.next = i;
+    const last = batch[batch.length - 1]!.at;
+    this.play('ladiPops', { position, duration: last + LADI_RING, pops: batch });
+  }
+
   private stopCracker(id: CrackerId): void {
     const list = this.crackerVoices.get(id);
     if (!list) return;
@@ -376,6 +420,7 @@ export class AudioEngine implements AudioModule, Steppable {
       gain: spec.gain * (options.gain ?? 1),
       distance: options.distance,
       pattern: options.pattern,
+      pops: options.pops,
     });
     // Disconnect once the last source finishes so finished voices are collected.
     const last = synth.sources[synth.sources.length - 1];
