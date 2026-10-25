@@ -16,6 +16,7 @@ import {
   AARTI_REJECTION_TEXT,
   GIFT_REJECTION_TEXT,
   HANDS_BLOCK,
+  doorHintLine,
   homePromptLines,
   isHomeInteractable,
   type HomePromptState,
@@ -30,6 +31,8 @@ export interface PromptLine {
   readonly text: string;
   /** True when the line explains why the action is unavailable. */
   readonly blocked: boolean;
+  /** A quiet pointer rather than an action, e.g. an open door seen from the lane. */
+  readonly hint?: boolean;
 }
 
 /** What the player is looking at this frame, gathered by the game loop. */
@@ -68,6 +71,9 @@ export function promptLines(selected: CrackerType, context: HudContext): PromptL
     return context.homes ? homePromptLines(interactable, context.homes) : [];
   }
   const lines: PromptLine[] = [];
+  // Nothing in reach, but an open door ahead: say whose home it is first.
+  const hint = interactable ? null : doorHintLine(context.homes?.doorHint);
+  if (hint) lines.push(hint);
   const carried = context.homes?.hands;
   if (carried) {
     // A plate, gift box or thali in hand: diyas still light, crackers wait.
@@ -100,7 +106,9 @@ export function promptLines(selected: CrackerType, context: HudContext): PromptL
 function sameLines(a: readonly PromptLine[], b: readonly PromptLine[]): boolean {
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i++) {
-    if (a[i]!.text !== b[i]!.text || a[i]!.blocked !== b[i]!.blocked) return false;
+    const x = a[i]!;
+    const y = b[i]!;
+    if (x.text !== y.text || x.blocked !== y.blocked || (x.hint ?? false) !== (y.hint ?? false)) return false;
   }
   return true;
 }

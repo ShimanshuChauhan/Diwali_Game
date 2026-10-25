@@ -36,6 +36,9 @@ const AT_FEET = 0.6;
 const MAX_FACING_ANGLE = (70 * Math.PI) / 180;
 const MIN_FACING_DOT = Math.cos(MAX_FACING_ANGLE);
 
+/** A door hint needs the view fairly square on the door: within this angle. */
+const HINT_FACING_DOT = Math.cos((30 * Math.PI) / 180);
+
 export interface InteractionOptions {
   readonly world: WorldModule;
   /** Crackers not yet finished; unlit ones are E targets. */
@@ -72,6 +75,16 @@ export interface InteractionOptions {
 }
 
 const NONE: () => readonly never[] = () => [];
+
+/** Where a search measures from: the player's feet and their ground-plane view direction. */
+interface SearchOrigin {
+  x: number;
+  y: number;
+  z: number;
+  fx: number;
+  fz: number;
+  fLen: number;
+}
 
 const HOSTS: readonly HouseholdMemberId[] = NEIGHBOUR_HOSTS;
 
@@ -143,7 +156,7 @@ export class Interaction implements InteractionModule {
   private bestPosition: Vec3 | null = null;
   private bestDistSq = 0;
   /** This search's reach origin and ground-plane view direction. */
-  private readonly origin = { x: 0, y: 0, z: 0, fx: 0, fz: 0, fLen: 0 };
+  private readonly origin: SearchOrigin = { x: 0, y: 0, z: 0, fx: 0, fz: 0, fLen: 0 };
 
   constructor(options: InteractionOptions) {
     this.world = options.world;
@@ -188,20 +201,7 @@ export class Interaction implements InteractionModule {
     const pujaSpot = this.spots.familyHome.puja;
     if (pujaSpot && aarti?.participating) return this.remember('puja', 'familyHome', pujaSpot);
 
-    const feet = this.playerPosition?.();
-    const ox = feet ? feet.x : view.position.x;
-    const oy = feet ? feet.y : view.position.y - this.tuning.player.eyeHeight;
-    const oz = feet ? feet.z : view.position.z;
-    const fx = view.forward.x;
-    const fz = view.forward.z;
-    const fLen = Math.hypot(fx, fz);
-    const o = this.origin;
-    o.x = ox;
-    o.y = oy;
-    o.z = oz;
-    o.fx = fx;
-    o.fz = fz;
-    o.fLen = fLen;
+    const { x: ox, y: oy, z: oz, fx, fz, fLen } = this.aimFrom(view);
     const range = this.tuning.interaction.interactRange;
 
     let bestDistSq = range * range;
@@ -273,7 +273,50 @@ export class Interaction implements InteractionModule {
     return this.remember(kind, this.bestId, position);
   }
 
+  /**
+   * The street door the player looks towards from a few metres off
+   * (`TUNING.homes.doorHintRange`), for a quiet hint that it opens; null
+   * indoors, when no door is roughly ahead, or when one is close enough to
+   * use. Only enterable homes have doorways, so shut doors never hint.
+   */
+  findDoorHint(view: CameraView): DoorwaySnapshot | null {
+    if ((this.location?.() ?? 'outdoors') !== 'outdoors') return null;
+    const { x, y, z, fx, fz, fLen } = this.aimFrom(view);
+    if (fLen === 0) return null;
+    const { doorRange, doorHintRange } = this.tuning.homes;
+    let best: DoorwaySnapshot | null = null;
+    let bestDistSq = doorHintRange * doorHintRange;
+    const doorways = this.doorways();
+    for (let i = 0; i < doorways.length; i++) {
+      const doorway = doorways[i]!;
+      if (doorway.location !== 'outdoors') continue;
+      const p = doorway.position;
+      if (Math.abs(p.y - y) > INTERACT_HEIGHT) continue;
+      const dx = p.x - x;
+      const dz = p.z - z;
+      const distSq = dx * dx + dz * dz;
+      if (distSq <= doorRange * doorRange || distSq > bestDistSq) continue;
+      if ((dx * fx + dz * fz) / (Math.sqrt(distSq) * fLen) < HINT_FACING_DOT) continue;
+      best = doorway;
+      bestDistSq = distSq;
+    }
+    return best;
+  }
+
   // ── internals ──────────────────────────────────────────────────────────
+
+  /** Set this search's reach origin (the player's feet) and ground-plane view direction. */
+  private aimFrom(view: CameraView): SearchOrigin {
+    const feet = this.playerPosition?.();
+    const o = this.origin;
+    o.x = feet ? feet.x : view.position.x;
+    o.y = feet ? feet.y : view.position.y - this.tuning.player.eyeHeight;
+    o.z = feet ? feet.z : view.position.z;
+    o.fx = view.forward.x;
+    o.fz = view.forward.z;
+    o.fLen = Math.hypot(o.fx, o.fz);
+    return o;
+  }
 
   /** Keep `position` as the best so far if it is within `reach` and nearer. */
   private consider(kind: Interactable['kind'], id: string, position: Vec3, reach: number): void {

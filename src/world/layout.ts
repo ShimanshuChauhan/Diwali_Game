@@ -3,8 +3,9 @@ import type { Aabb, ExclusionZone, Vec3 } from '../core/types';
 
 /**
  * The prototype map as plain data: a residential lane opening onto a
- * courtyard, colourful houses with balconies and (non-enterable) doorways,
- * and one low house whose rooftop is reached by an outdoor staircase.
+ * courtyard, colourful houses with balconies and doorways, and one low house
+ * whose rooftop is reached by an outdoor staircase. Most doors are shut; the
+ * two enterable homes' stand open (`ENTERABLE_HOUSES`).
  *
  * Everything is an axis-aligned box, so the same data drives the Three.js
  * meshes, the Rapier colliders and the headless world queries. No Three.js or
@@ -65,6 +66,9 @@ export type MaterialKey =
   | 'drain'
   | 'laneStoneDark'
   | 'courtyardTileDark'
+  | 'doorGlow'
+  | 'marigold'
+  | 'brass'
   | HouseColour;
 
 export const HOUSE_COLOURS = [
@@ -149,6 +153,14 @@ export const LAYOUT = {
   doorwayRadius: 1.2,
 } as const;
 
+/**
+ * Houses whose front door leads inside: the family home and the neighbour's
+ * (`HOME_ENTRANCES` in the homes module, kept in step by a test). Their
+ * doors stand open on a lamp-lit room, garlanded and name-plated, so the
+ * player can tell from the lane which homes they can go into.
+ */
+export const ENTERABLE_HOUSES: readonly string[] = ['house.lane.w0', 'house.lane.e1'];
+
 const box = (minX: number, minY: number, minZ: number, maxX: number, maxY: number, maxZ: number): Aabb => ({
   min: { x: minX, y: minY, z: minZ },
   max: { x: maxX, y: maxY, z: maxZ },
@@ -158,6 +170,12 @@ const v = (x: number, y: number, z: number): Vec3 => ({ x, y, z });
 
 /** Which way a facade faces, as a unit step on the ground plane. */
 type Facing = '+x' | '-x' | '+z' | '-z';
+
+/**
+ * Box on a facade: `a0`/`a1` along it, `y0`/`y1` up, from `d0` to `d1`
+ * metres out from the wall.
+ */
+type FacadeBox = (a0: number, a1: number, y0: number, y1: number, d0: number, d1: number) => Aabb;
 
 interface HouseSpec {
   readonly id: string;
@@ -224,7 +242,7 @@ class LayoutBuilder {
    */
   windowTrim(
     id: string,
-    onFacade: (a0: number, a1: number, y0: number, y1: number, d0: number, d1: number) => Aabb,
+    onFacade: FacadeBox,
     centre: number,
     y0: number,
     face = 0,
@@ -275,9 +293,56 @@ class LayoutBuilder {
   }
 
   /**
+   * The open front door of an enterable home, all decoration and no
+   * colliders: a warm lamp-lit room seen through the doorway between two
+   * leaves pushed back against the jambs, a wooden frame and threshold,
+   * marigold strands hanging from the toran with a swag across it, a lit
+   * brass name plate above, and a doormat short of the rangoli.
+   */
+  openDoor(id: string, onFacade: FacadeBox, door: number): void {
+    const half = LAYOUT.doorWidth / 2;
+    const top = LAYOUT.doorHeight;
+    this.deco(`${id}.door.glow`, onFacade(door - half, door + half, 0, top, 0, 0.05), 'doorGlow');
+    for (const side of [-1, 1] as const) {
+      const name = side < 0 ? 'left' : 'right';
+      const jamb = door + side * half;
+      // Leaf folded back inside the opening, and the frame just outside it.
+      this.deco(`${id}.door.leaf.${name}`, onFacade(Math.min(jamb, jamb - side * 0.16), Math.max(jamb, jamb - side * 0.16), 0, top, 0.05, 0.08), 'door');
+      this.deco(`${id}.door.jamb.${name}`, onFacade(Math.min(jamb, jamb + side * 0.1), Math.max(jamb, jamb + side * 0.1), 0, top, 0, 0.1), 'door');
+      // Marigold strand from the toran's end, orange and yellow in turn.
+      const a = door + side * (half + 0.2);
+      for (let k = 0, y = top - 0.02; y > 1.05; k++, y -= 0.13) {
+        this.deco(`${id}.marigold.${name}.${k}`, onFacade(a - 0.05, a + 0.05, y - 0.1, y, 0.03, 0.13), k % 2 ? 'toran' : 'marigold');
+      }
+    }
+    this.deco(`${id}.door.lintel`, onFacade(door - half - 0.1, door + half + 0.1, top - 0.1, top, 0, 0.1), 'door');
+    this.deco(`${id}.door.threshold`, onFacade(door - half - 0.1, door + half + 0.1, 0, 0.06, 0, 0.22), 'slab');
+    // A swag of marigolds dipping below the toran.
+    const beads = 11;
+    for (let k = 0; k < beads; k++) {
+      const t = k / (beads - 1);
+      const a = door + (t - 0.5) * 2 * (half + 0.1);
+      const y = top - 0.04 - 0.16 * Math.sin(Math.PI * t);
+      this.deco(`${id}.marigold.swag.${k}`, onFacade(a - 0.05, a + 0.05, y - 0.09, y, 0.1, 0.18), k % 2 ? 'toran' : 'marigold');
+    }
+    // Brass name plate above the toran, below any balcony slab, with a few
+    // dark strokes standing in for the family's name.
+    this.deco(`${id}.nameplate`, onFacade(door - 0.42, door + 0.42, top + 0.26, top + 0.58, 0, 0.05), 'brass');
+    this.deco(`${id}.nameplate.face`, onFacade(door - 0.36, door + 0.36, top + 0.31, top + 0.53, 0.05, 0.07), 'doorGlow');
+    for (const [k, a0, a1] of [
+      [0, -0.28, -0.1],
+      [1, -0.05, 0.12],
+      [2, 0.17, 0.28],
+    ] as const) {
+      this.deco(`${id}.nameplate.text.${k}`, onFacade(door + a0, door + a1, top + 0.39, top + 0.45, 0.07, 0.08), 'door');
+    }
+    this.deco(`${id}.doormat`, onFacade(door - 0.45, door + 0.45, 0, 0.012, 0.3, 0.75), 'terracotta');
+  }
+
+  /**
    * A solid house with a door, torans, windows, two diyas at the door and,
-   * optionally, a railed balcony above it. Doors are decoration: houses are
-   * not enterable.
+   * optionally, a railed balcony above it. Doors are decoration and stay
+   * shut, bar the two enterable homes' (`openDoor`).
    */
   house(spec: HouseSpec): void {
     const { id, minX, maxX, minZ, maxZ, height, colour, facing } = spec;
@@ -292,11 +357,7 @@ class LayoutBuilder {
     const out = facing === '+x' || facing === '+z' ? 1 : -1;
     const face = facing === '+x' ? maxX : facing === '-x' ? minX : facing === '+z' ? maxZ : minZ;
 
-    /**
-     * Box on the facade: `a`/`b` along it, `y0`/`y1` up, from `d0` to `d1`
-     * metres out from the wall.
-     */
-    const onFacade = (a0: number, a1: number, y0: number, y1: number, d0: number, d1: number): Aabb => {
+    const onFacade: FacadeBox = (a0, a1, y0, y1, d0, d1) => {
       const n0 = face + out * d0;
       const n1 = face + out * d1;
       const [nMin, nMax] = n0 < n1 ? [n0, n1] : [n1, n0];
@@ -306,7 +367,8 @@ class LayoutBuilder {
       alongX ? v(a, y, face + out * d) : v(face + out * d, y, a);
 
     const halfDoor = LAYOUT.doorWidth / 2;
-    this.deco(`${id}.door`, onFacade(door - halfDoor, door + halfDoor, 0, LAYOUT.doorHeight, 0, 0.06), 'door');
+    if (ENTERABLE_HOUSES.includes(id)) this.openDoor(id, onFacade, door);
+    else this.deco(`${id}.door`, onFacade(door - halfDoor, door + halfDoor, 0, LAYOUT.doorHeight, 0, 0.06), 'door');
     this.deco(
       `${id}.toran`,
       onFacade(door - halfDoor - 0.2, door + halfDoor + 0.2, LAYOUT.doorHeight, LAYOUT.doorHeight + 0.2, 0, 0.1),

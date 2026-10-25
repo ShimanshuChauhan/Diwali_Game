@@ -18,6 +18,8 @@ import type {
 import { FAMILY_MEMBERS, NEIGHBOUR_HOSTS } from '../src/core/homes';
 import { TUNING } from '../src/core/tuning';
 import type { CrackerType, Vec3 } from '../src/core/types';
+import { createLayout } from '../src/world';
+import { ENTERABLE_HOUSES } from '../src/world/layout';
 import {
   CRACKER_BLOCKED_TEXT,
   HeldItems,
@@ -29,7 +31,7 @@ import {
   type HandCrackers,
 } from '../src/homes';
 import { applyHomeAction, HOME_SPOTS, Interaction, type HomeActionContext } from '../src/interaction';
-import { homePromptLines, MEMBER_LABELS, type HomePromptState } from '../src/ui/homePrompts';
+import { DOOR_HINTS, homePromptLines, MEMBER_LABELS, type HomePromptState } from '../src/ui/homePrompts';
 import { HudModel, promptLines } from '../src/ui/hudModel';
 
 const v = (x: number, y: number, z: number): Vec3 => ({ x, y, z });
@@ -187,6 +189,47 @@ describe('nearest interactable: doors', () => {
   });
 });
 
+describe('door hints from the lane', () => {
+  const NEIGHBOUR_DOOR = HOME_ENTRANCES.neighbourHome.street.door;
+  const hint = (feet: Vec3, forward: Vec3, location: LocationId = 'outdoors') =>
+    scene({ feet, location }).interaction.findDoorHint(view(feet, forward))?.id ?? null;
+
+  it('names an open door the player looks at from mid-lane, beyond door reach', () => {
+    const feet = v(0, 0, FAMILY_DOOR.street.door.z);
+    const { find } = scene({ feet });
+    expect(find(WEST)).toBeNull();
+    expect(hint(feet, WEST)).toBe('familyHome.enter');
+    expect(hint(v(0, 0, NEIGHBOUR_DOOR.z), EAST)).toBe('neighbourHome.enter');
+    // From the spawn, a few metres up the lane, a glance across picks it up too.
+    expect(hint(v(0, 0, 5), v(-1, 0, -0.1))).toBe('familyHome.enter');
+  });
+
+  it('stays quiet looking away, from far off, in door reach and indoors', () => {
+    const feet = v(0, 0, FAMILY_DOOR.street.door.z);
+    expect(hint(feet, SOUTH)).toBeNull();
+    expect(hint(feet, EAST)).toBeNull();
+    expect(hint(from(FAMILY_DOOR.street.door, NORTH, TUNING.homes.doorHintRange + 0.5), SOUTH)).toBeNull();
+    const close = from(FAMILY_DOOR.street.door, EAST, 1);
+    expect(hint(close, WEST)).toBeNull();
+    expect(scene({ feet: close }).find(WEST)).toMatchObject({ kind: 'door', id: 'familyHome.enter' });
+    const inside = from(FAMILY_DOOR.interior.door, NORTH, 4);
+    expect(hint(inside, SOUTH, 'familyHome')).toBeNull();
+  });
+
+  it('never offers or hints at the shut doors of the other houses', () => {
+    const shut = createLayout().doorways.filter((d) => !ENTERABLE_HOUSES.some((h) => d.id === `${h}.doorway`));
+    expect(shut.length).toBeGreaterThan(0);
+    for (const zone of shut) {
+      // Standing in the doorway zone, facing the door; then a few metres back.
+      const towards = zone.centre.x > 0 ? EAST : zone.centre.x < 0 ? WEST : zone.centre.z < -30 ? NORTH : SOUTH;
+      const back = v(-towards.x, 0, -towards.z);
+      const { find } = scene({ feet: zone.centre });
+      expect(find(towards), zone.id).toBeNull();
+      expect(hint(from(zone.centre, back, 3), towards), zone.id).toBeNull();
+    }
+  });
+});
+
 describe('nearest interactable: inside homes', () => {
   it('leaves crackers and diyas to the street', () => {
     const feet = from(FAMILY.tray!, WEST, 4);
@@ -322,7 +365,7 @@ describe('home prompts per state', () => {
   const texts = (target: HomeInteractable, s: HomePromptState) => homePromptLines(target, s).map((l) => l.text);
 
   it('says where each door leads', () => {
-    expect(texts(door('familyHome.enter'), state())).toEqual(['E: Go inside']);
+    expect(texts(door('familyHome.enter'), state())).toEqual(['E: Enter home']);
     expect(texts(door('neighbourHome.enter'), state())).toEqual(['E: Visit Uncle and Aunty']);
     expect(texts(door('familyHome.exit'), state())).toEqual(['E: Step outside']);
     expect(texts(door('neighbourHome.exit'), state({ hands: RETURN_BOX }))).toEqual(['E: Step outside']);
@@ -403,6 +446,28 @@ describe('home prompts per state', () => {
     expect(texts(person('uncle'), state({ hands: OUTBOUND }))).toEqual(['E: Give the gift box to Uncle']);
     expect(texts(person('uncle'), state({ hands: OUTBOUND, exchanged: true }))).toEqual(['E: Greet Uncle']);
     expect(texts(person('uncle'), state({ hands: RETURN_BOX }))).toEqual(['E: Greet Uncle']);
+  });
+
+  it('says plainly that an enterable door goes in', () => {
+    for (const id of ['familyHome.enter', 'neighbourHome.enter']) {
+      expect(texts(door(id), state())[0], id).toMatch(/^E: (Enter|Visit) /);
+    }
+  });
+
+  it('shows a quiet hint for an open door ahead, only with nothing in reach', () => {
+    const hinted = (doorHint: LocationId, interactable: Interactable | null = null) =>
+      promptLines('anar', { interactable, homes: state({ doorHint }) });
+    expect(hinted('familyHome')[0]).toEqual({ text: DOOR_HINTS.familyHome, blocked: false, hint: true });
+    expect(hinted('neighbourHome')[0]).toEqual({ text: DOOR_HINTS.neighbourHome, blocked: false, hint: true });
+    // The usual cracker line still follows it.
+    expect(hinted('familyHome').map((l) => l.text)).toEqual([DOOR_HINTS.familyHome, 'Click: Place anar']);
+    expect(promptLines('anar', { interactable: null, homes: state({ doorHint: 'familyHome', hands: OUTBOUND }) })).toEqual([
+      { text: DOOR_HINTS.familyHome, blocked: false, hint: true },
+    ]);
+    const diya: Interactable = { kind: 'diya', id: 'd1', position: v(0, 0, -1) };
+    expect(hinted('familyHome', diya).some((l) => l.hint)).toBe(false);
+    expect(hinted('familyHome', door('familyHome.enter')).map((l) => l.text)).toEqual(['E: Enter home']);
+    expect(promptLines('anar', { interactable: null, homes: state({ doorHint: null }) }).some((l) => l.hint)).toBe(false);
   });
 
   it('routes home targets through the HUD prompt', () => {

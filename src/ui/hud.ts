@@ -131,6 +131,7 @@ export function createHud(parent: HTMLElement, model: HudModel): HudView {
         const element = doc.createElement('div');
         element.textContent = line.text;
         if (line.blocked) element.style.color = BLOCKED;
+        if (line.hint) style(element, ['font-size:13px', 'font-style:italic', 'opacity:0.8']);
         return element;
       }),
     );

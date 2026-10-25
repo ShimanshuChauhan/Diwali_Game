@@ -21,6 +21,13 @@ describe('world scene', () => {
     expect(meshes.length).toBeLessThan(40);
   });
 
+  it('lights the open doorways brighter than any window, without a light of their own', () => {
+    const material = (key: string) => meshes.find((m) => m.name === `world.${key}`)?.material as THREE.MeshStandardMaterial;
+    expect(material('doorGlow').emissiveIntensity).toBeGreaterThan(material('window').emissiveIntensity);
+    expect(material('marigold')).toBeDefined();
+    expect(material('brass')).toBeDefined();
+  });
+
   it('adds the layout practical lights', () => {
     expect(root.children.filter((c) => c instanceof THREE.PointLight)).toHaveLength(layout.lights.length);
   });

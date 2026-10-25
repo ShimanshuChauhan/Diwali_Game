@@ -42,6 +42,10 @@ const MATERIALS: Readonly<Record<MaterialKey, MaterialSpec>> = {
   drain: { color: '#1a1714', roughness: 1 },
   laneStoneDark: { color: '#2e2722', roughness: 1 },
   courtyardTileDark: { color: '#55392c', roughness: 0.9 },
+  // Brighter than the windows, so an open doorway reads as the way in.
+  doorGlow: { color: '#ffd9a0', emissive: '#ffa850', emissiveIntensity: 1.5 },
+  marigold: { color: '#ffb000', roughness: 0.8, emissive: '#ff9a00', emissiveIntensity: 0.45 },
+  brass: { color: '#c89a3a', roughness: 0.35, emissive: '#7a5410', emissiveIntensity: 0.5 },
   houseOchre: { color: '#c99a3e' },
   houseCoral: { color: '#e8775a' },
   houseSky: { color: '#5fa0e0' },
