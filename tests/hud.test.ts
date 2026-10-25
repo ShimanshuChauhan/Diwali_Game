@@ -216,8 +216,10 @@ describe('HudModel', () => {
       bus.emit('transitionStarted', { doorway: 'familyFront', from: 'outdoors', to: 'familyHome', duration: 0.6 });
       expect(hud.hotbarVisible).toBe(true);
       enter(bus, 'familyHome');
+      // The first frame indoors drops the cracker prompt.
+      hud.setContext(FREE);
       const hidden = hud.revision;
-      // Frames during the fade-in pass the same hands; nothing redraws.
+      // Later frames during the fade-in pass the same hands; nothing redraws.
       hud.setContext(FREE);
       hud.setContext(FREE);
       expect(hud.hotbarVisible).toBe(false);

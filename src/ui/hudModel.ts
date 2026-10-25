@@ -2,6 +2,7 @@ import type { HeldItem, Interactable, UiModule } from '../core/contracts';
 import type { Unsubscribe } from '../core/eventBus';
 import type { GameEventBus } from '../core/events';
 import type { LocationId } from '../core/homes';
+import { crackersAllowed } from '../crackers/outdoors';
 import {
   CRACKER_TYPES,
   isHandheld,
@@ -21,7 +22,7 @@ import {
   isHomeInteractable,
   type HomePromptState,
 } from './homePrompts';
-import { CRACKER_LABELS, rejectionText, type RejectionKind } from './text';
+import { CRACKER_LABELS, PHULJHARI_PUT_OUT_TEXT, rejectionText, type RejectionKind } from './text';
 
 /** How long a rejection message stays on screen, in seconds. */
 export const REJECTION_SECONDS = 2.5;
@@ -47,6 +48,8 @@ export interface HudContext {
   readonly placement?: { readonly ok: boolean; readonly reason: PlacementRejection | null } | null;
   /** Hands, aarti and doors for the homes prompts; without it the hands count as free. */
   readonly homes?: HomePromptState;
+  /** Where the player is; a home has no cracker prompts. `HudModel` fills it in; outdoors when omitted. */
+  readonly location?: LocationId;
 }
 
 export interface Rejection {
@@ -61,9 +64,9 @@ function lower(type: CrackerType): string {
 
 /**
  * The contextual prompt for the current selection and view, e.g.
- * "E: Light anar" and "Click: Place rocket". It depends only on what the
- * player is near and holding — never on the camera mode — so the same
- * prompts appear in first- and third-person.
+ * "E: Light anar" and "Click: Place rocket". It depends only on where the
+ * player is and what they are near and holding — never on the camera mode —
+ * so the same prompts appear in first- and third-person.
  */
 export function promptLines(selected: CrackerType, context: HudContext): PromptLine[] {
   const { interactable } = context;
@@ -88,6 +91,8 @@ export function promptLines(selected: CrackerType, context: HudContext): PromptL
     const label = context.interactableType ? lower(context.interactableType) : 'cracker';
     lines.push({ text: `E: Light ${label}`, blocked: false });
   }
+  // Crackers are outdoor-only: indoors the selection stays silent.
+  if (!crackersAllowed(context.location ?? 'outdoors')) return lines;
 
   if (isHandheld(selected)) {
     if (!interactable && !context.held?.lit) lines.push({ text: `E: Light ${lower(selected)}`, blocked: false });
@@ -156,6 +161,7 @@ export class HudModel implements UiModule {
         bus.on('transitionRejected', ({ reason }) => this.showMessage(TRANSITION_REJECTION_TEXT[reason])),
         bus.on('aartiRejected', ({ reason }) => this.showMessage(AARTI_REJECTION_TEXT[reason])),
         bus.on('giftRejected', ({ reason }) => this.showMessage(GIFT_REJECTION_TEXT[reason])),
+        bus.on('phuljhariPutOut', () => this.showMessage(PHULJHARI_PUT_OUT_TEXT)),
         bus.on('cameraModeChanged', ({ mode }) => this.setCameraMode(mode)),
         // Published at the fade's midpoint, under the black, so the hotbar never flickers.
         bus.on('locationChanged', ({ to }) => this.setLocation(to)),
@@ -249,7 +255,7 @@ export class HudModel implements UiModule {
       this.handsFull = handsFull;
       this.changed();
     }
-    this.setLines(promptLines(this.currentSelection, context));
+    this.setLines(promptLines(this.currentSelection, { ...context, location: context.location ?? this.location }));
   }
 
   showRejection(reason: PlacementRejection | IgnitionRejection, kind: RejectionKind = 'placement'): void {
