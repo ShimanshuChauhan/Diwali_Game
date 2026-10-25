@@ -1,11 +1,13 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
+import { facePuja, holdStill } from '../src/aarti';
 import {
   BODY_HOLD,
   CIRCLE_RADIUS,
   CIRCLE_RATE,
   firstPersonThali,
   heldThali,
+  participantThali,
   stepThali,
   Thali,
   THALI_REST,
@@ -13,6 +15,9 @@ import {
   thaliPalm,
   type ThaliMotion,
 } from '../src/aarti/thali';
+import { CameraRig } from '../src/camera';
+import type { CameraMode, Vec3 } from '../src/core/types';
+import { createFamilyHomeLayout } from '../src/interior';
 import { BODY } from '../src/people/figure';
 import { PlayerCharacter } from '../src/player';
 
@@ -152,6 +157,119 @@ describe('thali presentation — first person', () => {
     const top = cam.worldToLocal(firstPersonThali(cam, { phase: 0, sweep: 1 }, new THREE.Vector3()));
     expect(top.y - rest.y).toBeCloseTo(CIRCLE_RADIUS.firstPerson);
     expect(top.z).toBeCloseTo(rest.z);
+  });
+});
+
+describe('thali presentation — taking part in aarti', () => {
+  const layout = createFamilyHomeLayout();
+  const puja = layout.interactions.find((i) => i.target.kind === 'puja')!;
+  const feet = puja.stand.position;
+  const target = puja.target.position;
+  const MODES: readonly CameraMode[] = ['firstPerson', 'thirdPerson'];
+  const LOOKS = [
+    [0, 0],
+    [400, 0], // turned well round
+    [-1200, 150], // back to the mandir, looking down
+    [300, -300], // looking up at the room
+  ] as const;
+  const circling = hold(THALI_REST, true, 1.3);
+
+  /** The body yaw and plate a participant gets each frame while the view looks round. */
+  function participant(rig: CameraRig, facing: number, mode: CameraMode, motion: ThaliMotion) {
+    const intent = holdStill({ forward: 0, right: 0, run: false, yaw: rig.yaw }, { participating: true }, facing);
+    return { yaw: intent.yaw, plate: participantThali(mode, feet, intent.yaw, motion) };
+  }
+
+  function near(a: Vec3, b: Vec3): void {
+    expect(a.x).toBeCloseTo(b.x, 9);
+    expect(a.y).toBeCloseTo(b.y, 9);
+    expect(a.z).toBeCloseTo(b.z, 9);
+  }
+
+  it('stays put wherever the view looks, resting or circling, in either mode', () => {
+    // Joined while glancing a little off to the side; the body squares up to the mandir.
+    const facing = facePuja(feet, target, puja.stand.yaw + 0.3);
+    for (const mode of MODES) {
+      for (const motion of [THALI_REST, circling]) {
+        const rig = new CameraRig({ mode, spawnYaw: puja.stand.yaw + 0.3 });
+        const first = participant(rig, facing, mode, motion);
+        for (const [dx, dy] of LOOKS) {
+          rig.look(dx, dy);
+          const now = participant(rig, facing, mode, motion);
+          expect(now.yaw).toBe(facing);
+          near(now.plate, first.plate);
+        }
+      }
+    }
+  });
+
+  it('keeps the body facing the mandir however far the view turns', () => {
+    const facing = facePuja(feet, target, 0);
+    // The stand is straight south of the target, so facing it looks north.
+    expect(facing).toBeCloseTo(puja.stand.yaw);
+    const rig = new CameraRig({ spawnYaw: facing });
+    for (const [dx, dy] of LOOKS) {
+      rig.look(dx, dy);
+      expect(participant(rig, facing, 'firstPerson', THALI_REST).yaw).toBe(facing);
+    }
+  });
+
+  it('sits in front of the puja, between the participant and the mandir', () => {
+    const facing = facePuja(feet, target, 0);
+    const toTarget = Math.hypot(target.x - feet.x, target.z - feet.z);
+    const ahead = { x: (target.x - feet.x) / toTarget, z: (target.z - feet.z) / toTarget };
+    for (const mode of MODES) {
+      for (const motion of [THALI_REST, circling]) {
+        const plate = participantThali(mode, feet, facing, motion);
+        const along = (plate.x - feet.x) * ahead.x + (plate.z - feet.z) * ahead.z;
+        const across = (plate.x - feet.x) * ahead.z - (plate.z - feet.z) * ahead.x;
+        expect(along).toBeGreaterThan(0.25);
+        expect(along).toBeLessThan(toTarget);
+        expect(Math.abs(across)).toBeLessThan(0.25);
+        expect(plate.y).toBeGreaterThan(0.9);
+        expect(plate.y).toBeLessThan(1.6);
+      }
+    }
+  });
+
+  it('faces the mandir with the same first-person framing as the view hold', () => {
+    const facing = facePuja(feet, target, 0);
+    const rig = new CameraRig({ spawnYaw: facing });
+    const pose = { position: feet, yaw: facing, grounded: true };
+    const { position: eye, forward } = rig.update(pose, FRAME);
+    const cam = new THREE.PerspectiveCamera();
+    cam.position.set(eye.x, eye.y, eye.z);
+    cam.lookAt(eye.x + forward.x, eye.y + forward.y, eye.z + forward.z);
+    cam.updateMatrixWorld();
+    for (const motion of [THALI_REST, circling, { phase: 2, sweep: 0.6 }]) {
+      const viewed = firstPersonThali(cam, motion, new THREE.Vector3());
+      near(participantThali('firstPerson', feet, facing, motion), viewed);
+    }
+  });
+
+  it('in third person is the body hold, where the drawn hand holds it', () => {
+    const facing = facePuja(feet, target, 0);
+    expect(participantThali('thirdPerson', feet, facing, circling, 0.01)).toEqual(heldThali(feet, facing, circling, 0.01));
+    const character = new PlayerCharacter({ mode: 'thirdPerson' });
+    character.holdAt(thaliPalm(circling, new THREE.Vector3()));
+    character.update({ position: feet, yaw: facing, grounded: true }, 0, 'thirdPerson', FRAME);
+    character.object.updateMatrixWorld(true);
+    const hand = character.handSocket.getWorldPosition(new THREE.Vector3());
+    const plate = participantThali('thirdPerson', feet, facing, circling, character.bob);
+    expect(Math.hypot(hand.x - plate.x, hand.z - plate.z)).toBeLessThan(1e-3);
+  });
+
+  it('after leaving, the body follows the view again and the thali is put away', () => {
+    const facing = facePuja(feet, target, 0);
+    const rig = new CameraRig({ spawnYaw: facing });
+    rig.look(500, 0);
+    const intent = { forward: 0, right: 0, run: false, yaw: rig.yaw };
+    expect(holdStill(intent, { participating: false }, facing).yaw).toBe(rig.yaw);
+    const thali = new Thali();
+    thali.update(participantThali('firstPerson', feet, facing, circling), facing, true, FRAME);
+    expect(thali.object.visible).toBe(true);
+    thali.update(participantThali('firstPerson', feet, rig.yaw, THALI_REST), rig.yaw, false, FRAME);
+    expect(thali.object.visible).toBe(false);
   });
 });
 

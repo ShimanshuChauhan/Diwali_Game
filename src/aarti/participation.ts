@@ -1,6 +1,7 @@
 import type { GameAction, SelectSlot } from '../core/actions';
 import type { MovementIntent } from '../core/contracts';
 import { AARTI_SONG_IDS, type AartiCeremonyModule, type AartiSnapshot, type AartiSongId } from '../core/homes';
+import type { Vec3 } from '../core/types';
 
 /** The ceremony commands a participant's controls reach. */
 export type ParticipantCeremony = Pick<AartiCeremonyModule, 'snapshot' | 'leave' | 'selectSong' | 'setCircling'>;
@@ -61,8 +62,8 @@ export function applyAartiAction(action: GameAction, ceremony: ParticipantCeremo
 
 /**
  * A participant stands still, facing the puja: translation is off and the
- * body keeps `facing` (normally its yaw on joining), so the camera can look
- * round the player, and see the thali, in third person.
+ * body keeps `facing` (normally `facePuja` on joining), so the camera can
+ * look round the player, and see the thali, in third person.
  */
 export function holdStill(
   intent: MovementIntent,
@@ -70,4 +71,19 @@ export function holdStill(
   facing = intent.yaw,
 ): MovementIntent {
   return aarti.participating ? { ...intent, forward: 0, right: 0, yaw: facing } : intent;
+}
+
+/** Closer than this on the ground plane, the way to the puja is no direction at all. */
+const AT_PUJA = 0.05;
+
+/**
+ * The yaw a participant at `feet` keeps while taking part: looking straight
+ * at the puja at `puja` on the ground plane (yaw 0 looks down -Z), or
+ * `fallback` when there is no puja or they stand right on it.
+ */
+export function facePuja(feet: Vec3, puja: Vec3 | undefined, fallback: number): number {
+  if (!puja) return fallback;
+  const dx = puja.x - feet.x;
+  const dz = puja.z - feet.z;
+  return Math.hypot(dx, dz) < AT_PUJA ? fallback : Math.atan2(-dx, -dz);
 }

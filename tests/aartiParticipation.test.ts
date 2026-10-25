@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AartiCeremony, applyAartiAction, holdStill, slotForSong, songForSlot } from '../src/aarti';
+import { AartiCeremony, applyAartiAction, facePuja, holdStill, slotForSong, songForSlot } from '../src/aarti';
 import type { GameAction } from '../src/core/actions';
 import type { HeldItem, MovementIntent } from '../src/core/contracts';
 import { createGameEventBus, type GameEventBus } from '../src/core/events';
@@ -130,6 +130,17 @@ describe('aarti participation — looking round', () => {
     expect(holdStill(looking, { participating: true }, 0.3).yaw).toBe(0.3);
     // Away from aarti the body follows the view again.
     expect(holdStill(looking, { participating: false }, 0.3).yaw).toBe(2.4);
+  });
+
+  it('joining turns the body to look straight at the puja', () => {
+    const puja = { x: -2.5, y: 0, z: -7.5 };
+    // Yaw 0 looks down -Z, so a puja straight north is yaw 0 and one to the east is -π/2.
+    expect(facePuja({ x: -2.5, y: 0, z: -6 }, puja, 1)).toBeCloseTo(0);
+    expect(facePuja({ x: -4, y: 0, z: -7.5 }, puja, 1)).toBeCloseTo(-Math.PI / 2);
+    expect(facePuja({ x: -3, y: 0, z: -6 }, puja, 1)).toBeCloseTo(Math.atan2(-0.5, 1.5));
+    // Standing right on it, or with no puja, keeps the given yaw.
+    expect(facePuja(puja, puja, 1)).toBe(1);
+    expect(facePuja({ x: 0, y: 0, z: 0 }, undefined, 1)).toBe(1);
   });
 
   it('a player who leaves while still holding W walks off at once', () => {
