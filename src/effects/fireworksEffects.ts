@@ -9,6 +9,7 @@ import type { CrackerId, CrackerType, RocketFlight, Vec3 } from '../core/types';
 import { FireworksEngine, NO_EFFECT, type EffectHandle, type EngineStats } from './fireworksEngine';
 import {
   ANAR_PALETTES,
+  BURST_LOOKS,
   CHAKRI_PALETTES,
   FOUNTAIN,
   FUSE,
@@ -122,6 +123,7 @@ export class FireworksEffects implements EffectsModule {
       maxActiveEffects: profile.maxActiveEffects,
       maxDynamicLights: profile.maxDynamicLights,
       countScale: countScaleFor(profile),
+      burst: BURST_LOOKS[profile.level],
     });
   }
 

@@ -1,4 +1,4 @@
-import type { BurstPattern } from '../core/types';
+import type { BurstPattern, QualityLevel } from '../core/types';
 
 /**
  * Emitter presets: plain data describing how an effect sprays particles.
@@ -521,10 +521,110 @@ export const SKY_BURST: EmitterPreset = {
   fade: 0.9,
   inherit: 0,
   colours: [0xff4f6d, 0xffd34f, 0x4fb6ff],
-  flash: { peak: 700, range: 55, duration: 0.5 },
+  // The burst's light comes from `BURST_LOOKS`, which varies by quality.
   tail: { count: 6, step: 0.028, fade: 0.72 },
   brightness: 1.35,
   core: { size: 3.5, life: 0.14, colour: 0xfff6e0, brightness: 1.8 },
+};
+
+/**
+ * How a rocket burst lights the street and how rich it looks, per quality
+ * level. The burst light is one pooled point light (the pool's size is fixed
+ * per level), so richer levels spend intensity, reach and time, not lights.
+ */
+export interface BurstLook {
+  /**
+   * Point-light intensity of the initial flash. Only comparable between
+   * looks with the same `decay`; `lightReaching` gives what a surface gets.
+   */
+  readonly peak: number;
+  /** Light reach in metres. */
+  readonly range: number;
+  /** Seconds the initial flash takes to fade out. */
+  readonly duration: number;
+  /** Light falloff exponent; 2 is physical, lower is softer and reaches further. */
+  readonly decay: number;
+  /**
+   * The light sits this far below the burst, towards the middle of the
+   * expanding shell, so its colour reaches the lane and house fronts.
+   */
+  readonly drop: number;
+  /** Afterglow that follows the sparks: a fraction of `peak`, 0 = none. */
+  readonly glow: number;
+  /** Seconds the afterglow lasts at a pattern life scale of 1. */
+  readonly glowDuration: number;
+  /** Brief sky wash in the burst colour: hemisphere-light intensity, 0 = none. */
+  readonly sky: number;
+  readonly skyDuration: number;
+  /**
+   * Multiplier on star brightness. With bloom the stars add up in HDR before
+   * tone mapping, so a dense shell (and its overlapping tails) washes out to
+   * white; below 1 keeps the palette readable. `starCap` keeps each star's
+   * core bright enough for the bloom.
+   */
+  readonly brightness: number;
+  /** Multiplier on the speed step between tail sparks; above 1 draws longer trails. */
+  readonly tailStretch: number;
+  /**
+   * Bloom levels: the brightest a burst star's sprite may be, scaled down
+   * whole so its hue holds (0 = uncapped). Tone mapping turns HDR overlaps
+   * white; capped stars stay in the burst's colours and bloom adds the glow.
+   */
+  readonly starCap: number;
+}
+
+/** The burst light never sinks below this height, so it stays above the rooftops. */
+export const BURST_LIGHT_FLOOR = 14;
+
+export const BURST_LOOKS: Readonly<Record<QualityLevel, BurstLook>> = {
+  // A single brief flash, as cheap as before.
+  low: {
+    peak: 700,
+    range: 55,
+    duration: 0.5,
+    decay: 2,
+    drop: 0,
+    glow: 0,
+    glowDuration: 0,
+    sky: 0,
+    skyDuration: 0,
+    brightness: 1,
+    tailStretch: 1,
+    starCap: 0,
+  },
+  // A coloured flash that visibly lights the lane, rooftops and courtyard,
+  // with a short glow while the shell is at its brightest.
+  medium: {
+    peak: 3000,
+    range: 80,
+    duration: 0.5,
+    decay: 1.5,
+    drop: 4,
+    glow: 0.5,
+    glowDuration: 1.4,
+    sky: 0,
+    skyDuration: 0,
+    brightness: 0.6,
+    tailStretch: 1.15,
+    starCap: 1.4,
+  },
+  // A strong flash, then a softer, wider glow in the burst colour that fades
+  // with the sparks, washing over house fronts and the ground; the sky and
+  // everything under it lift towards the burst colour too.
+  high: {
+    peak: 1300,
+    range: 110,
+    duration: 0.7,
+    decay: 1.2,
+    drop: 6,
+    glow: 0.5,
+    glowDuration: 2.6,
+    sky: 0.12,
+    skyDuration: 1.8,
+    brightness: 0.45,
+    tailStretch: 1.4,
+    starCap: 1.4,
+  },
 };
 
 /** Per-pattern changes applied on top of `SKY_BURST`. */

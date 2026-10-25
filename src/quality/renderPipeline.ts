@@ -9,9 +9,6 @@ import type { QualityProfile } from '../core/quality';
 import type { Aabb } from '../core/types';
 import { renderSettings, type RenderSettings } from './renderSettings';
 
-/** Bloom catches the HDR flames, decorations and sparks pushed above 1. */
-const BLOOM = { strength: 0.6, radius: 0.4, threshold: 0.9 } as const;
-
 export interface RenderPipelineOptions {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene: THREE.Scene;
@@ -49,6 +46,7 @@ export class RenderPipeline {
   private readonly unsubscribes: Unsubscribe[] = [];
   private readonly size = new THREE.Vector2();
   private composer: EffectComposer | null = null;
+  private bloomPass: UnrealBloomPass | null = null;
   private current!: RenderSettings;
   private profile: QualityProfile;
   private readonly counters = { drawCalls: 0, triangles: 0 };
@@ -89,6 +87,12 @@ export class RenderPipeline {
     }
     if (previous?.shadows !== next.shadows || previous?.shadowMapSize !== next.shadowMapSize) this.applyShadows(next);
     if (next.bloom && !this.composer) this.composer = this.createComposer();
+    if (next.bloom && this.bloomPass) {
+      // Uniforms only: retuning the bloom never rebuilds its targets.
+      this.bloomPass.strength = next.bloomStyle.strength;
+      this.bloomPass.radius = next.bloomStyle.radius;
+      this.bloomPass.threshold = next.bloomStyle.threshold;
+    }
   }
 
   /** Follow a window resize (also picks up a changed devicePixelRatio). */
@@ -111,6 +115,7 @@ export class RenderPipeline {
     for (const unsubscribe of this.unsubscribes.splice(0)) unsubscribe();
     this.composer?.dispose();
     this.composer = null;
+    this.bloomPass = null;
   }
 
   private applyShadows(settings: RenderSettings): void {
@@ -143,7 +148,9 @@ export class RenderPipeline {
     composer.setPixelRatio(this.current.pixelRatio);
     composer.setSize(this.size.x, this.size.y);
     composer.addPass(new RenderPass(this.scene, this.camera));
-    composer.addPass(new UnrealBloomPass(this.size.clone(), BLOOM.strength, BLOOM.radius, BLOOM.threshold));
+    const style = this.current.bloomStyle;
+    this.bloomPass = new UnrealBloomPass(this.size.clone(), style.strength, style.radius, style.threshold);
+    composer.addPass(this.bloomPass);
     composer.addPass(new OutputPass());
     return composer;
   }
