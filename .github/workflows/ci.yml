@@ -1,0 +1,21 @@
+name: CI
+
+# Type-check, test and build. Called by the deploy workflow on every pull
+# request and every push to main, so nothing deploys unless this passes.
+on:
+  workflow_call:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
