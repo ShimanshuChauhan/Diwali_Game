@@ -7,14 +7,14 @@ import type { NeighbourView, Neighbours } from './neighbours';
  * sarees, men in kurta-pyjama (some in Nehru jackets) and two children.
  */
 export const LOOKS: readonly Look[] = [
-  { outfit: 'saree', main: '#c2185b', trim: '#ffd54f', second: '#ffb300', skin: '#8d5524', hair: '#160f0c', hairStyle: 'braid', bindi: true },
-  { outfit: 'kurta', main: '#ff8f00', trim: '#7b1fa2', second: '#f3e9d2', skin: '#a0673a', hair: '#1b1410', hairStyle: 'short', moustache: true },
-  { outfit: 'saree', main: '#2e7d32', trim: '#ffca28', second: '#c62828', skin: '#c68642', hair: '#1b1410', hairStyle: 'bun', bindi: true },
-  { outfit: 'kurta', main: '#fdd835', trim: '#c62828', second: '#f3e9d2', skin: '#a0673a', hair: '#1b1410', hairStyle: 'short', scale: 0.62 },
-  { outfit: 'kurta', main: '#f3e9d2', trim: '#d4a017', second: '#f3e9d2', jacket: '#6a1b9a', skin: '#7a4a26', hair: '#2a2a2a', hairStyle: 'short', moustache: true },
-  { outfit: 'saree', main: '#6a1b9a', trim: '#f48fb1', second: '#f48fb1', skin: '#a0673a', hair: '#160f0c', hairStyle: 'braid', bindi: true },
-  { outfit: 'saree', main: '#ff7043', trim: '#ffee58', second: '#00838f', skin: '#c68642', hair: '#1b1410', hairStyle: 'braid', scale: 0.64 },
-  { outfit: 'kurta', main: '#00838f', trim: '#ffb74d', second: '#f3e9d2', jacket: '#bf360c', skin: '#8d5524', hair: '#1b1410', hairStyle: 'short' },
+  { outfit: 'saree', main: '#c2185b', trim: '#ffd54f', second: '#ffb300', skin: '#8d5524', hair: '#160f0c', hairStyle: 'plait', bindi: true },
+  { outfit: 'kurta', main: '#ff8f00', trim: '#7b1fa2', second: '#f3e9d2', skin: '#a0673a', hair: '#1b1410', hairStyle: 'sidePart', moustache: true },
+  { outfit: 'saree', main: '#2e7d32', trim: '#ffca28', second: '#c62828', skin: '#c68642', hair: '#1b1410', hairStyle: 'bunGajra', bindi: true },
+  { outfit: 'kurta', main: '#fdd835', trim: '#c62828', second: '#f3e9d2', skin: '#a0673a', hair: '#1b1410', hairStyle: 'fringe', scale: 0.62 },
+  { outfit: 'kurta', main: '#f3e9d2', trim: '#d4a017', second: '#f3e9d2', jacket: '#6a1b9a', skin: '#7a4a26', hair: '#2a2a2a', hairStyle: 'receding', moustache: true },
+  { outfit: 'saree', main: '#6a1b9a', trim: '#f48fb1', second: '#f48fb1', skin: '#a0673a', hair: '#160f0c', hairStyle: 'bun', bindi: true },
+  { outfit: 'saree', main: '#ff7043', trim: '#ffee58', second: '#00838f', skin: '#c68642', hair: '#1b1410', hairStyle: 'plait', scale: 0.64 },
+  { outfit: 'kurta', main: '#00838f', trim: '#ffb74d', second: '#f3e9d2', jacket: '#bf360c', skin: '#8d5524', hair: '#1b1410', hairStyle: 'sidePart' },
 ];
 
 /**

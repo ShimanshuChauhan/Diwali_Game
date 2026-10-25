@@ -13,7 +13,7 @@ const PLAYER_LOOK: Look = {
   jacket: '#1f3a5f',
   skin: '#b07850',
   hair: '#1b1210',
-  hairStyle: 'short',
+  hairStyle: 'sidePart',
 };
 
 /** Where the right hand holds things, in body space (see `HAND_SOCKET`). */
