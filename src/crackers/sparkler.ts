@@ -1,5 +1,8 @@
 import * as THREE from 'three';
+import type { HeldItem } from '../core/contracts';
+import type { LocationId } from '../core/homes';
 import type { Vec3 } from '../core/types';
+import { crackersAllowed } from './outdoors';
 
 /** Stick length, metres, and the bare handle at its foot. */
 const LENGTH = 0.32;
@@ -27,6 +30,12 @@ export interface SparklerState {
   readonly lit: boolean;
   /** How much has burnt, 0–1. */
   readonly progress: number;
+}
+
+/** What the stick shows for the phuljhari in hand: nothing in a home, where crackers never come. */
+export function heldSparklerState(held: HeldItem | null, progress: number, location: LocationId): SparklerState {
+  const shown = held !== null && crackersAllowed(location);
+  return { held: shown, lit: shown && held.lit, progress };
 }
 
 /**

@@ -44,6 +44,9 @@ export const IGNITION_REJECTION_TEXT: Readonly<Record<IgnitionRejection, string>
   capacity: 'Too many fireworks going off — wait a moment',
 };
 
+/** A lit phuljhari does not come indoors. */
+export const PHULJHARI_PUT_OUT_TEXT = 'Phuljhari put out at the door';
+
 export type RejectionKind = 'placement' | 'ignition';
 
 /**

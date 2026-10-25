@@ -9,6 +9,7 @@ export {
   type CrackerControlContext,
 } from './controls';
 export { Crackers, type CrackerAdmission, type CrackersOptions } from './crackers';
+export { crackersAllowed, putOutAtDoors, type DoorCrackers } from './outdoors';
 export {
   BURST_PATTERNS,
   CRACKER_DEFINITIONS,

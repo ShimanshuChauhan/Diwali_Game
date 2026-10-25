@@ -12,9 +12,9 @@ import { unlockOnFirstGesture } from './audio/controls';
 import { createSoundBoard } from './audio/soundBoard';
 import { CameraRig, rapierBoomCaster } from './camera';
 import { CapacityBudget } from './capacity';
-import { aimPoint, applyCrackerAction, Crackers } from './crackers';
+import { aimPoint, applyCrackerAction, Crackers, crackersAllowed, putOutAtDoors } from './crackers';
 import { CrackerProps } from './crackers/props';
-import { firstPersonHand, firstPersonStick, heldStick, Sparkler } from './crackers/sparkler';
+import { firstPersonHand, firstPersonStick, heldSparklerState, heldStick, Sparkler } from './crackers/sparkler';
 import { AARTI_SONG_IDS } from './core/homes';
 import { isHandheld, type Vec3 } from './core/types';
 import { DiyaScene, Diyas } from './diyas';
@@ -209,6 +209,8 @@ async function boot(): Promise<void> {
       rig.face(arrival.yaw);
     },
   });
+  // A lit phuljhari is put out as a fade into a home starts, so it is never seen indoors.
+  putOutAtDoors(bus, crackers);
   const aartiAudio = new AartiAudio({
     bus,
     output: () => audio.musicOutput,
@@ -278,6 +280,7 @@ async function boot(): Promise<void> {
     bus,
     pose: () => player.pose,
     hands: heldItems,
+    location: () => locations.location,
     view: () => {
       camera.getWorldDirection(listenerForward);
       return { mode: rig.mode, position: camera.position, forward: listenerForward, yaw: rig.yaw, pitch: rig.pitch };
@@ -504,11 +507,7 @@ async function boot(): Promise<void> {
       const held = crackers.held;
       const direction =
         rig.mode === 'firstPerson' ? firstPersonStick(camera, stickDirection) : heldStick(player.pose.yaw, stickDirection);
-      sparkler.update(handPosition(), direction, {
-        held: held !== null,
-        lit: held?.lit ?? false,
-        progress: crackers.heldProgress,
-      });
+      sparkler.update(handPosition(), direction, heldSparklerState(held, crackers.heldProgress, locations.location));
     }
     effects?.setViewpoint(camera.position);
     effectsView?.sync();
@@ -537,7 +536,7 @@ async function boot(): Promise<void> {
     const interactableType =
       interactable?.kind === 'cracker' ? crackers.list().find((c) => c.id === interactable.id)?.type : undefined;
     const placement =
-      session.paused || !outdoors || isHandheld(selected) || heldItems.hands
+      session.paused || !crackersAllowed(locations.location) || isHandheld(selected) || heldItems.hands
         ? null
         : interaction.previewPlacement({ type: selected, playerPosition: feet, target: aimPoint(feet, view.forward) });
     // At an unlit cracker or a home target, E comes first: a red ghost over it would only read as an error.

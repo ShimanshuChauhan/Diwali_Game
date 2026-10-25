@@ -1,10 +1,11 @@
 import { crackerForSlot, type GameAction } from '../core/actions';
 import type { CameraView, InteractionModule, PlayerPose } from '../core/contracts';
 import type { GameEventBus } from '../core/events';
-import type { CrackerAction, CrackerHandsRejection } from '../core/homes';
+import type { CrackerAction, CrackerHandsRejection, LocationId } from '../core/homes';
 import { TUNING } from '../core/tuning';
 import { isHandheld, type Vec3 } from '../core/types';
 import type { Crackers } from './crackers';
+import { crackersAllowed } from './outdoors';
 
 /**
  * Range of ground distances the view can aim a cracker at, metres. The far
@@ -25,6 +26,8 @@ export interface CrackerControlContext {
   readonly view: () => CameraView;
   /** What else is in the hands; any reason it gives blocks every cracker action. */
   readonly hands?: { crackerBlock(): CrackerHandsRejection | null };
+  /** Where the player is; in a home nothing is lit or placed. Outdoors when omitted. */
+  readonly location?: () => LocationId;
 }
 
 /**
@@ -73,16 +76,19 @@ function blocked(ctx: CrackerControlContext, action: CrackerAction): boolean {
  * Route the cracker actions: 1–5 select, click places the selected ground
  * cracker (or lights the held phuljhari), E lights the nearest placed
  * cracker, else the held phuljhari. While the hands carry a plate, gift box
- * or thali, each of these is refused with `crackerBlocked` instead. Returns
- * false for actions it ignores.
+ * or thali, each of these is refused with `crackerBlocked` instead. In a
+ * home, click and E do nothing to crackers; 1–4 still change the selection.
+ * Returns false for actions it ignores.
  */
 export function applyCrackerAction(action: GameAction, ctx: CrackerControlContext): boolean {
   const { crackers } = ctx;
+  const indoors = !crackersAllowed(ctx.location?.() ?? 'outdoors');
   switch (action.type) {
     case 'select':
       if (!blocked(ctx, 'select')) crackers.select(crackerForSlot(action.slot));
       return true;
     case 'place': {
+      if (indoors) return true;
       const type = crackers.selected;
       if (isHandheld(type)) {
         if (!blocked(ctx, 'igniteHeld')) crackers.igniteHeld();
@@ -98,6 +104,7 @@ export function applyCrackerAction(action: GameAction, ctx: CrackerControlContex
       return true;
     }
     case 'interact': {
+      if (indoors) return true;
       const target = ctx.interaction.findInteractable(ctx.view());
       if (target?.kind === 'cracker') {
         if (!blocked(ctx, 'ignite')) crackers.ignite(target.id);

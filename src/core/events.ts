@@ -130,6 +130,8 @@ export interface GameEvents {
   itemDelivered: { readonly item: HandItem };
   /** A cracker action was refused because the hands hold something else. */
   crackerBlocked: { readonly action: CrackerAction; readonly reason: CrackerHandsRejection };
+  /** A lit phuljhari was put out at a home's door; crackers stay outdoors. */
+  phuljhariPutOut: { readonly id: CrackerId };
   sweetsEaten: Record<string, never>;
   sweetsOffered: { readonly member: FamilyMemberId };
 
