@@ -1,11 +1,14 @@
 import type { EffectStats } from '../core/contracts';
 import type { BurstPattern } from '../core/types';
-import { FlashPool } from './flashPool';
+import { FlashPool, SkyGlow } from './flashPool';
 import { GRAVITY, ParticlePool, createParticleSpec } from './particlePool';
 import {
+  BURST_LIGHT_FLOOR,
+  BURST_LOOKS,
   PATTERN_SHAPES,
   SKY_BURST,
   surgeFactor,
+  type BurstLook,
   type CoreSpec,
   type EmitterPreset,
   type GlowLightSpec,
@@ -45,6 +48,8 @@ export interface EngineBudget {
   readonly maxDynamicLights: number;
   /** Multiplier on preset particle counts and rates. */
   readonly countScale: number;
+  /** How rocket bursts light the scene and how rich they look; kept when omitted. */
+  readonly burst?: BurstLook;
 }
 
 export interface EngineOptions {
@@ -143,6 +148,8 @@ export class FireworksEngine {
   /** Normal-blended paper and smoke, drawn under the sparks. Unowned: they never hold an effect open. */
   readonly matte: ParticlePool;
   readonly flashes: FlashPool;
+  /** Sky wash after bursts, on levels whose burst look has one. */
+  readonly sky = new SkyGlow();
   /** Updated in place every step; safe to hold onto (e.g. a perf overlay). */
   readonly stats: EngineStats;
   private readonly counters: Mutable<EngineStats>;
@@ -153,6 +160,7 @@ export class FireworksEngine {
   private readonly matteSpec = createParticleSpec();
   /** Live sparks and matte particles together stay under this. */
   private particleBudget: number;
+  private readonly burstTail = { decay: 2, glow: 0, glowDuration: 0 };
   private readonly arms = new Float32Array(MAX_ARMS * 3);
   private readonly scratch = new Float32Array(3);
   private readonly axisU = new Float32Array(3);
@@ -165,6 +173,7 @@ export class FireworksEngine {
   private breakCount = 0;
   private effectLimit: number;
   private countScale = 1;
+  private look: BurstLook = BURST_LOOKS.low;
   private serial = 0;
   private hasViewpoint = false;
   private viewX = 0;
@@ -239,6 +248,10 @@ export class FireworksEngine {
     this.flashes.setLimit(budget.maxDynamicLights);
     this.effectLimit = Math.max(0, Math.min(this.emitters.length, Math.floor(budget.maxActiveEffects)));
     this.countScale = Math.max(0, budget.countScale);
+    if (budget.burst) {
+      this.look = budget.burst;
+      if (budget.burst.sky <= 0) this.sky.clear();
+    }
     // Effects over a lowered limit keep running until they finish.
     this.refreshStats();
   }
@@ -251,6 +264,11 @@ export class FireworksEngine {
     this.hasViewpoint = true;
     this.viewX = x;
     this.viewZ = z;
+  }
+
+  /** The current burst look, from the quality budget. */
+  get burstLook(): BurstLook {
+    return this.look;
   }
 
   /** Crossette stars still waiting to split, across every effect. */
@@ -271,12 +289,27 @@ export class FireworksEngine {
     }
     this.emitBurst(index, emitter, shape);
     emitter.emitting = false;
-    const flash = SKY_BURST.flash;
-    if (flash) this.flashes.trigger(x, y, z, firstColour(colours, SKY_BURST), flash.peak, flash.range, flash.duration);
+    this.burstLight(x, y, z, firstColour(colours, SKY_BURST), shape);
     const empty = emitter.live === 0 && emitter.pending === 0;
     if (empty) this.release(index);
     this.refreshStats();
     return empty ? NO_EFFECT : this.handleOf(index);
+  }
+
+  /**
+   * The burst's light: one pooled flash in its first colour, lowered into
+   * the shell so it reaches the street, with an afterglow that fades with
+   * the sparks; plus the sky wash where the look has one.
+   */
+  private burstLight(x: number, y: number, z: number, colour: number, shape: PatternShape): void {
+    const look = this.look;
+    const ly = Math.max(Math.min(y, BURST_LIGHT_FLOOR), y - look.drop);
+    const tail = this.burstTail;
+    tail.decay = look.decay;
+    tail.glow = look.glow;
+    tail.glowDuration = look.glowDuration * shape.lifeScale;
+    this.flashes.trigger(x, ly, z, colour, look.peak, look.range, look.duration, tail);
+    this.sky.trigger(colour, look.sky, look.skyDuration * shape.lifeScale);
   }
 
   /** Start a stream emitter (trail, fountain, spinner, sparkler). */
@@ -426,6 +459,7 @@ export class FireworksEngine {
     this.matte.update(dt);
     this.shareBudget();
     this.flashes.update(dt);
+    this.sky.update(dt);
 
     for (let i = 0; i < this.emitters.length; i++) {
       const emitter = this.emitters[i]!;
@@ -440,6 +474,7 @@ export class FireworksEngine {
     this.matte.clear();
     this.shareBudget();
     this.flashes.clear();
+    this.sky.clear();
     for (let i = 0; i < this.emitters.length; i++) {
       if (this.emitters[i]!.inUse) this.release(i);
     }
@@ -847,7 +882,8 @@ export class FireworksEngine {
       spec.gravity = shape.gravity;
       if (shape.glitter) spec.flicker = GLITTER_FLICKER;
     }
-    const brightness = preset.brightness ?? 1;
+    // Sky-burst stars (those with a shape) follow the quality's burst look.
+    const brightness = (preset.brightness ?? 1) * (shape ? this.look.brightness : 1);
     spec.r0 *= brightness;
     spec.g0 *= brightness;
     spec.b0 *= brightness;
@@ -871,7 +907,7 @@ export class FireworksEngine {
     const r1 = spec.r1;
     const g1 = spec.g1;
     const b1 = spec.b1;
-    const step = shape?.tailStep ?? tail.step;
+    const step = (shape?.tailStep ?? tail.step) * (shape ? this.look.tailStretch : 1);
     for (let k = 1; k <= count; k++) {
       const slow = Math.max(0.2, 1 - step * k);
       const dim = Math.pow(tail.fade, k);

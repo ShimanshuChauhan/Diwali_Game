@@ -5,7 +5,9 @@ import type { FireworksEngine } from './fireworksEngine';
  * Draws a `FireworksEngine`: one `THREE.Points` over the shared particle
  * buffers with an additive soft-sprite shader, a second, normal-blended one
  * under it for the matte pool (paper shreds and smoke), plus a small pool of
- * point lights mirroring the flash slots.
+ * point lights mirroring the flash slots. On levels whose bursts wash the sky
+ * it tints the scene's own hemisphere light rather than adding one: a second
+ * hemisphere light costs several milliseconds a frame on High.
  *
  * The GPU attributes wrap the engine's own typed arrays, so a frame only
  * uploads the live range; nothing is allocated per frame.
@@ -74,6 +76,14 @@ const MATTE_FRAGMENT_SHADER = /* glsl */ `
   }
 `;
 
+/** Light bounced up from the ground in the sky wash, as a share of the sky's. */
+const SKY_GROUND_SHARE = 0.3;
+
+export interface EffectsRendererOptions {
+  /** The scene's sky fill; bursts tint it towards their colour on levels with a sky wash. */
+  readonly skyLight?: THREE.HemisphereLight;
+}
+
 interface UpdateRange {
   start: number;
   count: number;
@@ -102,8 +112,20 @@ export class EffectsRenderer {
     { start: 0, count: 0 },
   ];
   private lights: THREE.PointLight[] = [];
+  private readonly skyLight: THREE.HemisphereLight | null;
+  /** The sky light's own colours, restored once a wash has faded. */
+  private readonly skyBase: { sky: THREE.Color; ground: THREE.Color; intensity: number } | null;
+  private readonly tint = new THREE.Color();
+  private skyTinted = false;
 
-  constructor(private readonly engine: FireworksEngine) {
+  constructor(
+    private readonly engine: FireworksEngine,
+    options: EffectsRendererOptions = {},
+  ) {
+    this.skyLight = options.skyLight ?? null;
+    this.skyBase = this.skyLight
+      ? { sky: this.skyLight.color.clone(), ground: this.skyLight.groundColor.clone(), intensity: this.skyLight.intensity }
+      : null;
     const pool = engine.particles;
     this.positionAttr = new THREE.BufferAttribute(pool.positions, 3).setUsage(THREE.DynamicDrawUsage);
     this.colourAttr = new THREE.BufferAttribute(pool.colours, 4).setUsage(THREE.DynamicDrawUsage);
@@ -210,7 +232,32 @@ export class EffectsRenderer {
       light.color.setHex(slot.colour);
       light.intensity = slot.intensity;
       light.distance = slot.range;
+      light.decay = slot.decay;
     }
+
+    this.syncSky();
+  }
+
+  /** Lift the sky light by the burst colour × glow; colours only, so no recompiles. */
+  private syncSky(): void {
+    const sky = this.skyLight;
+    const base = this.skyBase;
+    if (!sky || !base) return;
+    const glow = this.engine.sky;
+    if (glow.level <= 0) {
+      if (this.skyTinted) {
+        sky.color.copy(base.sky);
+        sky.groundColor.copy(base.ground);
+        this.skyTinted = false;
+      }
+      return;
+    }
+    // The light shines colour × intensity, so scale the added tint to land at glow.level.
+    const scale = glow.level / Math.max(base.intensity, 1e-3);
+    this.tint.setHex(glow.colour);
+    sky.color.copy(this.tint).multiplyScalar(scale).add(base.sky);
+    sky.groundColor.copy(this.tint).multiplyScalar(scale * SKY_GROUND_SHARE).add(base.ground);
+    this.skyTinted = true;
   }
 
   dispose(): void {
@@ -220,6 +267,10 @@ export class EffectsRenderer {
     this.matteMaterial.dispose();
     for (const light of this.lights) light.dispose();
     this.lights = [];
+    if (this.skyLight && this.skyBase) {
+      this.skyLight.color.copy(this.skyBase.sky);
+      this.skyLight.groundColor.copy(this.skyBase.ground);
+    }
     this.object.clear();
   }
 
