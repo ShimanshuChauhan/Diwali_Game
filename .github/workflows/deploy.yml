@@ -53,10 +53,17 @@ jobs:
 
       - run: vercel pull --yes --environment=${{ steps.target.outputs.env }} --token=${{ secrets.VERCEL_TOKEN }}
       - run: vercel build ${{ steps.target.outputs.flag }} --token=${{ secrets.VERCEL_TOKEN }}
+      # Deployed from outside the git checkout so the CLI sends no commit
+      # metadata: Vercel's Hobby plan blocks deploys whose commit email it
+      # can't match (GitHub's noreply addresses), and the CLI then hangs on
+      # "Building…" instead of failing. The timeout makes any block fail fast.
       - name: Deploy
         id: deploy
+        timeout-minutes: 5
         run: |
-          url=$(vercel deploy --prebuilt ${{ steps.target.outputs.flag }} --token=${{ secrets.VERCEL_TOKEN }})
+          mkdir -p "$RUNNER_TEMP/deploy"
+          cp -r .vercel "$RUNNER_TEMP/deploy/"
+          url=$(vercel deploy --prebuilt ${{ steps.target.outputs.flag }} --cwd "$RUNNER_TEMP/deploy" --token=${{ secrets.VERCEL_TOKEN }})
           echo "url=$url" >> "$GITHUB_OUTPUT"
           echo "Deployed to $url" >> "$GITHUB_STEP_SUMMARY"
 
