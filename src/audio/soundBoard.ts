@@ -1,6 +1,8 @@
 import { createGameEventBus } from '../core/events';
 import { TUNING } from '../core/tuning';
 import type { BurstPattern, CrackerType } from '../core/types';
+import { CRACKER_DEFINITIONS } from '../crackers/definitions';
+import { rollLadiChain } from '../crackers/ladi';
 import { BURST_PATTERNS } from '../effects/presets';
 import { AudioEngine } from './audioEngine';
 
@@ -42,6 +44,18 @@ export function createSoundBoard(parent: HTMLElement): () => void {
     later(activeDuration[type], () => bus.emit('crackerFinished', { id, type, reason: 'completed' }));
   };
 
+  /** The player's own ladi: its pops on the game's timing, from the string's near end outwards. */
+  const burnLadi = (): void => {
+    const id = `board-${next++}`;
+    const chain = rollLadiChain(CRACKER_DEFINITIONS.ladi, Math.random);
+    bus.emit('crackerActive', { id, type: 'ladi', position: IN_FRONT, ladi: { chain, heading: 0 } });
+    chain.pops.forEach((pop, index) => {
+      const position = { x: IN_FRONT.x, y: IN_FRONT.y, z: IN_FRONT.z + 0.4 - (0.8 * index) / chain.pops.length };
+      later(pop.time, () => bus.emit('ladiPop', { id, index, banger: pop.banger, position, loud: pop.loud }));
+    });
+    later(chain.duration, () => bus.emit('crackerFinished', { id, type: 'ladi', reason: 'completed' }));
+  };
+
   const launchRocket = (pattern: BurstPattern): void => {
     const id = `board-${next++}`;
     const flight = { ascent: activeDuration.rocket, apexHeight: 30, drift: { x: 3, z: -4 } };
@@ -58,6 +72,7 @@ export function createSoundBoard(parent: HTMLElement): () => void {
     ['Phuljhari', () => burnCracker('phuljhari')],
     ['Anar', () => burnCracker('anar')],
     ['Chakri', () => burnCracker('chakri')],
+    ['Ladi, at your feet', burnLadi],
     ['Rocket → peony', () => launchRocket('peony')],
     ...BURST_PATTERNS.map((pattern): [string, () => void] => [
       `Burst: ${pattern}`,

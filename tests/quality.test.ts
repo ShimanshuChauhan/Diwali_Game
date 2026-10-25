@@ -330,7 +330,8 @@ describe('overlay counters during repeated launches', () => {
     for (let round = 0; round < 6; round++) {
       let peak = 0;
       for (let i = 0; i < 12; i++) {
-        launch(CRACKER_TYPES[1 + (i % 3)]!);
+        // Every ground type in turn: anar, chakri, rocket, ladi.
+        launch(CRACKER_TYPES[1 + (i % 4)]!);
         step(0.25, (stats) => {
           expectWithinBudgets(stats);
           peak = Math.max(peak, stats.resources.particles.used);
@@ -362,7 +363,7 @@ describe('overlay counters during repeated launches', () => {
     }
   });
 
-  it('keeps all four cracker types working on Low', async () => {
+  it('keeps all five cracker types working on Low', async () => {
     const { bus, launch, crackers, step } = await celebration('low');
     const active = new Set<CrackerType>();
     const bursts: GameEvents['burst'][] = [];
@@ -370,7 +371,7 @@ describe('overlay counters during repeated launches', () => {
     bus.on('burst', (e) => bursts.push(e));
     crackers.select('phuljhari');
     expect(crackers.igniteHeld().ok).toBe(true);
-    for (const type of ['anar', 'chakri', 'rocket'] as const) launch(type);
+    for (const type of ['anar', 'chakri', 'rocket', 'ladi'] as const) launch(type);
     step(6);
     expect([...active].sort()).toEqual([...CRACKER_TYPES].sort());
     expect(bursts.length).toBeGreaterThan(0);

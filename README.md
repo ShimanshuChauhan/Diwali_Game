@@ -1,7 +1,7 @@
 # Diwali Celebration Sandbox
 
 A single-player, browser-based Diwali celebration sandbox: explore a festive
-residential lane, light diyas, and set off phuljhari, anar, chakri and rockets.
+residential lane, light diyas, and set off phuljhari, anar, chakri, rockets and ladis.
 See [`PRD.md`](PRD.md) for the full product requirements and the
 [issue tracker](https://github.com/ShimanshuChauhan/Diwali_Game/issues) for
 the build plan.

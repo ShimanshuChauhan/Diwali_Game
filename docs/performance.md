@@ -60,7 +60,7 @@ of skewing it.
 
 It goes through the same placement rules and capacity gates as a player:
 
-- Every 0.25 s, place an anar or chakri on a grid in the lane ahead of
+- Every 0.25 s, place an anar, chakri or ladi on a grid in the lane ahead of
   the spawn until the 12-prop cap refuses, then back off 5 s.
 - Every 0.4 s, light the oldest unlit cracker until the 6-lit cap
   refuses, then back off 5 s.

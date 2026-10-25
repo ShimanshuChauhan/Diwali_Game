@@ -15,7 +15,7 @@ export interface StressScenarioOptions {
   readonly crackers: StressCrackers;
   /** Placement rules, so the scenario only places where a player could. */
   readonly validatePlacement: (request: PlacementRequest) => PlacementResult;
-  /** Candidate ground points for anar and chakri, tried in turn. */
+  /** Candidate ground points for anar, chakri and ladi, tried in turn. */
   readonly groundSites: readonly Vec3[];
   /** Candidate launch points for rockets, tried in turn. */
   readonly rocketSites: readonly Vec3[];
@@ -44,7 +44,7 @@ export interface StressCounters {
   ignitionRejections: Record<string, number>;
 }
 
-const GROUND_TYPES: readonly CrackerType[] = ['anar', 'chakri'];
+const GROUND_TYPES: readonly CrackerType[] = ['anar', 'chakri', 'ladi'];
 
 /** Where a player standing next to `site` would be, so reach is satisfied. */
 const standingBy = (site: Vec3): Vec3 => ({ x: site.x, y: site.y, z: site.z + 1 });

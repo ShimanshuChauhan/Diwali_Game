@@ -45,6 +45,14 @@ export function aimPoint(feet: Vec3, forward: Vec3, distance = aimDistance(forwa
   return { x: feet.x + (forward.x / len) * distance, y: feet.y, z: feet.z + (forward.z / len) * distance };
 }
 
+/**
+ * The yaw `forward` faces on the ground plane (0 looks down -Z), so a
+ * placed ladi's string runs away from the player along the view.
+ */
+export function headingOf(forward: Vec3): number {
+  return Math.atan2(-forward.x, -forward.z);
+}
+
 /** Where the held phuljhari sits for a player at `feet` facing `yaw`. */
 export function handPositionFor(feet: Vec3, yaw: number): Vec3 {
   return {
@@ -62,7 +70,7 @@ function blocked(ctx: CrackerControlContext, action: CrackerAction): boolean {
 }
 
 /**
- * Route the cracker actions: 1–4 select, click places the selected ground
+ * Route the cracker actions: 1–5 select, click places the selected ground
  * cracker (or lights the held phuljhari), E lights the nearest placed
  * cracker, else the held phuljhari. While the hands carry a plate, gift box
  * or thali, each of these is refused with `crackerBlocked` instead. Returns
@@ -82,9 +90,10 @@ export function applyCrackerAction(action: GameAction, ctx: CrackerControlContex
       }
       if (blocked(ctx, 'place')) return true;
       const pose = ctx.pose();
-      const target = aimPoint(pose.position, ctx.view().forward);
+      const { forward } = ctx.view();
+      const target = aimPoint(pose.position, forward);
       const result = ctx.interaction.validatePlacement({ type, playerPosition: pose.position, target });
-      if (result.ok) crackers.place(result.preview);
+      if (result.ok) crackers.place({ ...result.preview, heading: headingOf(forward) });
       else ctx.bus.emit('placementRejected', { type, reason: result.reason });
       return true;
     }

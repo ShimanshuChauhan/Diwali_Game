@@ -11,6 +11,7 @@ export type SoundKind =
   | 'anarRoar'
   | 'chakriWhine'
   | 'rocketWhistle'
+  | 'ladiPops'
   | 'burst'
   | 'distantPop'
   | 'distantBomb'
@@ -34,6 +35,7 @@ export const SOUNDS: Readonly<Record<SoundKind, SoundSpec>> = {
   rocketWhistle: { priority: 4, gain: 0.45, refDistance: 6 },
   anarRoar: { priority: 3, gain: 0.6, refDistance: 4 },
   chakriWhine: { priority: 3, gain: 0.45, refDistance: 4 },
+  ladiPops: { priority: 3, gain: 0.7, refDistance: 3 },
   phuljhariCrackle: { priority: 3, gain: 0.35, refDistance: 1.5 },
   fuseHiss: { priority: 1, gain: 0.25, refDistance: 1.5 },
   // Crackers elsewhere in town are the first to go when the budget is tight.
@@ -46,13 +48,24 @@ export const SOUNDS: Readonly<Record<SoundKind, SoundSpec>> = {
   distantChakri: { priority: 0, gain: 0.22, refDistance: 1 },
 };
 
-/** Sustained sound a cracker makes while active. */
-export const ACTIVE_SOUND: Readonly<Record<CrackerType, SoundKind>> = {
+/** Sustained sound a cracker makes while active; a ladi has none, only its pops. */
+export const ACTIVE_SOUND: Readonly<Record<CrackerType, SoundKind | null>> = {
   phuljhari: 'phuljhariCrackle',
   anar: 'anarRoar',
   chakri: 'chakriWhine',
   rocket: 'rocketWhistle',
+  ladi: null,
 };
+
+/**
+ * A ladi's pops are played in batches: each `ladiPops` voice carries the
+ * pops due within this many seconds of its first, so a ladi holds a voice
+ * or two rather than one per banger, and each batch starts on its first
+ * pop's event to stay in step with the bangs on screen.
+ */
+export const LADI_BATCH = 0.6;
+/** The last pop of a batch rings this long before its voice ends, seconds. */
+export const LADI_RING = 0.25;
 
 /** Length of a burst's boom plus crackle tail, seconds. */
 export const BURST_DURATION = 3.2;

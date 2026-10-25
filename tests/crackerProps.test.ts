@@ -21,7 +21,13 @@ describe('CrackerProps', () => {
   it('shows placed and burning ground crackers', () => {
     const props = new CrackerProps(8);
     props.sync([snap('a', 'anar', 'placed'), snap('b', 'chakri', 'fuseBurning'), snap('c', 'rocket', 'placed')]);
-    expect(counts(props)).toEqual({ 'crackerProps.anar': 1, 'crackerProps.chakri': 1, 'crackerProps.rocket': 1 });
+    expect(counts(props)).toEqual({
+      'crackerProps.anar': 1,
+      'crackerProps.chakri': 1,
+      'crackerProps.rocket': 1,
+      'crackerProps.ladiCord': 0,
+      'crackerProps.ladiBanger': 0,
+    });
   });
 
   it('hides a rocket once it has launched but keeps active fountains', () => {

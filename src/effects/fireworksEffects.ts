@@ -1,12 +1,24 @@
 import type { EffectsModule } from '../core/contracts';
 import type { GameEventBus, GameEvents } from '../core/events';
 import type { Unsubscribe } from '../core/eventBus';
+import { ladiFuseTip, ladiPoint } from '../core/ladi';
 import { QUALITY_LEVELS, QUALITY_PROFILES, qualityProfile, DEFAULT_QUALITY, type QualityProfile } from '../core/quality';
 import { TUNING, type Tuning } from '../core/tuning';
 import { rocketFlightAt, type MutableVec3 } from '../core/rocketFlight';
 import type { CrackerId, CrackerType, RocketFlight, Vec3 } from '../core/types';
 import { FireworksEngine, NO_EFFECT, type EffectHandle, type EngineStats } from './fireworksEngine';
-import { ANAR_PALETTES, CHAKRI_PALETTES, FOUNTAIN, FUSE, ROCKET_TRAIL, SPARKLER, SPINNER, type EmitterPreset } from './presets';
+import {
+  ANAR_PALETTES,
+  CHAKRI_PALETTES,
+  FOUNTAIN,
+  FUSE,
+  LADI_BURN,
+  LADI_POP,
+  ROCKET_TRAIL,
+  SPARKLER,
+  SPINNER,
+  type EmitterPreset,
+} from './presets';
 
 /**
  * Effects module: turns cracker events into pooled particles, trails and
@@ -33,10 +45,10 @@ export interface SpinnerPose {
 }
 
 /** The fuse sparkle sits at the top of each ground cracker's model. */
-const FUSE_HEIGHT: Readonly<Record<CrackerType, number>> = { phuljhari: 0, anar: 0.27, chakri: 0.06, rocket: 0.12 };
+const FUSE_HEIGHT: Readonly<Record<CrackerType, number>> = { phuljhari: 0, anar: 0.27, chakri: 0.06, rocket: 0.12, ladi: 0 };
 
 /** The anar's fountain leaves the mouth of its pot, not the ground. */
-const ACTIVE_HEIGHT: Readonly<Record<CrackerType, number>> = { phuljhari: 0, anar: 0.26, chakri: 0, rocket: 0 };
+const ACTIVE_HEIGHT: Readonly<Record<CrackerType, number>> = { phuljhari: 0, anar: 0.26, chakri: 0, rocket: 0, ladi: 0 };
 
 /** Stream preset started when each ground/held cracker becomes active. */
 const ACTIVE_PRESETS: Readonly<Record<CrackerType, EmitterPreset>> = {
@@ -44,6 +56,7 @@ const ACTIVE_PRESETS: Readonly<Record<CrackerType, EmitterPreset>> = {
   anar: FOUNTAIN,
   chakri: SPINNER,
   rocket: ROCKET_TRAIL,
+  ladi: LADI_BURN,
 };
 
 /** Palettes ground crackers pick from, one per cracker. */
@@ -78,6 +91,8 @@ export class FireworksEffects implements EffectsModule {
   private readonly spinners = new Set<CrackerId>();
   /** Rockets in flight: their path, launch point and time since launch. */
   private readonly flights = new Map<CrackerId, { flight: RocketFlight; origin: Vec3; time: number }>();
+  /** Ladi fuses burning in from their tip to the string: from, to, seconds burnt. */
+  private readonly ladiFuses = new Map<CrackerId, { from: Vec3; to: Vec3; time: number }>();
   private readonly flightNow: MutableVec3 = { x: 0, y: 0, z: 0 };
   private readonly flightNext: MutableVec3 = { x: 0, y: 0, z: 0 };
   private readonly unsubscribes: Unsubscribe[] = [];
@@ -124,7 +139,21 @@ export class FireworksEffects implements EffectsModule {
       }
     }
     this.steerRockets(dt);
+    this.burnLadiFuses(dt);
     this.engine.update(dt);
+  }
+
+  /** Walk each ladi's fuse sparkle from the tip in to the first banger as it burns. */
+  private burnLadiFuses(dt: number): void {
+    const fuse = this.tuning.crackers.fuse.ladi;
+    for (const [id, burn] of this.ladiFuses) {
+      const handle = this.byCracker.get(id);
+      if (handle === undefined) continue;
+      burn.time += dt;
+      const u = fuse > 0 ? Math.min(1, burn.time / fuse) : 1;
+      const { from, to } = burn;
+      this.engine.moveEmitter(handle, from.x + (to.x - from.x) * u, from.y + (to.y - from.y) * u, from.z + (to.z - from.z) * u);
+    }
   }
 
   /**
@@ -152,6 +181,7 @@ export class FireworksEffects implements EffectsModule {
     this.inHand.clear();
     this.spinners.clear();
     this.flights.clear();
+    this.ladiFuses.clear();
     this.engine.reset();
   }
 
@@ -183,21 +213,26 @@ export class FireworksEffects implements EffectsModule {
 
   // ── event handlers ─────────────────────────────────────────────────────
 
-  onFuseLit({ id, type, position }: GameEvents['fuseLit']): void {
+  onFuseLit({ id, type, position, heading }: GameEvents['fuseLit']): void {
     this.stopCracker(id);
-    const lift = FUSE_HEIGHT[type];
-    const handle = this.engine.startStream(FUSE, position.x, position.y + lift, position.z);
+    // A ladi is lit at the tip of the fuse sticking out of its string.
+    const ladi = type === 'ladi' ? ladiFuseTip(position, heading ?? 0, { x: 0, y: 0, z: 0 }) : null;
+    const at = ladi ?? { x: position.x, y: position.y + FUSE_HEIGHT[type], z: position.z };
+    const handle = this.engine.startStream(FUSE, at.x, at.y, at.z);
     if (handle === NO_EFFECT) return;
     this.track(id, type, handle);
+    if (ladi) this.ladiFuses.set(id, { from: ladi, to: ladiPoint(position, heading ?? 0, 0, 0, { x: 0, y: 0, z: 0 }), time: 0 });
   }
 
-  onCrackerActive({ id, type, position, flight }: GameEvents['crackerActive']): void {
+  onCrackerActive({ id, type, position, flight, ladi }: GameEvents['crackerActive']): void {
     this.stopCracker(id);
     // Each anar and chakri burns in one of a few palettes.
     const palettes = PALETTES[type];
     const colours = palettes ? palettes[Math.floor(this.random() * palettes.length)] : undefined;
-    const y = position.y + ACTIVE_HEIGHT[type];
-    const handle = this.engine.startStream(ACTIVE_PRESETS[type], position.x, y, position.z, colours);
+    // A ladi's fire starts where its fuse meets the string.
+    const start = ladi ? ladiPoint(position, ladi.heading, 0, 0, { x: 0, y: 0, z: 0 }) : position;
+    const y = start.y + ACTIVE_HEIGHT[type];
+    const handle = this.engine.startStream(ACTIVE_PRESETS[type], start.x, y, start.z, colours);
     if (handle === NO_EFFECT) return;
     this.track(id, type, handle);
     if (type === 'chakri') this.spinners.add(id);
@@ -207,6 +242,13 @@ export class FireworksEffects implements EffectsModule {
       const path = flight ?? { ascent: activeDuration.rocket, apexHeight: rocketApexHeight, drift: { x: 0, z: 0 } };
       this.flights.set(id, { flight: path, origin: { x: position.x, y: position.y, z: position.z }, time: 0 });
     }
+  }
+
+  /** A banger going off on a burning ladi; nothing if its effect was refused. */
+  onLadiPop({ id, position, loud }: GameEvents['ladiPop']): void {
+    const handle = this.byCracker.get(id);
+    if (handle === undefined) return;
+    this.engine.pop(handle, position.x, position.y, position.z, LADI_POP, loud);
   }
 
   onBurst({ id, position, pattern, colours }: GameEvents['burst']): void {
@@ -226,6 +268,7 @@ export class FireworksEffects implements EffectsModule {
     this.inHand.delete(id);
     this.spinners.delete(id);
     this.flights.delete(id);
+    this.ladiFuses.delete(id);
   }
 
   private track(id: CrackerId, type: CrackerType, handle: EffectHandle): void {
@@ -237,6 +280,7 @@ export class FireworksEffects implements EffectsModule {
     this.unsubscribes.push(
       bus.on('fuseLit', (event) => this.onFuseLit(event)),
       bus.on('crackerActive', (event) => this.onCrackerActive(event)),
+      bus.on('ladiPop', (event) => this.onLadiPop(event)),
       bus.on('burst', (event) => this.onBurst(event)),
       bus.on('crackerFinished', (event) => this.onCrackerFinished(event)),
       bus.on('qualityChanged', ({ profile }) => this.applyQuality(profile)),

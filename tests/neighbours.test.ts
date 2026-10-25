@@ -149,7 +149,7 @@ describe('reacting to fireworks', () => {
     expect(log.map((e) => e.id)).toEqual(['near']);
   });
 
-  it('watches ground fountains and wheels, but not rocket launches or the phuljhari', () => {
+  it('watches ground fountains, wheels and ladis, but not rocket launches or the phuljhari', () => {
     const { bus, log } = reactions();
     const neighbours = new Neighbours({ areas: [], roster: roster(['a', v(0, 0, 0)]), bus, random: () => 0.99 });
     bus.emit('crackerActive', { id: 'r', type: 'rocket', position: v(3, 0, 0) });
@@ -159,6 +159,9 @@ describe('reacting to fireworks', () => {
     step(neighbours, reactionCooldown + 0.1);
     bus.emit('crackerActive', { id: 'a', type: 'anar', position: v(3, 0, 0) });
     expect(log.length).toBe(2);
+    step(neighbours, reactionCooldown + 0.1);
+    bus.emit('crackerActive', { id: 'l', type: 'ladi', position: v(3, 0, 0) });
+    expect(log.length).toBe(3);
   });
 
   it('throttles each neighbour with the reaction cooldown', () => {

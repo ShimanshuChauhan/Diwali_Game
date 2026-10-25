@@ -395,6 +395,113 @@ export const SPARKLER: EmitterPreset = {
   light: { peak: 3, range: 4, interval: 0.05, height: 0 },
 };
 
+/**
+ * Ladi: the fire running along the string. The stream itself throws no
+ * sparks; it carries a hot spitting point that hops to each banger as it
+ * pops (`LADI_POP` adds the bangs), so a whole ladi holds one effect.
+ */
+export const LADI_BURN: EmitterPreset = {
+  kind: 'stream',
+  count: 0,
+  rate: 0,
+  duration: Infinity,
+  speed: { min: 0.3, max: 1.2 },
+  life: { min: 0.05, max: 0.12 },
+  direction: UP,
+  spread: 1.1,
+  spin: 0,
+  gravity: 0.4,
+  drag: 2,
+  size0: 0.03,
+  size1: 0.01,
+  flicker: 0.7,
+  fade: 0.3,
+  inherit: 0,
+  colours: [0xffd890, 0xffb050],
+  nozzle: {
+    rate: 70,
+    speed: { min: 0.2, max: 1 },
+    life: { min: 0.04, max: 0.1 },
+    size: 0.035,
+    height: 0.005,
+    colour: 0xffe6b0,
+    brightness: 2,
+  },
+};
+
+export interface LadiPopPart {
+  /** Particles per pop at a count scale of 1. */
+  readonly count: number;
+  readonly speed: Range;
+  readonly life: Range;
+  readonly size0: number;
+  readonly size1: number;
+  readonly gravity: number;
+  readonly drag: number;
+  /** 0xRRGGBB. */
+  readonly colour: number;
+  /** Colour at death as a fraction of `colour`. */
+  readonly fade: number;
+}
+
+/** One banger going off: a tiny white flash, a spit of sparks, red paper shreds and a puff of smoke. */
+export interface LadiPopSpec {
+  /** The bang: one brief, hot sprite. */
+  readonly core: CoreSpec;
+  /** Sparks thrown up and out in a wide cone. */
+  readonly sparks: LadiPopPart & { readonly spread: number; readonly brightness: number };
+  /** Shreds of the banger's red paper, tossed up to flutter down (drawn opaque, not glowing). */
+  readonly paper: LadiPopPart;
+  /** A soft grey puff that swells and rises (drawn see-through). */
+  readonly smoke: LadiPopPart & { readonly opacity: number };
+  /** Louder bangs: bigger core and more sparks. */
+  readonly loudScale: number;
+  /** Some loud bangs also briefly light the ground, if a light is free. */
+  readonly flash: FlashSpec;
+}
+
+export const LADI_POP: LadiPopSpec = {
+  core: { size: 0.16, life: 0.045, colour: 0xfff4dc, brightness: 2.6 },
+  sparks: {
+    count: 9,
+    speed: { min: 1.2, max: 3.6 },
+    life: { min: 0.05, max: 0.16 },
+    size0: 0.02,
+    size1: 0.006,
+    gravity: 0.6,
+    drag: 4,
+    colour: 0xffd27a,
+    fade: 0.3,
+    spread: 1.2,
+    brightness: 1.8,
+  },
+  paper: {
+    count: 4,
+    speed: { min: 0.8, max: 2.4 },
+    life: { min: 0.7, max: 1.3 },
+    size0: 0.012,
+    size1: 0.01,
+    gravity: 0.3,
+    drag: 3,
+    colour: 0xb81418,
+    fade: 0.6,
+  },
+  smoke: {
+    count: 2,
+    speed: { min: 0.15, max: 0.45 },
+    life: { min: 1.2, max: 2.2 },
+    size0: 0.09,
+    size1: 0.42,
+    gravity: -0.03,
+    drag: 1.2,
+    colour: 0x4a4744,
+    fade: 0.7,
+    opacity: 0.22,
+  },
+  loudScale: 1.6,
+  flash: { peak: 2.5, range: 4, duration: 0.08 },
+};
+
 /** Shared base for overhead rocket bursts; patterns adjust it. */
 export const SKY_BURST: EmitterPreset = {
   kind: 'burst',

@@ -26,6 +26,7 @@ export const KEY_BINDINGS: Readonly<Record<string, Binding>> = {
   Digit2: { kind: 'press', action: { type: 'select', slot: 2 } },
   Digit3: { kind: 'press', action: { type: 'select', slot: 3 } },
   Digit4: { kind: 'press', action: { type: 'select', slot: 4 } },
+  Digit5: { kind: 'press', action: { type: 'select', slot: 5 } },
   KeyE: { kind: 'press', action: { type: 'interact' } },
   KeyV: { kind: 'press', action: { type: 'toggleCamera' } },
   Escape: { kind: 'press', action: { type: 'pause' } },

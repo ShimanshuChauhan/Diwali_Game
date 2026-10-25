@@ -3,6 +3,7 @@ export {
   aimPoint,
   applyCrackerAction,
   handPositionFor,
+  headingOf,
   PLACE_FARTHEST,
   PLACE_NEAREST,
   type CrackerControlContext,
@@ -17,5 +18,7 @@ export {
   type CrackerDefinition,
   type CrackerDefinitions,
   type CrackerEffects,
+  type LadiEffect,
 } from './definitions';
+export { rollLadiChain } from './ladi';
 export { rollRocketVariant, type RocketVariant } from './rocket';
