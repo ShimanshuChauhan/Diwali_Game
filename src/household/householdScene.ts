@@ -115,7 +115,7 @@ export class HouseholdScene {
       // Hips just above the seat, so the thighs rest on it.
       const seat = options.layout.seats?.[id];
       const top = seat ? seatHeight(options.layout, seat.position) : 0;
-      const seatBob = top / scale + 0.05 - BODY.hipY;
+      const seatBob = top / scale + BODY.hipAboveSeat - BODY.hipY;
       // In the figure's own space, so they scale with them and stay level as they turn.
       const props: Partial<Record<HeldProp, THREE.Group>> = { plate: buildSweetPlate(this.sweets, options.assets).plate };
       if (options.giftBoxes) {

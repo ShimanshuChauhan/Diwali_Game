@@ -92,19 +92,21 @@ export function createFamilyHomeLayout(anchor = HOME_ENTRANCES.familyHome.interi
   b.light('puja.lamp', b.at(pujaX, 2.6, puja.front + 0.6), 'low', '#ffb050', 7, 8);
 
   // ── Seating and sweets area (east) ─────────────────────────────────────
-  // Sofa along the east wall: seat, backrest and arms.
+  // Sofa along the east wall: seat, backrest and arms. Seats are low enough
+  // that the family sit with thighs level and feet on the floor.
+  const seatTop = 0.4;
   const sofa = { minX: hw - 0.8, minZ: -6.2, maxZ: -2.6 };
-  b.solid('sofa.seat', 'furniture', b.box(sofa.minX, 0, sofa.minZ, hw, 0.45, sofa.maxZ), 'fabricRed');
-  b.solid('sofa.back', 'furniture', b.box(hw - 0.25, 0.45, sofa.minZ, hw, 1.0, sofa.maxZ), 'fabricRed');
+  b.solid('sofa.seat', 'furniture', b.box(sofa.minX, 0, sofa.minZ, hw, seatTop, sofa.maxZ), 'fabricRed');
+  b.solid('sofa.back', 'furniture', b.box(hw - 0.25, seatTop, sofa.minZ, hw, 1.0, sofa.maxZ), 'fabricRed');
   b.solid('sofa.arm.north', 'furniture', b.box(sofa.minX, 0, sofa.minZ - 0.2, hw, 0.65, sofa.minZ), 'wood');
   b.solid('sofa.arm.south', 'furniture', b.box(sofa.minX, 0, sofa.maxZ, hw, 0.65, sofa.maxZ + 0.2), 'wood');
   for (let i = 0; i < 3; i++) {
     const z = sofa.minZ + 0.6 + i * 1.2;
-    b.deco(`sofa.cushion.${i}`, b.box(hw - 0.3, 0.45, z - 0.35, hw - 0.25, 0.85, z + 0.35), 'cushion');
+    b.deco(`sofa.cushion.${i}`, b.box(hw - 0.3, seatTop, z - 0.35, hw - 0.25, 0.85, z + 0.35), 'cushion');
   }
   // Armchair north of the table, facing it.
-  b.solid('armchair.seat', 'furniture', b.box(1.7, 0, -7.0, 2.7, 0.45, -6.2), 'fabricGold');
-  b.solid('armchair.back', 'furniture', b.box(1.7, 0.45, -7.0, 2.7, 1.0, -6.8), 'fabricGold');
+  b.solid('armchair.seat', 'furniture', b.box(1.7, 0, -7.0, 2.7, seatTop, -6.2), 'fabricGold');
+  b.solid('armchair.back', 'furniture', b.box(1.7, seatTop, -7.0, 2.7, 1.0, -6.8), 'fabricGold');
   // A cane moodha south of the table.
   b.solid('moodha', 'furniture', b.box(2.0, 0, -2.7, 2.4, 0.4, -2.3), 'cushion');
   // The low sweets table, its tray, and a cloth mat where the sharing plate

@@ -1,5 +1,5 @@
 import type { Gesture, HouseholdActivity } from '../core/homes';
-import type { FigurePose } from '../people/figure';
+import { SEATED, type FigurePose } from '../people/figure';
 import type { HouseholdMemberView } from './household';
 
 /** Per-figure adjustments that do not change with the activity. */
@@ -116,7 +116,7 @@ export function facesViewer(view: GestureView): boolean {
 function lowerBody(view: HouseholdMemberView, t: number, options: PoseOptions): Lower {
   if (view.activity === 'seated') {
     // Thighs forward along the seat, shins hanging to the floor.
-    return { bob: options.seatBob ?? -0.43, leftLeg: 1.5, rightLeg: 1.5, leftKnee: 1.5, rightKnee: 1.5 };
+    return { bob: options.seatBob ?? -0.43, leftLeg: SEATED.leg, rightLeg: SEATED.leg, leftKnee: SEATED.knee, rightKnee: SEATED.knee };
   }
   if (view.walking) {
     const step = Math.sin(t * 6);

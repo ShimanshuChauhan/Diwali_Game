@@ -23,7 +23,7 @@ import { GIFT_BOX, GIFT_HANDOVER, GiftExchange } from '../src/gifts';
 import { HeldItems } from '../src/homes';
 import { createFamilyHomeLayout, createNeighbourHomeLayout, InteriorAssets } from '../src/interior';
 import { PLATE_RADIUS } from '../src/sweets/sweetsScene';
-import { Figure } from '../src/people/figure';
+import { BODY, Figure } from '../src/people/figure';
 import { FAMILY_LOOKS } from '../src/household/looks';
 
 const STEP = 1 / 60;
@@ -170,6 +170,42 @@ describe('household presentation', () => {
       const drop = (standing[id]! - headY(root)) / scale;
       expect(drop).toBeGreaterThan(0.25);
       expect(drop).toBeLessThan(0.6);
+    }
+  });
+
+  it('sits sarees and kurtas on the sofa, armchair and moodha, not through them', () => {
+    const { figure, step, startAarti, completeAarti } = setup();
+    startAarti();
+    completeAarti();
+    step(60);
+    const furniture = layout.solids.filter((s) => s.kind === 'furniture' && s.box.max.y < 1.2);
+    const v = new THREE.Vector3();
+    for (const id of FAMILY_MEMBERS) {
+      const root = figure(id);
+      root.updateMatrixWorld(true);
+      const scale = FAMILY_LOOKS[id].scale ?? 1;
+      const top = seatHeight(layout, layout.seats[id].position);
+      let lowest = Infinity;
+      root.traverse((o) => {
+        if (!(o instanceof THREE.Mesh) || onPlate(o)) return;
+        for (let i = 0; i < o.geometry.getAttribute('position').count; i++) {
+          o.getVertexPosition(i, v).applyMatrix4(o.matrixWorld);
+          lowest = Math.min(lowest, v.y);
+          for (const { id: solid, box } of furniture) {
+            // How deep inside the box; a back may press a centimetre into the backrest.
+            const depth = Math.min(v.x - box.min.x, box.max.x - v.x, v.y - box.min.y, box.max.y - v.y, v.z - box.min.z, box.max.z - v.z);
+            expect(depth, `${id} ${o.name} in ${solid}`).toBeLessThan(0.01);
+          }
+        }
+      });
+      // Hips the thighs' half-depth above the seat.
+      const hip = root.getObjectByName('figure.thigh')!.parent!.getWorldPosition(new THREE.Vector3());
+      expect(hip.y - top, id).toBeCloseTo(BODY.hipAboveSeat * scale, 3);
+      // Feet (and a saree's hem) on the floor in front of the seat, as low as they stand; a child's dangle.
+      if (scale === 1) {
+        expect(lowest, id).toBeGreaterThanOrEqual(0);
+        expect(lowest, id).toBeLessThan(0.065);
+      } else expect(lowest, id).toBeLessThan(top);
     }
   });
 
