@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { HOUSEHOLD_LOOKS } from '../src/household/looks';
 import { LOOKS } from '../src/neighbours';
-import { BODY, Figure, type HairStyle, type Look } from '../src/people/figure';
+import { BODY, Figure, SEATED, type FigurePose, type HairStyle, type Look } from '../src/people/figure';
 
 const BODY_WAIST = BODY.waistY;
 
@@ -87,6 +87,84 @@ describe('festive figures', () => {
     const saree = LOOKS.find((l) => l.outfit === 'saree')!;
     const kurta = LOOKS.find((l) => l.outfit === 'kurta')!;
     expect(swing(saree)).toBeLessThan(swing(kurta));
+  });
+
+  describe('lower garment', () => {
+    const saree = LOOKS.find((l) => l.outfit === 'saree')!;
+    const kurta = LOOKS.find((l) => l.outfit === 'kurta')!;
+    const lowerOf = (figure: Figure) => figure.root.getObjectByName('figure.lower') as THREE.Mesh;
+    const thighAngle = (figure: Figure) => figure.root.getObjectByName('figure.thigh')!.parent!.rotation.x;
+    /** Box of the posed lower garment, morph applied, in the figure's space. */
+    const lowerBox = (figure: Figure) => {
+      figure.root.updateMatrixWorld(true);
+      return new THREE.Box3().setFromObject(lowerOf(figure), true);
+    };
+    const SEATED_POSE = { leftLeg: SEATED.leg, rightLeg: SEATED.leg, leftKnee: SEATED.knee, rightKnee: SEATED.knee };
+    const WALK = { leftLeg: 0.42, rightLeg: -0.42, rightKnee: 0.65, bob: 0.02 };
+
+    it('keeps the standing and walking silhouettes it always had', () => {
+      // The original skirt: waist to 4 cm off the ground, its gold border the widest part.
+      for (const pose of [{}, WALK] as FigurePose[]) {
+        const skirt = new Figure(saree);
+        skirt.setPose(pose);
+        const box = lowerBox(skirt).translate(new THREE.Vector3(0, -(pose.bob ?? 0), 0));
+        expect(box.min.y).toBeCloseTo(0.04, 6);
+        expect(box.max.y).toBeCloseTo(BODY_WAIST, 6);
+        expect(box.max.x).toBeCloseTo(0.232, 6);
+        expect(box.min.x).toBeCloseTo(-0.232, 6);
+        expect(box.min.z).toBeCloseTo(-0.2321315, 5);
+        expect(box.max.z).toBeCloseTo(0.232, 6);
+        expect(lowerOf(skirt).morphTargetInfluences![0]).toBe(0);
+        // The original kurta: waist to just above the knee.
+        const shirt = new Figure(kurta);
+        shirt.setPose(pose);
+        const kbox = lowerBox(shirt).translate(new THREE.Vector3(0, -(pose.bob ?? 0), 0));
+        expect(kbox.min.y).toBeCloseTo(BODY_WAIST - 0.5, 6);
+        expect(kbox.max.y).toBeCloseTo(BODY_WAIST, 6);
+        expect(kbox.max.x).toBeCloseTo(0.242, 6);
+        expect(kbox.max.z).toBeCloseTo(0.242, 6);
+      }
+    });
+
+    it("still keeps a walking saree's stride short, and lets the legs out to sit", () => {
+      const figure = new Figure(saree);
+      figure.setPose(WALK);
+      expect(thighAngle(figure)).toBeCloseTo(0.42 * 0.35);
+      figure.setPose(SEATED_POSE);
+      expect(thighAngle(figure)).toBeCloseTo(SEATED.leg);
+      expect(lowerOf(figure).morphTargetInfluences![0]).toBe(1);
+    });
+
+    it('drapes a seated saree over the thighs and down in front of the shins', () => {
+      for (const look of [saree, kurta]) {
+        const figure = new Figure(look);
+        figure.setPose({ ...SEATED_POSE, bob: 0.4 + BODY.hipAboveSeat - BODY.hipY });
+        const box = lowerBox(figure);
+        const hipY = 0.4 + BODY.hipAboveSeat;
+        // Nothing below the seat under the hips: the lap rests on it.
+        const lower = lowerOf(figure);
+        const v = new THREE.Vector3();
+        let lowestUnderSeat = Infinity;
+        let lowestInFront = Infinity;
+        for (let i = 0; i < lower.geometry.getAttribute('position').count; i++) {
+          lower.getVertexPosition(i, v).applyMatrix4(lower.matrixWorld);
+          if (v.z > -0.33) lowestUnderSeat = Math.min(lowestUnderSeat, v.y);
+          else lowestInFront = Math.min(lowestInFront, v.y);
+        }
+        expect(lowestUnderSeat, look.outfit).toBeGreaterThan(0.4 - 0.005);
+        // Forward along the thighs; a saree over the knees.
+        expect(box.min.z, look.outfit).toBeLessThan(look.outfit === 'saree' ? -0.45 : -0.3);
+        if (look.outfit === 'saree') {
+          // Then down to the floor in front of the seat.
+          expect(lowestInFront).toBeLessThan(0.06);
+          expect(lowestInFront).toBeGreaterThanOrEqual(0);
+        } else {
+          // A kurta ends on the lap.
+          expect(box.min.y).toBeGreaterThan(hipY - 0.15);
+        }
+        expect(box.max.y).toBeCloseTo(hipY + BODY.waistY - BODY.hipY, 6);
+      }
+    });
   });
 
   describe('hair', () => {

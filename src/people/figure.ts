@@ -83,7 +83,15 @@ export const BODY = {
   shin: 0.42,
   upperArm: 0.29,
   forearm: 0.25,
+  /** Hip joints above the seat when sitting: the thighs' half-depth. */
+  hipAboveSeat: 0.075,
 } as const;
+
+/**
+ * The seated pose's hip and knee angles: thighs level along the seat, shins
+ * straight down to the floor. The lower garment's seated shape is built for them.
+ */
+export const SEATED = { leg: Math.PI / 2, knee: Math.PI / 2 } as const;
 
 const GOLD = '#e8b33a';
 const DARK = '#1a1210';
@@ -101,9 +109,14 @@ function figureMaterial(): THREE.MeshStandardMaterial {
   return sharedMaterial;
 }
 
+/** Moves a vertex and its normal, in place, to where they lie when seated. */
+type Drape = (position: THREE.Vector3, normal: THREE.Vector3) => void;
+
 /** Collects coloured, placed primitives and merges them into one geometry. */
 class Segment {
   private readonly parts: THREE.BufferGeometry[] = [];
+  /** Parts already given a seated shape by `drape`. */
+  private draped = 0;
   private readonly matrix = new THREE.Matrix4();
   private readonly quaternion = new THREE.Quaternion();
   private readonly euler = new THREE.Euler();
@@ -164,6 +177,27 @@ class Segment {
     return this;
   }
 
+  /**
+   * Give the parts added since the last call a seated shape, as a morph
+   * target: `drape` places each vertex. Every part of a draped segment needs one.
+   */
+  drape(drape: Drape): this {
+    const p = new THREE.Vector3();
+    const n = new THREE.Vector3();
+    for (const part of this.parts.slice(this.draped)) {
+      const position = part.getAttribute('position').clone();
+      const normal = part.getAttribute('normal').clone();
+      for (let i = 0; i < position.count; i++) {
+        drape(p.fromBufferAttribute(position, i), n.fromBufferAttribute(normal, i));
+        position.setXYZ(i, p.x, p.y, p.z);
+        normal.setXYZ(i, n.x, n.y, n.z);
+      }
+      part.morphAttributes = { position: [position], normal: [normal] };
+    }
+    this.draped = this.parts.length;
+    return this;
+  }
+
   /** Merge into one mesh under `parent`. */
   mesh(parent: THREE.Object3D, name: string): THREE.Mesh {
     const indexed = this.parts.map((part) => (part.index ? part : indexGeometry(part)));
@@ -196,6 +230,118 @@ function lathe(profile: readonly (readonly [number, number])[], segments = 16): 
 /** A capsule hanging `length` below its pivot. */
 function limb(radiusTop: number, radiusBottom: number, length: number): THREE.BufferGeometry {
   return new THREE.CylinderGeometry(radiusTop, radiusBottom, length, 10).translate(0, -length / 2, 0);
+}
+
+/**
+ * `lathe`, with extra rings at the heights `cuts` (top to bottom) set into
+ * the profile's straight runs so it can bend there when seated. Shape and
+ * shading are as without them: each new ring's normals blend its run's ends.
+ * The closed ends' degenerate triangles are left out.
+ */
+function ringedLathe(profile: readonly (readonly [number, number])[], cuts: readonly number[], segments: number): THREE.BufferGeometry {
+  const ringed: [number, number][] = [];
+  // Each ringed point as a blend of two original ones: [from, to, fraction].
+  const blends: [number, number, number][] = [];
+  profile.forEach(([r, y], i) => {
+    const [r0, y0] = profile[i - 1] ?? [r, y];
+    for (const cut of cuts) {
+      if (cut >= y0 || cut <= y) continue;
+      const f = (y0 - cut) / (y0 - y);
+      ringed.push([r0 + (r - r0) * f, cut]);
+      blends.push([i - 1, i, f]);
+    }
+    ringed.push([r, y]);
+    blends.push([i, i, 0]);
+  });
+  const geometry = lathe(ringed, segments);
+  const plain = lathe(profile, segments);
+  const normal = geometry.getAttribute('normal');
+  const from = plain.getAttribute('normal');
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  // Lathe meridians run bottom to top, one per segment edge.
+  const m = ringed.length;
+  const n = profile.length;
+  for (let column = 0; column <= segments; column++) {
+    blends.forEach(([i, j, f], k) => {
+      a.fromBufferAttribute(from, column * n + n - 1 - i);
+      b.fromBufferAttribute(from, column * n + n - 1 - j);
+      a.lerp(b, f).normalize();
+      normal.setXYZ(column * m + m - 1 - k, a.x, a.y, a.z);
+    });
+  }
+  plain.dispose();
+  const position = geometry.getAttribute('position');
+  const same = (p: number, q: number) => position.getX(p) === position.getX(q) && position.getY(p) === position.getY(q) && position.getZ(p) === position.getZ(q);
+  const index = geometry.getIndex()!;
+  const kept: number[] = [];
+  for (let t = 0; t < index.count; t += 3) {
+    const [p, q, s] = [index.getX(t), index.getX(t + 1), index.getX(t + 2)];
+    if (!same(p, q) && !same(q, s) && !same(p, s)) kept.push(p, q, s);
+  }
+  geometry.setIndex(kept);
+  return geometry;
+}
+
+// ── seated drape ───────────────────────────────────────────────────────
+
+/** Hip and knee joints below the waist, where the lower garment hangs from. */
+const DRAPE_HIP = BODY.waistY - BODY.hipY;
+const DRAPE_KNEE = DRAPE_HIP + BODY.thigh;
+/** Rings the lower garments add where they bend: over the hips, and the saree's at the knees. */
+const HIP_RINGS = [-(DRAPE_HIP + 0.02), -(DRAPE_HIP + 0.07)];
+const KNEE_RINGS = [-DRAPE_KNEE, -(DRAPE_KNEE + 0.06)];
+/** Seated, the cloth hugs the legs: its front and back come in by half, the back no further than this behind them. */
+const DRAPE_HUG = 0.5;
+const DRAPE_UNDER = 0.06;
+
+/** Turn (y, z) about the x axis through (pivotY, 0), as a joint's `rotation.x` does. */
+function turnX(v: THREE.Vector3, angle: number, pivotY = 0): void {
+  const c = Math.cos(angle);
+  const s = Math.sin(angle);
+  const y = v.y - pivotY;
+  const z = v.z;
+  v.y = pivotY + y * c - z * s;
+  v.z = y * s + z * c;
+}
+
+/**
+ * Where a lower-garment vertex lies seated (`SEATED`), in its hanging space
+ * (y up from the waist). Above the hips the cloth stays put; below, it bends
+ * forward with the thighs, its front lying over them and its back flattened
+ * under them onto the seat, then at the knees falls to the floor in front of
+ * the shins: the leg's own hip and knee turns, spread over the bend's rings.
+ */
+function seatVertex(p: THREE.Vector3, n: THREE.Vector3): void {
+  const depth = -p.y;
+  const hip = smoothstep(DRAPE_HIP - 0.03, DRAPE_HIP + 0.07, depth);
+  const knee = smoothstep(DRAPE_KNEE - 0.07, DRAPE_KNEE + 0.05, depth);
+  // Drawn in ahead of the bend, so the back stays above the seat as it turns under.
+  const hug = smoothstep(DRAPE_HIP - 0.04, DRAPE_HIP + 0.03, depth);
+  // z → g(z), so normals scale x and y by g′ (the inverse transpose).
+  const under = p.z * DRAPE_HUG > DRAPE_UNDER;
+  const z = under ? DRAPE_UNDER : p.z * DRAPE_HUG;
+  const slope = 1 + ((under ? 0.1 : DRAPE_HUG) - 1) * hug;
+  p.z += (z - p.z) * hug;
+  n.set(n.x * slope, n.y * slope, n.z);
+  turnX(p, -SEATED.knee * knee, -DRAPE_KNEE);
+  turnX(n, -SEATED.knee * knee);
+  turnX(p, SEATED.leg * hip, -DRAPE_HIP);
+  turnX(n, SEATED.leg * hip);
+  n.normalize();
+}
+
+/** The saree's front pleats (`buildTorso`): depths of their ends standing, tilted out at the foot. */
+const PLEATS = { top: 0.11, bottom: 0.89, tilt: 0.08 } as const;
+
+/** Seated, the pleats fall from the knees to the hem, just proud of the skirt. */
+function seatPleat(p: THREE.Vector3, n: THREE.Vector3): void {
+  const depth = -p.y;
+  const top = DRAPE_KNEE + 0.06;
+  const seated = top + ((depth - PLEATS.top) * (PLEATS.bottom - top)) / (PLEATS.bottom - PLEATS.top);
+  p.y = -seated;
+  p.z -= (seated - depth) * Math.tan(PLEATS.tilt) + 0.02;
+  seatVertex(p, n);
 }
 
 // ── hair ────────────────────────────────────────────────────────────────
@@ -671,6 +817,8 @@ export class Figure {
   private readonly knees: [THREE.Group, THREE.Group] = [new THREE.Group(), new THREE.Group()];
   private readonly meshes: THREE.Mesh[] = [];
   private readonly saree: boolean;
+  /** The skirt or kurta below the waist, with its seated shape as a morph target. */
+  private lower!: THREE.Mesh;
   /** Where a plait hangs from the nape; it keeps its lie down the back as the head moves. */
   private plaitPivot: THREE.Group | null = null;
 
@@ -694,8 +842,12 @@ export class Figure {
     rightShoulder.rotation.set(pose.rightArm ?? 0, 0, pose.rightSpread ?? 0);
     this.elbows[0].rotation.x = pose.leftElbow ?? 0;
     this.elbows[1].rotation.x = pose.rightElbow ?? 0;
+    // Sitting (both thighs well forward), the lower garment takes its seated
+    // shape and a saree's legs come out to their full angles under it.
+    const seated = smoothstep(0.9, 1.4, Math.min(pose.leftLeg ?? 0, pose.rightLeg ?? 0));
+    this.lower.morphTargetInfluences![0] = seated;
     // Legs swing less inside a saree, so they stay under its skirt.
-    const stride = this.saree ? 0.35 : 1;
+    const stride = this.saree ? 0.35 + 0.65 * seated : 1;
     this.hips[0].rotation.x = (pose.leftLeg ?? 0) * stride;
     this.hips[1].rotation.x = (pose.rightLeg ?? 0) * stride;
     this.knees[0].rotation.x = -(pose.leftKnee ?? 0) * stride;
@@ -734,8 +886,10 @@ export class Figure {
     this.buildLegs();
   }
 
-  private keep(segment: Segment, parent: THREE.Object3D, name: string): void {
-    this.meshes.push(segment.mesh(parent, name));
+  private keep(segment: Segment, parent: THREE.Object3D, name: string): THREE.Mesh {
+    const mesh = segment.mesh(parent, name);
+    this.meshes.push(mesh);
+    return mesh;
   }
 
   private buildTorso(): void {
@@ -757,11 +911,13 @@ export class Figure {
       torso.add(new THREE.CylinderGeometry(0.19, 0.195, 0.42, 10, 1, true, -0.85, 1.1), look.main, 0, top - 0.24, 0);
       torso.add(new THREE.CylinderGeometry(0.197, 0.197, 0.018, 10, 1, true, -0.85, 1.1), look.trim, 0, top - 0.45, 0);
       // Skirt: from the waist to the ankles, flaring a little, with a gold border.
-      lower.add(lathe([[0, 0], [0.14, 0], [0.165, -0.12], [0.19, -0.5], [0.225, -w + 0.06], [0.23, -w + 0.04], [0, -w + 0.04]], 20), look.main);
+      lower.add(ringedLathe([[0, 0], [0.14, 0], [0.165, -0.12], [0.19, -0.5], [0.225, -w + 0.06], [0.23, -w + 0.04], [0, -w + 0.04]], [...HIP_RINGS, ...KNEE_RINGS], 20), look.main);
       lower.add(new THREE.CylinderGeometry(0.232, 0.232, 0.07, 20, 1, true), look.trim, 0, -w + 0.075);
+      lower.drape(seatVertex);
       // Pleats gathered at the front: a slightly raised panel with a gold edge.
-      lower.add(new THREE.BoxGeometry(0.1, 0.78, 0.02), look.main, 0.03, -0.5, -0.19, 0.08, 0, 0);
-      lower.add(new THREE.BoxGeometry(0.012, 0.78, 0.022), look.trim, 0.08, -0.5, -0.19, 0.08, 0, 0);
+      lower.add(new THREE.BoxGeometry(0.1, 0.78, 0.02), look.main, 0.03, -0.5, -0.19, PLEATS.tilt, 0, 0);
+      lower.add(new THREE.BoxGeometry(0.012, 0.78, 0.022), look.trim, 0.08, -0.5, -0.19, PLEATS.tilt, 0, 0);
+      lower.drape(seatPleat);
     } else {
       // Kurta: chest to hips, then a skirt flaring to the knee, gold at collar and hem.
       torso.add(lathe([[0, top + 0.03], [0.1, top + 0.02], [0.185, top - 0.05], [0.175, top - 0.24], [0.15, 0], [0.155, -0.02], [0, -0.02]]), look.main);
@@ -774,8 +930,9 @@ export class Figure {
           torso.add(new THREE.BoxGeometry(0.012, top - 0.04, 0.012), look.trim, side * 0.03, top / 2 - 0.02, -0.126);
         }
       }
-      lower.add(lathe([[0, 0], [0.155, 0], [0.17, -0.1], [0.21, -0.4], [0.24, -0.5], [0, -0.5]], 20), look.main);
+      lower.add(ringedLathe([[0, 0], [0.155, 0], [0.17, -0.1], [0.21, -0.4], [0.24, -0.5], [0, -0.5]], HIP_RINGS, 20), look.main);
       lower.add(new THREE.CylinderGeometry(0.242, 0.242, 0.04, 20, 1, true), look.trim, 0, -0.48);
+      lower.drape(seatVertex);
     }
     // Neck.
     torso.add(new THREE.CylinderGeometry(0.045, 0.055, 0.1, 10), look.skin, 0, BODY.neckY - w);
@@ -786,7 +943,7 @@ export class Figure {
     const hips = new THREE.Group();
     hips.position.y = w;
     this.body.add(hips);
-    this.keep(lower, hips, 'figure.lower');
+    this.lower = this.keep(lower, hips, 'figure.lower');
   }
 
   private buildHead(): void {
