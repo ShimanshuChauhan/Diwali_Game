@@ -43,9 +43,16 @@ export interface ParticleSpec {
    * uses it to stay see-through. 1 by default.
    */
   opacity: number;
+  /** How the renderer shades it: `SPARK` (default) or `BURST_STAR`. */
+  style: number;
   /** Emitter slot that owns this particle, or -1. */
   owner: number;
 }
+
+/** Particle shading styles; the renderer picks a sprite per style. */
+export const SPARK = 0;
+/** A rocket-burst star: kept saturated where bursts are drawn with bloom. */
+export const BURST_STAR = 1;
 
 export function createParticleSpec(): ParticleSpec {
   return {
@@ -68,6 +75,7 @@ export function createParticleSpec(): ParticleSpec {
     gravity: 1,
     flicker: 0,
     opacity: 1,
+    style: SPARK,
     owner: -1,
   };
 }
@@ -81,6 +89,8 @@ export class ParticlePool {
   readonly colours: Float32Array;
   /** Current world-space size per particle; uploaded as `aSize`. */
   readonly sizes: Float32Array;
+  /** Shading style per particle (`SPARK`, `BURST_STAR`); uploaded as `aStyle`. */
+  readonly styles: Float32Array;
 
   private readonly velocities: Float32Array;
   private readonly ages: Float32Array;
@@ -111,6 +121,7 @@ export class ParticlePool {
     this.positions = new Float32Array(capacity * 3);
     this.colours = new Float32Array(capacity * 4);
     this.sizes = new Float32Array(capacity);
+    this.styles = new Float32Array(capacity);
     this.velocities = new Float32Array(capacity * 3);
     this.ages = new Float32Array(capacity);
     this.lives = new Float32Array(capacity);
@@ -173,6 +184,7 @@ export class ParticlePool {
     this.gravities[i] = spec.gravity;
     this.flickers[i] = spec.flicker;
     this.opacities[i] = spec.opacity;
+    this.styles[i] = spec.style;
     this.owners[i] = spec.owner;
     this.writeAppearance(i, 0);
     return true;
@@ -276,6 +288,7 @@ export class ParticlePool {
     this.gravities[to] = this.gravities[from]!;
     this.flickers[to] = this.flickers[from]!;
     this.opacities[to] = this.opacities[from]!;
+    this.styles[to] = this.styles[from]!;
     this.owners[to] = this.owners[from]!;
   }
 }

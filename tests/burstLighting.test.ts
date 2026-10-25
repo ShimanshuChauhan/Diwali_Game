@@ -5,7 +5,19 @@ import type { QualityLevel } from '../src/core/types';
 import { EffectsRenderer } from '../src/effects/effectsRenderer';
 import { FireworksEffects } from '../src/effects/fireworksEffects';
 import { FlashPool, SkyGlow, flashIntensity, lightReaching } from '../src/effects/flashPool';
-import { BURST_LIGHT_FLOOR, BURST_LOOKS, LADI_BURN, LADI_POP, SPINNER } from '../src/effects/presets';
+import { BURST_STAR, SPARK } from '../src/effects/particlePool';
+import {
+  BURST_LIGHT_FLOOR,
+  BURST_LOOKS,
+  BURST_PATTERNS,
+  FOUNTAIN,
+  FUSE,
+  LADI_BURN,
+  LADI_POP,
+  ROCKET_TRAIL,
+  SPARKLER,
+  SPINNER,
+} from '../src/effects/presets';
 import { renderSettings } from '../src/quality/renderSettings';
 
 const step = 1 / 60;
@@ -369,5 +381,65 @@ describe('SkyGlow', () => {
     expect(sky.level).toBe(0);
     sky.trigger(0x00ff00, 0.5, 1);
     expect(sky.colour).toBe(0x00ff00);
+  });
+});
+
+describe('burst star shading', () => {
+  const styles = (effects: FireworksEffects) => Array.from(effects.engine.particles.styles.subarray(0, effects.engine.particles.count));
+
+  it.each(BURST_PATTERNS)('tags every %s star and tail as a burst star, and the bang as a plain spark', (pattern) => {
+    const effects = effectsAt('high');
+    effects.onBurst({ id: 'r', position: BURST, pattern, colours: [0xff4f6d, 0xffd34f] });
+    // Crossette stars split later: their sparks are burst stars too.
+    for (let t = 0; t < 1; t += step) effects.update(step);
+    const all = styles(effects);
+    expect(all.length).toBeGreaterThan(50);
+    expect(all.filter((s) => s === BURST_STAR).length).toBe(all.length - all.filter((s) => s === SPARK).length);
+    expect(all.filter((s) => s === BURST_STAR).length / all.length).toBeGreaterThan(0.95);
+  });
+
+  it('leaves anar, chakri, phuljhari, fuse, rocket trail and ladi sparks plain, even right after a burst', () => {
+    const effects = effectsAt('high');
+    const { engine } = effects;
+    // A burst first, so any style left on the shared spawn spec would leak into what follows.
+    burst(effects);
+    effects.reset();
+    for (const preset of [FOUNTAIN, SPINNER, SPARKLER, FUSE, ROCKET_TRAIL]) engine.startStream(preset, 0, 0, 0);
+    const ladi = engine.startStream(LADI_BURN, 2, 0, 0);
+    for (let t = 0; t < 1; t += step) {
+      engine.pop(ladi, 2, 0.01, -t, LADI_POP, true);
+      effects.update(step);
+    }
+    const all = styles(effects);
+    expect(all.length).toBeGreaterThan(100);
+    expect(all.every((s) => s === SPARK)).toBe(true);
+  });
+
+  it('caps burst stars only on bloom levels', () => {
+    expect(BURST_LOOKS.low.starCap).toBe(0);
+    for (const level of ['medium', 'high'] as const) {
+      expect(qualityProfile(level).postEffects).toBe(true);
+      expect(BURST_LOOKS[level].starCap).toBeGreaterThan(0.9); // still above the bloom threshold
+    }
+  });
+
+  it('uploads styles and the level\'s star cap to the spark material', () => {
+    for (const level of QUALITY_LEVELS) {
+      const effects = effectsAt(level);
+      const view = new EffectsRenderer(effects.engine);
+      burst(effects);
+      view.sync();
+      let material: THREE.ShaderMaterial | null = null;
+      let geometry: THREE.BufferGeometry | null = null;
+      view.object.traverse((object) => {
+        if (object instanceof THREE.Points && object.renderOrder === 10) {
+          material = object.material as THREE.ShaderMaterial;
+          geometry = object.geometry;
+        }
+      });
+      expect(material!.uniforms.uStarCap!.value).toBe(BURST_LOOKS[level].starCap);
+      expect(geometry!.getAttribute('aStyle').array).toBe(effects.engine.particles.styles);
+      view.dispose();
+    }
   });
 });

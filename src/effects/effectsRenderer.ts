@@ -16,10 +16,13 @@ import type { FireworksEngine } from './fireworksEngine';
 const VERTEX_SHADER = /* glsl */ `
   attribute vec4 aColour;
   attribute float aSize;
+  attribute float aStyle;
   uniform float uPixelsPerMetre;
   varying vec4 vColour;
+  varying float vStar;
   void main() {
     vColour = aColour;
+    vStar = aStyle;
     vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
     gl_Position = projectionMatrix * mvPosition;
     gl_PointSize = max(1.0, aSize * uPixelsPerMetre / max(0.1, -mvPosition.z));
@@ -27,14 +30,24 @@ const VERTEX_SHADER = /* glsl */ `
 `;
 
 const FRAGMENT_SHADER = /* glsl */ `
+  uniform float uStarCap;
   varying vec4 vColour;
+  varying float vStar;
   void main() {
     vec2 p = gl_PointCoord * 2.0 - 1.0;
     float r2 = dot(p, p);
     if (r2 > 1.0) discard;
     // Hot core with a soft halo.
     float glow = exp(-r2 * 4.0) + 0.6 * exp(-r2 * 24.0);
-    gl_FragColor = vec4(vColour.rgb * glow * 2.0, 1.0);
+    vec3 colour = vColour.rgb * glow * 2.0;
+    if (vStar > 0.5 && uStarCap > 0.0) {
+      // Burst stars under bloom: a tighter sprite (the bloom draws the halo)
+      // and a hue-preserving cap, so overlaps stay in the burst's colours.
+      colour = vColour.rgb * (exp(-r2 * 7.0) + 0.6 * exp(-r2 * 24.0)) * 2.0;
+      float peak = max(max(colour.r, colour.g), colour.b);
+      colour *= min(1.0, uStarCap / max(peak, 1e-4));
+    }
+    gl_FragColor = vec4(colour, 1.0);
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
   }
@@ -98,12 +111,14 @@ export class EffectsRenderer {
   private readonly positionAttr: THREE.BufferAttribute;
   private readonly colourAttr: THREE.BufferAttribute;
   private readonly sizeAttr: THREE.BufferAttribute;
+  private readonly styleAttr: THREE.BufferAttribute;
   private readonly matteGeometry = new THREE.BufferGeometry();
   private readonly matteMaterial: THREE.ShaderMaterial;
   private readonly mattePositionAttr: THREE.BufferAttribute;
   private readonly matteColourAttr: THREE.BufferAttribute;
   private readonly matteSizeAttr: THREE.BufferAttribute;
   private readonly ranges: UpdateRange[] = [
+    { start: 0, count: 0 },
     { start: 0, count: 0 },
     { start: 0, count: 0 },
     { start: 0, count: 0 },
@@ -130,9 +145,11 @@ export class EffectsRenderer {
     this.positionAttr = new THREE.BufferAttribute(pool.positions, 3).setUsage(THREE.DynamicDrawUsage);
     this.colourAttr = new THREE.BufferAttribute(pool.colours, 4).setUsage(THREE.DynamicDrawUsage);
     this.sizeAttr = new THREE.BufferAttribute(pool.sizes, 1).setUsage(THREE.DynamicDrawUsage);
+    this.styleAttr = new THREE.BufferAttribute(pool.styles, 1).setUsage(THREE.DynamicDrawUsage);
     this.geometry.setAttribute('position', this.positionAttr);
     this.geometry.setAttribute('aColour', this.colourAttr);
     this.geometry.setAttribute('aSize', this.sizeAttr);
+    this.geometry.setAttribute('aStyle', this.styleAttr);
     this.geometry.setDrawRange(0, 0);
     // Particles span the sky; skip per-frame bounds and culling.
     this.geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(), Infinity);
@@ -140,7 +157,7 @@ export class EffectsRenderer {
     this.material = new THREE.ShaderMaterial({
       vertexShader: VERTEX_SHADER,
       fragmentShader: FRAGMENT_SHADER,
-      uniforms: { uPixelsPerMetre: { value: 600 } },
+      uniforms: { uPixelsPerMetre: { value: 600 }, uStarCap: { value: 0 } },
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       transparent: true,
@@ -211,7 +228,9 @@ export class EffectsRenderer {
       this.markRange(this.positionAttr, this.ranges[0]!, count * 3);
       this.markRange(this.colourAttr, this.ranges[1]!, count * 4);
       this.markRange(this.sizeAttr, this.ranges[2]!, count);
+      this.markRange(this.styleAttr, this.ranges[6]!, count);
     }
+    this.material.uniforms.uStarCap!.value = this.engine.burstLook.starCap;
     const matte = this.engine.matte.count;
     this.matteGeometry.setDrawRange(0, matte);
     if (matte > 0) {

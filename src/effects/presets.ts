@@ -558,12 +558,19 @@ export interface BurstLook {
   readonly skyDuration: number;
   /**
    * Multiplier on star brightness. With bloom the stars add up in HDR before
-   * tone mapping, so a dense shell washes out to white; below 1 keeps the
-   * palette readable while the bloom still catches every star.
+   * tone mapping, so a dense shell (and its overlapping tails) washes out to
+   * white; below 1 keeps the palette readable. `starCap` keeps each star's
+   * core bright enough for the bloom.
    */
   readonly brightness: number;
   /** Multiplier on the speed step between tail sparks; above 1 draws longer trails. */
   readonly tailStretch: number;
+  /**
+   * Bloom levels: the brightest a burst star's sprite may be, scaled down
+   * whole so its hue holds (0 = uncapped). Tone mapping turns HDR overlaps
+   * white; capped stars stay in the burst's colours and bloom adds the glow.
+   */
+  readonly starCap: number;
 }
 
 /** The burst light never sinks below this height, so it stays above the rooftops. */
@@ -583,6 +590,7 @@ export const BURST_LOOKS: Readonly<Record<QualityLevel, BurstLook>> = {
     skyDuration: 0,
     brightness: 1,
     tailStretch: 1,
+    starCap: 0,
   },
   // A coloured flash that visibly lights the lane, rooftops and courtyard,
   // with a short glow while the shell is at its brightest.
@@ -596,8 +604,9 @@ export const BURST_LOOKS: Readonly<Record<QualityLevel, BurstLook>> = {
     glowDuration: 1.4,
     sky: 0,
     skyDuration: 0,
-    brightness: 0.8,
+    brightness: 0.6,
     tailStretch: 1.15,
+    starCap: 1.4,
   },
   // A strong flash, then a softer, wider glow in the burst colour that fades
   // with the sparks, washing over house fronts and the ground; the sky and
@@ -612,8 +621,9 @@ export const BURST_LOOKS: Readonly<Record<QualityLevel, BurstLook>> = {
     glowDuration: 2.6,
     sky: 0.12,
     skyDuration: 1.8,
-    brightness: 0.55,
+    brightness: 0.45,
     tailStretch: 1.4,
+    starCap: 1.4,
   },
 };
 

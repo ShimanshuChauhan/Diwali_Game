@@ -1,7 +1,7 @@
 import type { EffectStats } from '../core/contracts';
 import type { BurstPattern } from '../core/types';
 import { FlashPool, SkyGlow } from './flashPool';
-import { GRAVITY, ParticlePool, createParticleSpec } from './particlePool';
+import { BURST_STAR, GRAVITY, ParticlePool, SPARK, createParticleSpec } from './particlePool';
 import {
   BURST_LIGHT_FLOOR,
   BURST_LOOKS,
@@ -876,6 +876,13 @@ export class FireworksEngine {
    * them strung out behind it as a streak.
    */
   private spawnStar(emitter: EmitterSlot, preset: EmitterPreset, shape: PatternShape | null): void {
+    // Sky-burst stars (those with a shape) and their tails shade as burst stars.
+    this.spec.style = shape ? BURST_STAR : SPARK;
+    this.spawnStarAndTail(emitter, preset, shape);
+    this.spec.style = SPARK;
+  }
+
+  private spawnStarAndTail(emitter: EmitterSlot, preset: EmitterPreset, shape: PatternShape | null): void {
     const spec = this.spec;
     if (shape) {
       spec.drag = shape.drag;
@@ -997,7 +1004,10 @@ export class FireworksEngine {
       spec.drag = shape.drag;
       spec.gravity = shape.gravity;
       spec.flicker = 0.1;
-      if (!this.particles.spawn(spec)) {
+      spec.style = BURST_STAR;
+      const spawned = this.particles.spawn(spec);
+      spec.style = SPARK;
+      if (!spawned) {
         this.counters.droppedParticles++;
         continue;
       }
@@ -1205,6 +1215,7 @@ export class FireworksEngine {
     spec.drag = preset.drag;
     spec.gravity = preset.gravity;
     spec.flicker = preset.flicker;
+    spec.style = SPARK;
     spec.owner = index;
   }
 
