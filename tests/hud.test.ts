@@ -3,6 +3,7 @@ import type { Interactable } from '../src/core/contracts';
 import { createGameEventBus } from '../src/core/events';
 import { qualityProfile } from '../src/core/quality';
 import { CRACKER_TYPES, type CameraMode, type QualityLevel } from '../src/core/types';
+import { CRACKER_BLOCKED_TEXT } from '../src/homes/heldItems';
 import { HudModel, promptLines, REJECTION_SECONDS, type HudContext } from '../src/ui/hudModel';
 import { bindQualitySelect } from '../src/ui/pauseMenu';
 import { IGNITION_REJECTION_TEXT, PLACEMENT_REJECTION_TEXT, rejectionText } from '../src/ui/text';
@@ -168,6 +169,108 @@ describe('HudModel', () => {
     hud.setContext({ interactable: null, homes: { hands: { kind: 'thali' }, aarti } });
     bus.emit('sessionReset', {});
     expect(hud.hotbarVisible).toBe(true);
+  });
+
+  describe('cracker hotbar', () => {
+    const PLATE = { interactable: null, homes: { hands: { kind: 'sweetsPlate' } } } as const;
+    const OUTBOUND = { interactable: null, homes: { hands: { kind: 'giftBox', box: 'outbound' } } } as const;
+    const RETURN_GIFT = { interactable: null, homes: { hands: { kind: 'giftBox', box: 'return' } } } as const;
+    const THALI = { interactable: null, homes: { hands: { kind: 'thali' } } } as const;
+    const FREE = { interactable: null, homes: { hands: null } } as const;
+
+    function enter(bus: ReturnType<typeof running>['bus'], to: 'familyHome' | 'neighbourHome'): void {
+      const doorway = to === 'familyHome' ? 'familyFront' : 'neighbourFront';
+      bus.emit('locationChanged', { doorway, from: 'outdoors', to });
+    }
+
+    function leave(bus: ReturnType<typeof running>['bus'], from: 'familyHome' | 'neighbourHome'): void {
+      const doorway = from === 'familyHome' ? 'familyFrontInside' : 'neighbourFrontInside';
+      bus.emit('locationChanged', { doorway, from, to: 'outdoors' });
+    }
+
+    it('shows outdoors with free hands, whatever cracker is selected', () => {
+      const { bus, hud } = running();
+      hud.setContext(NOTHING);
+      expect(hud.hotbarVisible).toBe(true);
+      hud.setContext(FREE);
+      expect(hud.hotbarVisible).toBe(true);
+      bus.emit('crackerSelected', { type: 'rocket' });
+      expect(hud.hotbarVisible).toBe(true);
+    });
+
+    it.each(['familyHome', 'neighbourHome'] as const)('hides inside %s and returns outdoors', (home) => {
+      const { bus, hud } = running();
+      const before = hud.revision;
+      enter(bus, home);
+      expect(hud.hotbarVisible).toBe(false);
+      expect(hud.revision).toBeGreaterThan(before);
+      hud.setContext(FREE);
+      expect(hud.hotbarVisible).toBe(false);
+      leave(bus, home);
+      expect(hud.hotbarVisible).toBe(true);
+    });
+
+    it('changes once, at the fade midpoint, not when the door fade starts', () => {
+      const { bus, hud } = running();
+      hud.setContext(FREE);
+      bus.emit('transitionStarted', { doorway: 'familyFront', from: 'outdoors', to: 'familyHome', duration: 0.6 });
+      expect(hud.hotbarVisible).toBe(true);
+      enter(bus, 'familyHome');
+      const hidden = hud.revision;
+      // Frames during the fade-in pass the same hands; nothing redraws.
+      hud.setContext(FREE);
+      hud.setContext(FREE);
+      expect(hud.hotbarVisible).toBe(false);
+      expect(hud.revision).toBe(hidden);
+    });
+
+    it.each([
+      ['an outbound gift box', OUTBOUND],
+      ['a return gift', RETURN_GIFT],
+      ['the sweets plate', PLATE],
+      ['the thali', THALI],
+    ] as const)('hides while carrying %s and returns once the hands are free', (_name, carrying) => {
+      const { hud } = running();
+      hud.setContext(carrying);
+      expect(hud.hotbarVisible).toBe(false);
+      hud.setContext(FREE);
+      expect(hud.hotbarVisible).toBe(true);
+    });
+
+    it('stays hidden carrying a gift box outdoors until it is delivered', () => {
+      const { bus, hud } = running();
+      enter(bus, 'familyHome');
+      hud.setContext(OUTBOUND);
+      leave(bus, 'familyHome');
+      hud.setContext(OUTBOUND);
+      expect(hud.hotbarVisible).toBe(false);
+      enter(bus, 'neighbourHome');
+      hud.setContext(FREE);
+      expect(hud.hotbarVisible).toBe(false);
+      leave(bus, 'neighbourHome');
+      expect(hud.hotbarVisible).toBe(true);
+    });
+
+    it('still shows why 1–4 are refused while it is hidden', () => {
+      const { bus, hud } = running();
+      enter(bus, 'familyHome');
+      hud.setContext(PLATE);
+      expect(hud.hotbarVisible).toBe(false);
+      bus.emit('crackerBlocked', { action: 'select', reason: 'carryingPlate' });
+      expect(hud.rejection?.text).toBe(CRACKER_BLOCKED_TEXT.carryingPlate);
+      bus.emit('crackerBlocked', { action: 'select', reason: 'carryingGift' });
+      expect(hud.rejection?.text).toBe(CRACKER_BLOCKED_TEXT.carryingGift);
+      expect(hud.visible).toBe(true);
+    });
+
+    it('returns on a fresh session', () => {
+      const { bus, hud } = running();
+      enter(bus, 'neighbourHome');
+      hud.setContext(RETURN_GIFT);
+      expect(hud.hotbarVisible).toBe(false);
+      bus.emit('sessionReset', {});
+      expect(hud.hotbarVisible).toBe(true);
+    });
   });
 
   it('hides while paused and returns on resume', () => {
