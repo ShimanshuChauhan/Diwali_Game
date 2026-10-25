@@ -5,3 +5,6 @@ dist/
 .env*
 .vite/
 coverage/
+.vercel
+.claude/worktrees/
+.codegraph/
