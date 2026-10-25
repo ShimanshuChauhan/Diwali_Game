@@ -82,7 +82,28 @@ export function createLaneEcho(ctx: BaseAudioContext, random: () => number = Mat
  * dense), its attack is instant so no crack slips past, and it lets go
  * within a pop or two.
  */
-export const LADI_LIMITER = { threshold: -4, knee: 0, ratio: 12, attack: 0.001, release: 0.09 } as const;
+export const LADI_LIMITER = { threshold: -3, knee: 0, ratio: 20, attack: 0.001, release: 0.03 } as const;
+/**
+ * Soft safety clip after the limiter: linear below `knee`, rounding off to
+ * `ceiling` at full scale. A bang's two-sample shock front is too fast for
+ * the limiter to catch; this only shaves those tips, never the body.
+ */
+export const LADI_CLIP = { knee: 0.6, ceiling: 0.86 } as const;
+
+/** The soft-clip transfer curve for input in [-1, 1]; input beyond clamps to the ends. */
+export function ladiClipCurve(samples = 1025): Float32Array<ArrayBuffer> {
+  const { knee, ceiling } = LADI_CLIP;
+  const room = ceiling - knee;
+  const curve = new Float32Array(samples);
+  for (let i = 0; i < samples; i++) {
+    const x = (i / (samples - 1)) * 2 - 1;
+    const a = Math.abs(x);
+    const y = a <= knee ? a : knee + room * Math.tanh((a - knee) / room);
+    curve[i] = Math.sign(x) * y;
+  }
+  return curve;
+}
+
 /** The lane's slapback against the dry bangs, and how long its wash lasts. */
 export const LADI_ROOM = { wet: 0.8, seconds: 0.45 } as const;
 
@@ -104,7 +125,7 @@ export function compressorMakeup(limiter: { readonly threshold: number; readonly
 /**
  * Where a near ladi's voices play: the lane's slapback (a convolver with a
  * short, synthesised room, built once) mixed with the dry bangs, then a
- * limiter, into `output`. Built once per context and shared by every ladi,
+ * limiter and a soft safety clip, into `output`. Built once per context and shared by every ladi,
  * so pops never add nodes beyond their own.
  */
 export function createLadiBus(ctx: BaseAudioContext, output: AudioNode, random: () => number = Math.random): GainNode {
@@ -130,7 +151,9 @@ export function createLadiBus(ctx: BaseAudioContext, output: AudioNode, random: 
 
   const trim = ctx.createGain();
   trim.gain.value = 1 / compressorMakeup();
-  limiter.connect(trim).connect(output);
+  const clip = ctx.createWaveShaper();
+  clip.curve = ladiClipCurve();
+  limiter.connect(trim).connect(clip).connect(output);
   return input;
 }
 

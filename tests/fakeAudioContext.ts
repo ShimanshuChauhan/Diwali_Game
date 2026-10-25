@@ -75,6 +75,11 @@ class FakeCompressor extends FakeNode {
   readonly release = new FakeParam(0.25);
 }
 
+class FakeWaveShaper extends FakeNode {
+  curve: Float32Array | null = null;
+  oversample = 'none';
+}
+
 class FakePanner extends FakeNode {
   panningModel = 'equalpower';
   distanceModel = 'inverse';
@@ -183,6 +188,12 @@ export class FakeAudioContext {
     const compressor = new FakeCompressor(this);
     this.compressors.push(compressor);
     return compressor;
+  }
+  readonly shapers: FakeWaveShaper[] = [];
+  createWaveShaper(): FakeWaveShaper {
+    const shaper = new FakeWaveShaper(this);
+    this.shapers.push(shaper);
+    return shaper;
   }
   createPanner(): FakePanner {
     const panner = new FakePanner(this);

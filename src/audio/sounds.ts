@@ -42,7 +42,7 @@ export const SOUNDS: Readonly<Record<SoundKind, SoundSpec>> = {
   chakriWhine: { priority: 3, gain: 0.45, refDistance: 4 },
   // The loudest small cracker: driven into its own limiter, so it bangs
   // hard without clipping however many pops pile up.
-  ladiPops: { priority: 3, gain: 4, refDistance: 4, bus: 'ladi' },
+  ladiPops: { priority: 3, gain: 10, refDistance: 6, bus: 'ladi' },
   phuljhariCrackle: { priority: 3, gain: 0.35, refDistance: 1.5 },
   fuseHiss: { priority: 1, gain: 0.25, refDistance: 1.5 },
   // Crackers elsewhere in town are the first to go when the budget is tight.
@@ -82,7 +82,8 @@ export const LADI_RING = 0.25;
 export const LADI_LEVELS = {
   loud: { min: 0.9, max: 1 },
   normal: { min: 0.4, max: 0.8 },
-  dud: { min: 0.08, max: 0.2 },
+  // Scaled for the ladi's hot gain, so a dud still slips under its limiter.
+  dud: { min: 0.03, max: 0.08 },
   dudChance: 0.1,
 } as const;
 
