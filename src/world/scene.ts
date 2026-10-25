@@ -7,9 +7,15 @@ interface MaterialSpec {
   /** Self-lit surfaces (windows, bulbs, lanterns) glow without a light. */
   readonly emissive?: string;
   readonly emissiveIntensity?: number;
+  /**
+   * An open doorway's room light: drawn by its glow alone (a black Lambert
+   * surface, so no diffuse or highlight from lamps in front of it) and
+   * shaded across the face by `doorwayGlowMap`.
+   */
+  readonly doorway?: boolean;
 }
 
-/** Original, flat-colour palette; no textures or third-party assets. */
+/** Original, flat-colour palette; no image textures or third-party assets. */
 const MATERIALS: Readonly<Record<MaterialKey, MaterialSpec>> = {
   laneStone: { color: '#4a4038', roughness: 0.95 },
   courtyardTile: { color: '#6b4a3a', roughness: 0.9 },
@@ -42,14 +48,50 @@ const MATERIALS: Readonly<Record<MaterialKey, MaterialSpec>> = {
   drain: { color: '#1a1714', roughness: 1 },
   laneStoneDark: { color: '#2e2722', roughness: 1 },
   courtyardTileDark: { color: '#55392c', roughness: 0.9 },
-  // Brighter than the windows, so an open doorway reads as the way in.
-  doorGlow: { color: '#ffd9a0', emissive: '#ffa850', emissiveIntensity: 1.5 },
+  // A lamp-lit room seen through the open door: saffron, a little brighter
+  // than the windows at its warmest so it reads as the way in, but under the
+  // bloom threshold so it never becomes a light source. It ignores the
+  // lights, so the lit diyas' lamp and a kandil's just in front of a door
+  // cannot wash it out to white, and both enterable doors look alike.
+  doorGlow: { color: '#000000', emissive: '#ff9a40', emissiveIntensity: 1.3, doorway: true },
   marigold: { color: '#ffb000', roughness: 0.8, emissive: '#ff9a00', emissiveIntensity: 0.45 },
   brass: { color: '#c89a3a', roughness: 0.35, emissive: '#7a5410', emissiveIntensity: 0.5 },
   houseOchre: { color: '#c99a3e' },
   houseCoral: { color: '#e8775a' },
   houseSky: { color: '#5fa0e0' },
 };
+
+const GLOW_MAP = { width: 8, height: 16 } as const;
+
+/**
+ * A tiny gradient multiplying an open doorway's glow, so it reads as a room
+ * lit from a lamp on the floor rather than a flat panel: full strength low
+ * and in the middle, fading towards the lintel and the jambs, and a deeper
+ * saffron where it is dimmer. The unit box's side faces each span the whole
+ * map, bottom to top, so the doorway box shows it once across its front.
+ */
+export function doorwayGlowMap(): THREE.DataTexture {
+  const { width, height } = GLOW_MAP;
+  const data = new Uint8Array(width * height * 4);
+  for (let row = 0; row < height; row++) {
+    const v = row / (height - 1); // 0 at the threshold, 1 under the lintel
+    for (let col = 0; col < width; col++) {
+      const u = (col / (width - 1)) * 2 - 1; // -1 and 1 at the jambs
+      const k = (1 - 0.5 * v ** 1.5) * (1 - 0.35 * u * u);
+      // Warmer as it dims: green and blue fall away a little faster than red.
+      const i = (row * width + col) * 4;
+      data[i] = Math.round(255 * k);
+      data[i + 1] = Math.round(255 * k * (0.75 + 0.25 * k));
+      data[i + 2] = Math.round(255 * k * (0.6 + 0.4 * k));
+      data[i + 3] = 255;
+    }
+  }
+  const texture = new THREE.DataTexture(data, width, height, THREE.RGBAFormat);
+  texture.magFilter = THREE.LinearFilter;
+  texture.minFilter = THREE.LinearFilter;
+  texture.needsUpdate = true;
+  return texture;
+}
 
 export interface WorldScene {
   /** Static scenery and practical lights, to add to the scene. */
@@ -68,7 +110,8 @@ export function buildWorldScene(layout: WorldLayout): WorldScene {
   root.name = 'world';
 
   const geometry = new THREE.BoxGeometry(1, 1, 1);
-  const materials = new Map<MaterialKey, THREE.MeshStandardMaterial>();
+  const materials = new Map<MaterialKey, THREE.Material>();
+  let glowMap: THREE.DataTexture | null = null;
   const byMaterial = new Map<MaterialKey, WorldBox[]>();
 
   const visible: WorldBox[] = [...layout.solids.filter((s) => s.visible), ...layout.decor];
@@ -84,12 +127,19 @@ export function buildWorldScene(layout: WorldLayout): WorldScene {
   const rotation = new THREE.Quaternion();
   for (const [key, boxes] of byMaterial) {
     const spec = MATERIALS[key];
-    const material = new THREE.MeshStandardMaterial({
-      color: spec.color,
-      roughness: spec.roughness ?? 0.9,
-      emissive: spec.emissive ?? '#000000',
-      emissiveIntensity: spec.emissiveIntensity ?? 1,
-    });
+    const material = spec.doorway
+      ? new THREE.MeshLambertMaterial({
+          color: spec.color,
+          emissive: spec.emissive ?? '#000000',
+          emissiveIntensity: spec.emissiveIntensity ?? 1,
+          emissiveMap: (glowMap ??= doorwayGlowMap()),
+        })
+      : new THREE.MeshStandardMaterial({
+          color: spec.color,
+          roughness: spec.roughness ?? 0.9,
+          emissive: spec.emissive ?? '#000000',
+          emissiveIntensity: spec.emissiveIntensity ?? 1,
+        });
     materials.set(key, material);
 
     const mesh = new THREE.InstancedMesh(geometry, material, boxes.length);
@@ -115,6 +165,7 @@ export function buildWorldScene(layout: WorldLayout): WorldScene {
     root,
     dispose() {
       geometry.dispose();
+      glowMap?.dispose();
       for (const material of materials.values()) material.dispose();
     },
   };
