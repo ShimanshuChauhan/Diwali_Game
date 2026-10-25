@@ -64,11 +64,15 @@ class FakeFilter extends FakeNode {
 
 class FakeConvolver extends FakeNode {
   buffer: unknown = null;
+  normalize = true;
 }
 
 class FakeCompressor extends FakeNode {
   readonly threshold = new FakeParam(-24);
+  readonly knee = new FakeParam(30);
   readonly ratio = new FakeParam(12);
+  readonly attack = new FakeParam(0.003);
+  readonly release = new FakeParam(0.25);
 }
 
 class FakePanner extends FakeNode {
@@ -168,11 +172,17 @@ export class FakeAudioContext {
   createBiquadFilter(): FakeFilter {
     return new FakeFilter(this);
   }
+  readonly convolvers: FakeConvolver[] = [];
+  readonly compressors: FakeCompressor[] = [];
   createConvolver(): FakeConvolver {
-    return new FakeConvolver(this);
+    const convolver = new FakeConvolver(this);
+    this.convolvers.push(convolver);
+    return convolver;
   }
   createDynamicsCompressor(): FakeCompressor {
-    return new FakeCompressor(this);
+    const compressor = new FakeCompressor(this);
+    this.compressors.push(compressor);
+    return compressor;
   }
   createPanner(): FakePanner {
     const panner = new FakePanner(this);

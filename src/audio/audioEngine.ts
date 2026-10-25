@@ -15,11 +15,13 @@ import {
   LADI_BATCH,
   LADI_RING,
   LADI_TAIL,
+  ladiPopLevel,
   SOUNDS,
   STOP_FADE,
   type SoundKind,
 } from './sounds';
 import {
+  createLadiBus,
   createLaneEcho,
   createNoiseBank,
   silence,
@@ -58,6 +60,8 @@ interface Graph {
   readonly ctx: AudioContext;
   readonly master: GainNode;
   readonly sfx: GainNode;
+  /** Near ladis' pops: their lane slapback and limiter, into `sfx`. */
+  readonly ladi: GainNode;
   readonly ambience: GainNode;
   /** Recorded music (aarti): under master gain and mute, dry of the lane echo. */
   readonly music: GainNode;
@@ -319,11 +323,12 @@ export class AudioEngine implements AudioModule, Steppable {
     echo.gain.value = ECHO_GAIN;
     sfx.connect(echo);
     echo.connect(createLaneEcho(ctx, this.random)).connect(master);
+    const ladi = createLadiBus(ctx, sfx, this.random);
     const ambience = ctx.createGain();
     ambience.connect(master);
     const music = ctx.createGain();
     music.connect(master);
-    return { ctx, master, sfx, ambience, music, bank: createNoiseBank(ctx, this.random), townCrackle: null };
+    return { ctx, master, sfx, ladi, ambience, music, bank: createNoiseBank(ctx, this.random), townCrackle: null };
   }
 
   private async resumeContext(): Promise<void> {
@@ -366,7 +371,7 @@ export class AudioEngine implements AudioModule, Steppable {
     let i = index;
     for (; i < pops.length && pops[i]!.time - first.time < LADI_BATCH; i++) {
       const pop = pops[i]!;
-      batch.push({ at: pop.time - first.time, level: pop.loud ? 1 : 0.5 + 0.3 * this.random() });
+      batch.push({ at: pop.time - first.time, level: ladiPopLevel(pop.loud, this.random) });
     }
     // Later pops start the next batch even if this one found no voice.
     ladi.next = i;
@@ -413,7 +418,7 @@ export class AudioEngine implements AudioModule, Steppable {
     const panner = this.createPanner(ctx, options.position, options.refDistance ?? spec.refDistance);
     if (options.moveTo) movePanner(panner, options.position, options.moveTo, t0, end);
     output.connect(panner);
-    panner.connect(graph.sfx);
+    panner.connect(spec.bus === 'ladi' ? graph.ladi : graph.sfx);
     synth = synthesise(ctx, graph.bank, kind, output, {
       t0,
       duration: options.duration,

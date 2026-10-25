@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { AudioEngine } from '../src/audio/audioEngine';
+import { BANGER_SECONDS } from '../src/audio/blast';
 import { LADI_BATCH } from '../src/audio/sounds';
 import { createNoiseBank, synthesise } from '../src/audio/synth';
 import { CapacityBudget } from '../src/capacity';
@@ -21,7 +22,7 @@ import { bindingFor } from '../src/session/bindings';
 import { Session } from '../src/session/session';
 import { createHud } from '../src/ui/hud';
 import { HudModel, promptLines } from '../src/ui/hudModel';
-import { FakeAudioContext } from './fakeAudioContext';
+import { FakeAudioContext, type FakeSource } from './fakeAudioContext';
 import * as THREE from 'three';
 
 const v = (x: number, y: number, z: number): Vec3 => ({ x, y, z });
@@ -568,35 +569,45 @@ describe('ladi sound', () => {
     expect(ctx.gains.length).toBeGreaterThan(before);
   });
 
-  it('cracks once per banger, at its time', async () => {
+  /** Sources playing one of the banger recordings: one-shot, banger-length buffers. */
+  const bangerSources = (ctx: FakeAudioContext): FakeSource[] =>
+    ctx.sources.filter(
+      (source) => !source.loop && (source.buffer as AudioBuffer | null)?.length === Math.round(ctx.sampleRate * BANGER_SECONDS),
+    );
+
+  it('bangs once per banger, at its time', async () => {
     const { bus, ctx, audio } = await audioSetup();
+    const start = ctx.currentTime;
     const chain = play(bus, ctx, audio);
-    // Each batch's crack gain jumps at each of its pops.
-    const attacks = ctx.gains
-      .map((g) => g.gain.events as { method: string; args: number[] }[])
-      .map((events) =>
-        events.filter((e, i) => e.method === 'exponentialRampToValueAtTime' && events[i - 1]?.method === 'setValueAtTime').length,
-      );
-    // The crack and the body each hit once per pop.
-    expect(attacks.reduce((sum, n) => sum + n, 0)).toBeGreaterThanOrEqual(chain.pops.length * 2);
+    const bangs = bangerSources(ctx);
+    expect(bangs).toHaveLength(chain.pops.length);
+    // Each batch starts on its first pop's event, so every bang lands within a step of its pop.
+    bangs.forEach((bang, i) => {
+      expect(Math.abs(bang.startedAt! - start - chain.pops[i]!.time)).toBeLessThanOrEqual(STEP + 1e-9);
+    });
   });
 
-  it('schedules the batch pops exactly at their offsets', () => {
+  it('schedules the batch pops exactly at their offsets, each at its own level and pitch', () => {
     const ctx = new FakeAudioContext();
     const audio = ctx.asAudioContext();
     const pops = [
       { at: 0, level: 1 },
       { at: 0.05, level: 0.6 },
       { at: 0.06, level: 0.7 },
-      { at: 0.2, level: 0.5 },
+      { at: 0.2, level: 0.15 },
     ];
     synthesise(audio, createNoiseBank(audio, seeded(1)), 'ladiPops', audio.createGain(), { t0: 1, duration: 0.45, gain: 1, pops });
-    const crack = ctx.gains
-      .map((g) => g.gain.events as { method: string; args: number[] }[])
-      .find((events) => events.filter((e) => e.method === 'exponentialRampToValueAtTime').length === 8)!;
-    const rises = crack.filter((e, i) => e.method === 'exponentialRampToValueAtTime' && crack[i - 1]?.method === 'setValueAtTime');
-    expect(rises.map((e) => e.args[1]! - 0.0015)).toEqual(pops.map((p) => expect.closeTo(1 + p.at, 6)));
-    expect(rises.map((e) => e.args[0])).toEqual(pops.map((p) => p.level));
+    const bangs = bangerSources(ctx);
+    expect(bangs.map((b) => b.startedAt)).toEqual(pops.map((p) => expect.closeTo(1 + p.at, 9)));
+    // Each bang feeds its own level, so a quiet pop never turns down a loud one's tail.
+    const levels = bangs.map((b) => (b.outputs[0] as GainNode).gain.value);
+    expect(levels).toEqual(pops.map((p) => p.level));
+    expect(new Set(bangs.map((b) => b.outputs[0])).size).toBe(pops.length);
+    // Every bang plays at its own pitch, the loudest one deeper than the dud.
+    expect(new Set(bangs.map((b) => b.playbackRate.value)).size).toBe(pops.length);
+    expect(bangs[0]!.playbackRate.value).toBeLessThan(bangs[3]!.playbackRate.value);
+    // And each has finished by the time the voice ends.
+    for (const bang of bangs) expect(bang.stoppedAt).toBeLessThanOrEqual(1.45 + 1e-9);
   });
 
   it('lets its last bangs ring out after it finishes, but falls silent on reset', async () => {
@@ -607,7 +618,8 @@ describe('ladi sound', () => {
     bus.emit('ladiPop', { id: 'l', index: last, banger: last, position: v(0, 0, -2), loud: true });
     bus.emit('crackerFinished', { id: 'l', type: 'ladi', reason: 'completed' });
     expect(audio.activeVoices).toBe(1);
-    expect(ctx.soundingSources().filter((s) => s.stoppedAt !== null && s.stoppedAt < 0.2)).toHaveLength(0);
+    // Nothing is cut short (a stopped voice would be gone within its 60 ms fade).
+    expect(ctx.soundingSources().filter((s) => s.stoppedAt !== null && s.stoppedAt < 0.1)).toHaveLength(0);
     bus.emit('sessionReset', {});
     expect(audio.activeVoices).toBe(0);
   });

@@ -28,6 +28,11 @@ export interface SoundSpec {
   readonly gain: number;
   /** Panner distance at which the sound plays at `gain`; larger carries further. */
   readonly refDistance: number;
+  /**
+   * `'ladi'` plays through the ladi bus (its lane slapback and limiter; see
+   * `createLadiBus`) instead of straight into the effects.
+   */
+  readonly bus?: 'ladi';
 }
 
 export const SOUNDS: Readonly<Record<SoundKind, SoundSpec>> = {
@@ -35,13 +40,15 @@ export const SOUNDS: Readonly<Record<SoundKind, SoundSpec>> = {
   rocketWhistle: { priority: 4, gain: 0.45, refDistance: 6 },
   anarRoar: { priority: 3, gain: 0.6, refDistance: 4 },
   chakriWhine: { priority: 3, gain: 0.45, refDistance: 4 },
-  ladiPops: { priority: 3, gain: 0.7, refDistance: 3 },
+  // The loudest small cracker: driven into its own limiter, so it bangs
+  // hard without clipping however many pops pile up.
+  ladiPops: { priority: 3, gain: 1.8, refDistance: 4, bus: 'ladi' },
   phuljhariCrackle: { priority: 3, gain: 0.35, refDistance: 1.5 },
   fuseHiss: { priority: 1, gain: 0.25, refDistance: 1.5 },
   // Crackers elsewhere in town are the first to go when the budget is tight.
   distantShell: { priority: 1, gain: 0.6, refDistance: 1 },
   distantBomb: { priority: 0, gain: 0.5, refDistance: 1 },
-  distantLadi: { priority: 0, gain: 0.32, refDistance: 1 },
+  distantLadi: { priority: 0, gain: 0.24, refDistance: 1 },
   distantPop: { priority: 0, gain: 0.25, refDistance: 1 },
   distantWhistle: { priority: 0, gain: 0.2, refDistance: 1 },
   distantFountain: { priority: 0, gain: 0.3, refDistance: 1 },
@@ -66,6 +73,24 @@ export const ACTIVE_SOUND: Readonly<Record<CrackerType, SoundKind | null>> = {
 export const LADI_BATCH = 0.6;
 /** The last pop of a batch rings this long before its voice ends, seconds. */
 export const LADI_RING = 0.25;
+
+/**
+ * How loud each banger goes off, 0–1: the louder ones the chain rolled bang
+ * hardest, most land somewhere in the middle, and now and then one is
+ * nearly a dud.
+ */
+export const LADI_LEVELS = {
+  loud: { min: 0.9, max: 1 },
+  normal: { min: 0.4, max: 0.8 },
+  dud: { min: 0.1, max: 0.25 },
+  dudChance: 0.1,
+} as const;
+
+export function ladiPopLevel(loud: boolean, random: () => number): number {
+  const pick = (range: { readonly min: number; readonly max: number }) => range.min + random() * (range.max - range.min);
+  if (loud) return pick(LADI_LEVELS.loud);
+  return random() < LADI_LEVELS.dudChance ? pick(LADI_LEVELS.dud) : pick(LADI_LEVELS.normal);
+}
 
 /** Length of a burst's boom plus crackle tail, seconds. */
 export const BURST_DURATION = 3.2;

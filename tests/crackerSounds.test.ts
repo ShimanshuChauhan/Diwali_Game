@@ -102,10 +102,12 @@ describe('cracker sound recipes', () => {
   });
 
   it('never builds a distant bang or a burst from a pitched oscillator, so nothing sounds like a drum', () => {
-    for (const kind of ['distantBomb', 'distantPop', 'distantShell', 'burst'] as const) {
+    for (const kind of ['distantBomb', 'distantPop', 'distantShell', 'distantLadi', 'ladiPops', 'burst'] as const) {
       const ctx = new FakeAudioContext();
       const audio = ctx.asAudioContext();
-      synthesise(audio, createNoiseBank(audio, seeded(1)), kind, audio.createGain(), { t0: 0, duration: 3, gain: 1, distance: 100 });
+      const pops = [{ at: 0, level: 1 }, { at: 0.1, level: 0.5 }];
+      synthesise(audio, createNoiseBank(audio, seeded(1)), kind, audio.createGain(), { t0: 0, duration: 3, gain: 1, distance: 100, pops });
+      expect(ctx.sources.length).toBeGreaterThan(0);
       expect(ctx.sources.every((source) => source.buffer !== null)).toBe(true);
     }
   });
@@ -141,12 +143,20 @@ describe('cracker sound recipes', () => {
     expect(blasts[0]!.playbackRate.value).toBeLessThan(1.15);
   });
 
-  it('rattles a ladi off as a long run of quick pops', () => {
-    const pops = gainEvents('distantLadi', 3 + 1.2)
-      .map(attacks)
-      .reduce((most, times) => (times.length > most.length ? times : most), [] as number[]);
-    expect(pops.length).toBeGreaterThan(25);
-    expect(Math.max(...pops)).toBeLessThan(3.05);
+  it('rattles a distant ladi off as a long run of quick bangs at varied levels', () => {
+    const ctx = new FakeAudioContext();
+    const audio = ctx.asAudioContext();
+    const bank = createNoiseBank(audio, seeded(1));
+    synthesise(audio, bank, 'distantLadi', audio.createGain(), { t0: 0, duration: 3 + 1.2, gain: 1, distance: 90 });
+    const bangs = ctx.sources.filter((source) => bank.bangers.includes(source.buffer as AudioBuffer));
+    expect(bangs.length).toBeGreaterThan(25);
+    expect(Math.max(...bangs.map((b) => b.startedAt!))).toBeLessThan(3.05);
+    // One shared level, stepped at every bang: a node per bang, not two.
+    const level = bangs[0]!.outputs[0] as unknown as { gain: { events: ParamEvent[] } };
+    expect(bangs.every((b) => b.outputs[0] === level)).toBe(true);
+    const steps = level.gain.events.filter((e) => e.method === 'setValueAtTime' && e.args[1]! > 0).map((e) => e.args[0]!);
+    expect(steps).toHaveLength(bangs.length);
+    expect(Math.max(...steps) - Math.min(...steps)).toBeGreaterThan(0.4);
   });
 
   it('swells the anar roar along a curve and fades the rocket motor out by the apex', () => {

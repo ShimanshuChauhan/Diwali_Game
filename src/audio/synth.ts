@@ -1,8 +1,8 @@
 import type { BurstPattern } from '../core/types';
 import { FOUNTAIN, surgeFactor } from '../effects/presets';
-import { fillBlast, randomBlastShape } from './blast';
-import { fillBrown, fillCrackle, fillLaneImpulse, fillWhite } from './noise';
-import { LADI_TAIL, STOP_FADE, type SoundKind } from './sounds';
+import { BANGER_SECONDS, fillBanger, fillBlast, randomBangerShape, randomBlastShape } from './blast';
+import { fillBrown, fillCrackle, fillLaneImpulse, fillLaneRoom, fillWhite } from './noise';
+import { LADI_TAIL, ladiPopLevel, STOP_FADE, type SoundKind } from './sounds';
 
 /**
  * Original synthesised sounds, built from oscillators, filters and the
@@ -24,11 +24,15 @@ export interface NoiseBank {
   readonly sizzle: AudioBuffer;
   /** Shell bursts, each shaped a little differently; see `blast.ts`. */
   readonly blasts: readonly AudioBuffer[];
+  /** A ladi's bangers going off, each shaped a little differently; see `blast.ts`. */
+  readonly bangers: readonly AudioBuffer[];
 }
 
 /** Burst variants made per context, so no two bursts in a row sound alike. */
 const BLAST_VARIANTS = 6;
 const BLAST_SECONDS = 3.2;
+/** Banger variants made per context; each pop also re-pitches its pick. */
+const BANGER_VARIANTS = 10;
 
 const BANK_SECONDS = 2;
 
@@ -48,6 +52,11 @@ export function createNoiseBank(ctx: BaseAudioContext, random: () => number = Ma
       fillBlast(buffer.getChannelData(0), ctx.sampleRate, random, randomBlastShape(random));
       return buffer;
     }),
+    bangers: Array.from({ length: BANGER_VARIANTS }, () => {
+      const buffer = ctx.createBuffer(1, Math.round(ctx.sampleRate * BANGER_SECONDS), ctx.sampleRate);
+      fillBanger(buffer.getChannelData(0), ctx.sampleRate, random, randomBangerShape(random));
+      return buffer;
+    }),
   };
 }
 
@@ -65,6 +74,64 @@ export function createLaneEcho(ctx: BaseAudioContext, random: () => number = Mat
   const convolver = ctx.createConvolver();
   convolver.buffer = impulse;
   return convolver;
+}
+
+/**
+ * The ladi bus's limiter. Its threshold is low enough that the louder bangs
+ * and pile-ups drive into it (that is what makes the rattle sound loud and
+ * dense), its attack is instant so no crack slips past, and it lets go
+ * within a pop or two.
+ */
+export const LADI_LIMITER = { threshold: -4, knee: 0, ratio: 12, attack: 0.001, release: 0.09 } as const;
+/** The lane's slapback against the dry bangs, and how long its wash lasts. */
+export const LADI_ROOM = { wet: 0.8, seconds: 0.45 } as const;
+
+/** Level out of a compressor of `limiter`'s settings (hard knee) for a level in, dBFS, before makeup gain. */
+export function limiterCurve(db: number, limiter: { readonly threshold: number; readonly ratio: number } = LADI_LIMITER): number {
+  return db <= limiter.threshold ? db : limiter.threshold + (db - limiter.threshold) / limiter.ratio;
+}
+
+/**
+ * The makeup gain a `DynamicsCompressorNode` adds on its own (Web Audio
+ * spec: the full-range gain's inverse, to the power 0.6). The ladi bus
+ * takes it back out, so quiet pops stay quiet and only the peaks are held.
+ */
+export function compressorMakeup(limiter: { readonly threshold: number; readonly ratio: number } = LADI_LIMITER): number {
+  const fullRange = Math.pow(10, limiterCurve(0, limiter) / 20);
+  return Math.pow(1 / fullRange, 0.6);
+}
+
+/**
+ * Where a near ladi's voices play: the lane's slapback (a convolver with a
+ * short, synthesised room, built once) mixed with the dry bangs, then a
+ * limiter, into `output`. Built once per context and shared by every ladi,
+ * so pops never add nodes beyond their own.
+ */
+export function createLadiBus(ctx: BaseAudioContext, output: AudioNode, random: () => number = Math.random): GainNode {
+  const input = ctx.createGain();
+  const limiter = ctx.createDynamicsCompressor();
+  limiter.threshold.value = LADI_LIMITER.threshold;
+  limiter.knee.value = LADI_LIMITER.knee;
+  limiter.ratio.value = LADI_LIMITER.ratio;
+  limiter.attack.value = LADI_LIMITER.attack;
+  limiter.release.value = LADI_LIMITER.release;
+  input.connect(limiter);
+
+  const length = Math.round(ctx.sampleRate * LADI_ROOM.seconds);
+  const impulse = ctx.createBuffer(2, length, ctx.sampleRate);
+  fillLaneRoom(impulse.getChannelData(0), impulse.getChannelData(1), ctx.sampleRate, LADI_ROOM.seconds, random);
+  const room = ctx.createConvolver();
+  // The impulse's levels are the echo's own; don't let the node rescale them.
+  room.normalize = false;
+  room.buffer = impulse;
+  const wet = ctx.createGain();
+  wet.gain.value = LADI_ROOM.wet;
+  input.connect(room).connect(wet).connect(limiter);
+
+  const trim = ctx.createGain();
+  trim.gain.value = 1 / compressorMakeup();
+  limiter.connect(trim).connect(output);
+  return input;
 }
 
 /** A scheduled sound: its sources and the gain that shapes and silences it. */
@@ -159,6 +226,21 @@ class VoiceBuilder {
     source.playbackRate.value = rate;
     source.start(at);
     source.stop(Math.min(this.end, at + BLAST_SECONDS / rate));
+    this.sources.push(source);
+    return source;
+  }
+
+  /**
+   * One ladi banger, played once from `at`, pitched by `rate` (a little
+   * deeper below 1) so neighbouring pops never sound alike.
+   */
+  banger(at: number, rate: number): AudioBufferSourceNode {
+    const bangers = this.bank.bangers;
+    const source = this.ctx.createBufferSource();
+    source.buffer = bangers[Math.floor(Math.random() * bangers.length)] ?? null;
+    source.playbackRate.value = rate;
+    source.start(at);
+    source.stop(Math.min(this.end, at + BANGER_SECONDS / rate));
     this.sources.push(source);
     return source;
   }
@@ -433,30 +515,22 @@ const RECIPES: Record<SoundKind, Recipe> = {
   },
 
   /**
-   * A batch of a near ladi's bangers going off: each pop a hard paper crack
-   * with a short, papery body, at exactly the times given, over the faint
-   * fizz of the fuse running between them. The lane's echo smears the
-   * rattle into the familiar "tadatadatada".
+   * A batch of a near ladi's bangers going off: each pop one of the banger
+   * recordings (a hard crack and a short low-mid thump), at exactly the time
+   * given, as loud as its level and pitched by it (bigger bangs a touch
+   * deeper), over the faint fizz of the fuse running between them. The
+   * ladi bus's slapback smears the rattle into one crackling roar.
+   *
+   * Two nodes per pop (its source and level), three for the fizz.
    */
   ladiPops(b, p) {
     b.output.gain.value = p.gain;
-    const pops = p.pops ?? [];
-    const crack = b.gain(0);
-    const body = b.gain(0);
-    crack.gain.setValueAtTime(0.0001, b.t0);
-    body.gain.setValueAtTime(0.0001, b.t0);
-    for (const pop of pops) {
-      const at = b.t0 + pop.at;
-      crack.gain.setValueAtTime(0.0001, at);
-      crack.gain.exponentialRampToValueAtTime(Math.max(0.0002, pop.level), at + 0.0015);
-      crack.gain.exponentialRampToValueAtTime(0.0001, at + 0.03 + 0.015 * pop.level);
-      body.gain.setValueAtTime(0.0001, at);
-      body.gain.exponentialRampToValueAtTime(Math.max(0.0002, 0.55 * pop.level), at + 0.003);
-      body.gain.exponentialRampToValueAtTime(0.0001, at + 0.06 + 0.04 * pop.level);
+    for (const pop of p.pops ?? []) {
+      const level = b.gain(pop.level);
+      b.chain(b.banger(b.t0 + pop.at, ladiPitch(pop.level)), level, b.output);
     }
-    b.chain(b.noise(b.bank.white), b.filter('highpass', 1400, 0.7), crack, b.output);
-    b.chain(b.noise(b.bank.white), b.filter('bandpass', 850, 0.9), body, b.output);
-    const fizz = b.gain(0.05);
+    // Last, so the voice lets go of its nodes once the fizz stops at the end.
+    const fizz = b.gain(0.06);
     b.chain(b.noise(b.bank.sizzle, b.t0, b.end, 0.8), b.filter('bandpass', 4500, 0.8), fizz, b.output);
   },
 
@@ -473,22 +547,26 @@ const RECIPES: Record<SoundKind, Recipe> = {
   },
 
   /**
-   * A ladi: a string of chain crackers rattling off, bursts of rapid snaps
-   * with stumbles and the odd louder one, until it burns out.
+   * A ladi down the street: the same bangers rattling off, bursts of rapid
+   * pops with stumbles, the odd doublet and louder one, until it burns out,
+   * duller with distance and smeared into a wash off the walls around it.
    */
   distantLadi(b, p) {
     b.output.gain.value = p.gain;
     const burning = Math.max(0.3, b.end - b.t0 - LADI_TAIL);
-    const times: number[] = [];
-    for (let t = b.t0 + 0.02; t < b.t0 + burning; ) {
-      times.push(t);
-      // Mostly a fast rattle, now and then a stumble.
-      t += Math.random() < 0.12 ? 0.12 + Math.random() * 0.2 : 0.025 + Math.random() * 0.07;
-    }
+    // One level for the whole string, stepped at each pop: at this distance
+    // a pop's tail taking the next one's level is lost in the smear.
     const snaps = b.gain(0);
-    b.hits(snaps.gain, times, 0.9, 0.04);
-    b.chain(b.noise(b.bank.white), b.filter('highpass', 500, 0.6), b.filter('lowpass', muffle(p.distance, 6000), 0.6), snaps, b.output);
-    // The rattle smears into a wash off the walls around it.
+    snaps.gain.setValueAtTime(0, b.t0);
+    b.chain(snaps, b.filter('lowpass', muffle(p.distance, 5000), 0.6), b.output);
+    for (let t = b.t0 + 0.02; t < b.t0 + burning; ) {
+      const level = ladiPopLevel(Math.random() < LADI_LOUD_CHANCE, Math.random);
+      snaps.gain.setValueAtTime(level, t);
+      b.banger(t, ladiPitch(level)).connect(snaps);
+      // Mostly a fast rattle, now and then a doublet or a stumble.
+      const roll = Math.random();
+      t += roll < 0.08 ? 0.006 + Math.random() * 0.012 : roll < 0.2 ? 0.12 + Math.random() * 0.2 : 0.035 + Math.random() * 0.06;
+    }
     const wash = b.gain(0);
     wash.gain.setValueAtTime(0, b.t0);
     wash.gain.linearRampToValueAtTime(0.18, b.t0 + 0.3);
@@ -551,6 +629,14 @@ const RECIPES: Record<SoundKind, Recipe> = {
     depth.connect(whirr.gain);
   },
 };
+
+/** Of a distant ladi's pops, how many are its louder bangers. */
+const LADI_LOUD_CHANCE = 0.15;
+
+/** Playback rate for a banger at `level`: louder ones a touch deeper, every one a little different. */
+function ladiPitch(level: number): number {
+  return (1.1 - 0.2 * level) * (0.92 + 0.16 * Math.random());
+}
 
 /** Air dulls a bang with distance: the low-pass cutoff for one `distance` metres away. */
 function muffle(distance: number | undefined, nearCutoff: number): number {
