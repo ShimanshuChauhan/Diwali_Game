@@ -40,17 +40,9 @@ const RISE = 0.00015;
 
 /**
  * Add a Friedlander pulse of `amplitude` starting at `at` seconds, with a
- * positive phase `width` seconds long, onto `data`; its front takes about
- * `rise` seconds.
+ * positive phase `width` seconds long, onto `data`.
  */
-export function addShock(
-  data: Float32Array,
-  sampleRate: number,
-  at: number,
-  width: number,
-  amplitude: number,
-  rise = RISE,
-): void {
+export function addShock(data: Float32Array, sampleRate: number, at: number, width: number, amplitude: number): void {
   const start = Math.round(at * sampleRate);
   // The negative phase has all but recovered by four widths.
   const length = Math.ceil(width * 4 * sampleRate);
@@ -58,7 +50,7 @@ export function addShock(
     if (start + i < 0) continue;
     const t = i / sampleRate;
     const x = t / width;
-    const front = 1 - Math.exp(-t / rise);
+    const front = 1 - Math.exp(-t / RISE);
     data[start + i] = (data[start + i] ?? 0) + amplitude * front * (1 - x) * Math.exp(-DECAY * x);
   }
 }
@@ -141,84 +133,99 @@ function dullOverTime(data: Float32Array, sampleRate: number): void {
 }
 
 /**
- * One small banger of a ladi going off at arm's length: a tiny version of
- * the same blast. Its shock is far shorter than a shell's, so it is a hard,
- * broadband crack rather than a boom; the push of its gas is a short
- * low-mid thump (a positive phase of 1.4–3 ms puts its energy around
- * 150–350 Hz); its paper casing tears into a few sharp fragments; and the
- * ground under it rings briefly. No room: the engine adds the lane's.
+ * One small banger of a ladi going off at arm's length. Flash powder in a
+ * paper tube bangs as a near-ideal impulse (Dezelak, Prezelj & Cudina 2009,
+ * "Some Statistical Aspects of Firecracker Noise"): the shock front rises
+ * in microseconds and its positive peak lasts tens of microseconds, so here
+ * it is a two-sample spike; the air then swings shallowly negative for a
+ * millisecond or so; and the paper and hot gas crack as a burst of
+ * broadband noise lasting a few milliseconds. Nothing in it rings or has a
+ * pitch: any tail longer than that is the street's echo, which the engine
+ * adds. Now and then a shred of paper ticks off a little later.
  */
 export interface BangerShape {
-  /** Length of the crack's positive phase, seconds (a fraction of a millisecond). */
+  /** Length of the shock's negative (rarefaction) lobe, seconds. */
+  readonly lobe: number;
+  /** Depth of that lobe against the spike. */
+  readonly depth: number;
+  /** Time constant of the crack's noise, seconds. */
   readonly crack: number;
-  /** Length of the thump's positive phase, seconds. */
-  readonly thump: number;
-  /** Time constant of the low-mid body's decay, seconds. */
-  readonly body: number;
-  /** Time constant of the torn paper's spatter, seconds. */
-  readonly spatter: number;
+  /** Peak of the crack's noise against the spike. */
+  readonly level: number;
+  /** Low-pass corner of the crack, Hz: how bright this banger is. */
+  readonly brightness: number;
+  /** Paper shreds ticking off after the bang. */
+  readonly ticks: number;
 }
 
 /** Seconds each banger recording lasts; everything has died away by then. */
-export const BANGER_SECONDS = 0.18;
+export const BANGER_SECONDS = 0.12;
 /** Peak of every banger recording. */
 export const BANGER_PEAK = 0.9;
-/** The crack's front: near-instant, so it cracks rather than thuds. */
-const CRACK_RISE = 0.00002;
-/** Band of the ground's ring under a banger, Hz. */
-const BODY_LOW = 120;
-const BODY_HIGH = 380;
+/** Below this the crack's noise is cut (gently: two one-pole stages), Hz. */
+const CRACK_HIGHPASS = 650;
+/**
+ * The crack's energy leans towards the low kilohertz, where flash powder
+ * bangs loudest: most of it is noise softened above this, Hz, with flat
+ * noise on top up to the banger's brightness.
+ */
+const CRACK_TILT = 1800;
+/** How much of the crack is that flat, bright noise. */
+const CRACK_AIR = 0.18;
 
 /** A random but plausible banger: each in a string bangs a little differently. */
 export function randomBangerShape(random: () => number): BangerShape {
   return {
-    crack: 0.00022 + random() * 0.00028,
-    thump: 0.0014 + random() * 0.0016,
-    body: 0.012 + random() * 0.012,
-    spatter: 0.008 + random() * 0.01,
+    lobe: 0.0005 + random() * 0.001,
+    depth: 0.12 + random() * 0.1,
+    crack: 0.0025 + random() * 0.0055,
+    level: 0.55 + random() * 0.3,
+    brightness: 7000 + random() * 3000,
+    ticks: Math.floor(random() * 3.5),
   };
 }
 
 /** Fill `data` with one banger heard from close by, peak-normalised to `BANGER_PEAK`. */
 export function fillBanger(data: Float32Array, sampleRate: number, random: () => number, shape: BangerShape): void {
   data.fill(0);
-  // The crack, its bounce off the ground right under it, and the thump of gas.
-  addShock(data, sampleRate, 0, shape.crack, 1, CRACK_RISE);
-  addShock(data, sampleRate, 0.0008 + random() * 0.0012, shape.crack * 1.4, 0.45, CRACK_RISE);
-  addShock(data, sampleRate, 0.0002, shape.thump, 0.85);
-  // The casing tearing: a few sharp fragments in the first few milliseconds.
-  const fragments = 4 + Math.floor(random() * 8);
-  for (let f = 0; f < fragments; f++) {
-    const sign = random() < 0.5 ? -1 : 1;
-    addShock(data, sampleRate, 0.0005 + random() * 0.004, 0.0001 + random() * 0.0003, sign * (0.08 + random() * 0.22), CRACK_RISE);
-  }
-
-  // The ground and air ringing: low-mid noise that swells in a millisecond
-  // and dies over a couple of dozen. Band-passed noise, so it thumps without
-  // a pitch.
-  const body = new Float32Array(data.length);
-  const spatter = new Float32Array(data.length);
-  const kHigh = 1 - Math.exp((-2 * Math.PI * BODY_HIGH) / sampleRate);
-  const kLow = 1 - Math.exp((-2 * Math.PI * BODY_LOW) / sampleRate);
-  let lp1 = 0;
-  let lp2 = 0;
-  let floor = 0;
-  let previous = 0;
+  // The crack: white noise, high- and gently low-passed, dying exponentially from the first sample.
+  const crack = new Float32Array(data.length);
+  const kHigh = 1 - Math.exp((-2 * Math.PI * CRACK_HIGHPASS) / sampleRate);
+  const kLow = 1 - Math.exp((-2 * Math.PI * Math.min(shape.brightness, sampleRate * 0.45)) / sampleRate);
+  const kTilt = 1 - Math.exp((-2 * Math.PI * CRACK_TILT) / sampleRate);
+  let floor1 = 0;
+  let floor2 = 0;
+  let bright = 0;
+  let body = 0;
   for (let i = 0; i < data.length; i++) {
-    const t = i / sampleRate;
     const noise = random() * 2 - 1;
-    lp1 += kHigh * (noise - lp1);
-    lp2 += kHigh * (lp1 - lp2);
-    floor += kLow * (lp2 - floor);
-    body[i] = (lp2 - floor) * (1 - Math.exp(-t / 0.001)) * Math.exp(-t / shape.body);
-    // Bits of burning paper flung off: a bright, sparse fizz.
-    const spit = random() < 0.3 ? noise - previous : 0;
-    spatter[i] = spit * Math.exp(-t / shape.spatter);
-    previous = noise;
+    floor1 += kHigh * (noise - floor1);
+    const high1 = noise - floor1;
+    floor2 += kHigh * (high1 - floor2);
+    const high = high1 - floor2;
+    bright += kLow * (high - bright);
+    body += kTilt * (high - body);
+    // Gain-matched so both layers have roughly the same loudness per unit of mix.
+    const mix = body / Math.sqrt(kTilt) * (1 - CRACK_AIR) + bright * CRACK_AIR;
+    crack[i] = mix * Math.exp(-i / sampleRate / shape.crack);
   }
-  const bodyLevel = 0.5 / Math.max(1e-9, peakOf(body));
-  const spatterLevel = 0.12 / Math.max(1e-9, peakOf(spatter));
-  for (let i = 0; i < data.length; i++) data[i] = data[i]! + body[i]! * bodyLevel + spatter[i]! * spatterLevel;
+  const crackLevel = shape.level / Math.max(1e-9, peakOf(crack));
+  for (let i = 0; i < data.length; i++) data[i] = crack[i]! * crackLevel;
+
+  // The shock: a two-sample spike, then a shallow, smooth negative lobe.
+  data[0] = data[0]! + 1;
+  if (data.length > 1) data[1] = data[1]! + 0.4;
+  const lobe = Math.max(2, Math.round(shape.lobe * sampleRate));
+  for (let i = 0; i < lobe && i + 2 < data.length; i++) data[i + 2] = data[i + 2]! - shape.depth * Math.sin((Math.PI * (i + 0.5)) / lobe);
+
+  // Shreds of paper: single ticks, well after the bang and far quieter.
+  for (let t = 0; t < shape.ticks; t++) {
+    const at = Math.round((0.012 + random() * 0.05) * sampleRate);
+    if (at + 1 >= data.length) continue;
+    const size = (random() < 0.5 ? -1 : 1) * (0.04 + random() * 0.08);
+    data[at] = data[at]! + size;
+    data[at + 1] = data[at + 1]! - size * 0.5;
+  }
 
   const peak = peakOf(data);
   if (peak > 0) for (let i = 0; i < data.length; i++) data[i] = (data[i]! / peak) * BANGER_PEAK;

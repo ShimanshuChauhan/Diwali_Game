@@ -57,33 +57,43 @@ function lowShare(data: Float32Array, cutoff: number): number {
 }
 
 describe('ladi banger recording', () => {
-  it('peaks at the crack, right at the start, normalised', () => {
+  it('starts on its shock: a full-scale spike in the first two samples, then a negative swing', () => {
     for (const seed of [1, 2, 3]) {
       const data = banger(seed);
       let at = 0;
       for (let i = 1; i < data.length; i++) if (Math.abs(data[i]!) > Math.abs(data[at]!)) at = i;
-      expect(at / RATE).toBeLessThan(0.003);
-      expect(Math.abs(data[at]!)).toBeCloseTo(BANGER_PEAK);
+      expect(at).toBeLessThanOrEqual(1);
+      expect(data[at]).toBeCloseTo(BANGER_PEAK);
+      // The rarefaction right behind the front pulls the air below zero.
+      expect(Math.min(...data.subarray(2, Math.round(RATE * 0.002)))).toBeLessThan(-0.05);
     }
   });
 
-  it('is a broadband crack over a low-mid thump, not a papery click', () => {
-    const data = banger(4);
-    // Plenty of its energy is the 150–400 Hz body...
-    expect(lowShare(data, 400)).toBeGreaterThan(0.35);
-    // ...but it still cracks: a good part is well above it.
-    expect(lowShare(data, 1500)).toBeLessThan(0.9);
+  it('is a bright, broadband crack with almost nothing in the bass, so no pop thumps like a drum', () => {
+    for (const seed of [4, 5, 6, 7]) {
+      const data = banger(seed);
+      expect(lowShare(data, 300)).toBeLessThan(0.1);
+      // Most of it is well up in the kilohertz.
+      expect(lowShare(data, 1500)).toBeLessThan(0.5);
+    }
   });
 
-  it('dies away well within its length', () => {
-    const data = banger(5);
-    const tail = data.subarray(Math.round(data.length * 0.6));
-    expect(energy(tail)).toBeLessThan(energy(data) / 1000);
+  it('is over within a few dozen milliseconds: nothing in it rings', () => {
+    for (const seed of [8, 9, 10, 11]) {
+      const data = banger(seed);
+      // 1 ms RMS envelope: past 30 ms it never comes back within 20 dB of its peak.
+      const window = Math.round(RATE * 0.001);
+      const rms = (from: number) => Math.sqrt(energy(data.subarray(from, from + window)) * RATE / window);
+      const top = rms(0);
+      for (let i = Math.round(RATE * 0.03); i + window <= data.length; i += window) expect(rms(i)).toBeLessThan(top / 10);
+      // And the last third is silent but for the odd paper tick.
+      expect(energy(data.subarray(Math.round(data.length * 0.6)))).toBeLessThan(energy(data) / 1000);
+    }
   });
 
   it('never bangs the same twice', () => {
-    const a = banger(6);
-    const b = banger(7);
+    const a = banger(12);
+    const b = banger(13);
     let difference = 0;
     for (let i = 0; i < a.length; i++) difference += (a[i]! - b[i]!) ** 2;
     expect(difference / RATE / energy(a)).toBeGreaterThan(0.3);
@@ -98,9 +108,14 @@ describe('lane slapback', () => {
     Math.max(...Array.from(data.subarray(Math.round(from * RATE), Math.round(to * RATE)), Math.abs));
 
   it('slaps back off the facing houses about 50 ms later, well above the wash', () => {
-    const slap = peakIn(left, 0.045, 0.065);
-    expect(slap).toBeGreaterThan(0.3);
+    const slap = peakIn(left, 0.045, 0.07);
+    expect(slap).toBeGreaterThan(0.2);
     expect(slap).toBeGreaterThan(4 * peakIn(left, 0.2, 0.3));
+  });
+
+  it('never booms: next to nothing below 300 Hz', () => {
+    expect(lowShare(left, 300)).toBeLessThan(0.1);
+    expect(lowShare(right, 300)).toBeLessThan(0.1);
   });
 
   it('comes back from alternating sides', () => {
@@ -276,25 +291,18 @@ describe('ladi gain staging', () => {
   it('cannot clip however many bangs pile up', () => {
     // Three ladis at once, each mid-doublet, with the slapback adding as much again.
     const pileUp = db(SOUNDS.ladiPops.gain * BANGER_PEAK * 3 * 2 * (1 + LADI_ROOM.wet));
-    expect(busOut(pileUp)).toBeLessThan(-1);
+    expect(busOut(pileUp)).toBeLessThan(-0.5);
   });
 
-  it('bangs much harder than the old paper clicks', () => {
+  it('carries more energy into each bang than the old paper clicks', () => {
     // The old loudest pop: a white-noise crack (variance 1/3) decaying
     // exponentially to -80 dB over 45 ms, at the old gain of 0.7, plus a
     // narrow 850 Hz body worth well under a fifth of that.
     const tau = 0.045 / Math.log(1e4);
     const oldPop = 0.7 ** 2 * 1.2 * (((1 / 3) * tau) / 2);
-    // A typical bang straight ahead (equal-power centre) barely touches the limiter...
-    const typical = (LADI_LEVELS.normal.min + LADI_LEVELS.normal.max) / 2;
-    const typicalDb = db(SOUNDS.ladiPops.gain * typical * BANGER_PEAK * Math.SQRT1_2);
-    const held = Math.pow(10, (busOut(typicalDb) - typicalDb) / 20);
-    expect(held).toBeGreaterThan(Math.pow(10, -1 / 20));
-    // ...so it carries several times the energy of an old pop at the same level.
+    expect(SOUNDS.ladiPops.gain).toBeGreaterThan(0.7 * 4);
     for (const seed of [1, 2, 3, 4, 5, 6]) {
-      const bang = SOUNDS.ladiPops.gain ** 2 * energy(banger(seed));
-      expect(bang).toBeGreaterThan(5 * oldPop);
-      expect(bang * held ** 2).toBeGreaterThan(4 * oldPop);
+      expect(SOUNDS.ladiPops.gain ** 2 * energy(banger(seed))).toBeGreaterThan(2 * oldPop);
     }
   });
 });

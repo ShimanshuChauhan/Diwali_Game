@@ -31,8 +31,8 @@ export interface NoiseBank {
 /** Burst variants made per context, so no two bursts in a row sound alike. */
 const BLAST_VARIANTS = 6;
 const BLAST_SECONDS = 3.2;
-/** Banger variants made per context; each pop also re-pitches its pick. */
-const BANGER_VARIANTS = 10;
+/** Banger variants made per context, so neighbouring pops differ. */
+const BANGER_VARIANTS = 16;
 
 const BANK_SECONDS = 2;
 
@@ -231,8 +231,8 @@ class VoiceBuilder {
   }
 
   /**
-   * One ladi banger, played once from `at`, pitched by `rate` (a little
-   * deeper below 1) so neighbouring pops never sound alike.
+   * One ladi banger, played once from `at` at `rate` (kept within a few
+   * percent of 1: a bang has no pitch to vary).
    */
   banger(at: number, rate: number): AudioBufferSourceNode {
     const bangers = this.bank.bangers;
@@ -516,10 +516,10 @@ const RECIPES: Record<SoundKind, Recipe> = {
 
   /**
    * A batch of a near ladi's bangers going off: each pop one of the banger
-   * recordings (a hard crack and a short low-mid thump), at exactly the time
-   * given, as loud as its level and pitched by it (bigger bangs a touch
-   * deeper), over the faint fizz of the fuse running between them. The
-   * ladi bus's slapback smears the rattle into one crackling roar.
+   * recordings (an impulse and a few milliseconds of broadband crack), at
+   * exactly the time given and as loud as its level, over the faint fizz of
+   * the fuse running between them. The ladi bus's slapback smears the
+   * rattle into one crackling chatter.
    *
    * Two nodes per pop (its source and level), three for the fizz.
    */
@@ -527,7 +527,7 @@ const RECIPES: Record<SoundKind, Recipe> = {
     b.output.gain.value = p.gain;
     for (const pop of p.pops ?? []) {
       const level = b.gain(pop.level);
-      b.chain(b.banger(b.t0 + pop.at, ladiPitch(pop.level)), level, b.output);
+      b.chain(b.banger(b.t0 + pop.at, bangerRate()), level, b.output);
     }
     // Last, so the voice lets go of its nodes once the fizz stops at the end.
     const fizz = b.gain(0.06);
@@ -562,7 +562,7 @@ const RECIPES: Record<SoundKind, Recipe> = {
     for (let t = b.t0 + 0.02; t < b.t0 + burning; ) {
       const level = ladiPopLevel(Math.random() < LADI_LOUD_CHANCE, Math.random);
       snaps.gain.setValueAtTime(level, t);
-      b.banger(t, ladiPitch(level)).connect(snaps);
+      b.banger(t, bangerRate()).connect(snaps);
       // Mostly a fast rattle, now and then a doublet or a stumble.
       const roll = Math.random();
       t += roll < 0.08 ? 0.006 + Math.random() * 0.012 : roll < 0.2 ? 0.12 + Math.random() * 0.2 : 0.035 + Math.random() * 0.06;
@@ -633,9 +633,14 @@ const RECIPES: Record<SoundKind, Recipe> = {
 /** Of a distant ladi's pops, how many are its louder bangers. */
 const LADI_LOUD_CHANCE = 0.15;
 
-/** Playback rate for a banger at `level`: louder ones a touch deeper, every one a little different. */
-function ladiPitch(level: number): number {
-  return (1.1 - 0.2 * level) * (0.92 + 0.16 * Math.random());
+/**
+ * Playback rate for one banger: within 3% of 1, so a reused recording is
+ * never sample-identical, but no pop is pitched against another (which
+ * would make the string sound like a drum).
+ */
+export const BANGER_RATE_SPREAD = 0.03;
+function bangerRate(): number {
+  return 1 + BANGER_RATE_SPREAD * (2 * Math.random() - 1);
 }
 
 /** Air dulls a bang with distance: the low-pass cutoff for one `distance` metres away. */

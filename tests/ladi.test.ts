@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { AudioEngine } from '../src/audio/audioEngine';
 import { BANGER_SECONDS } from '../src/audio/blast';
 import { LADI_BATCH } from '../src/audio/sounds';
-import { createNoiseBank, synthesise } from '../src/audio/synth';
+import { BANGER_RATE_SPREAD, createNoiseBank, synthesise } from '../src/audio/synth';
 import { CapacityBudget } from '../src/capacity';
 import { crackerForSlot } from '../src/core/actions';
 import type { CameraView, Interactable, InteractionModule, PlacementResult, WorldModule } from '../src/core/contracts';
@@ -587,7 +587,7 @@ describe('ladi sound', () => {
     });
   });
 
-  it('schedules the batch pops exactly at their offsets, each at its own level and pitch', () => {
+  it('schedules the batch pops exactly at their offsets, each at its own level, none pitched', () => {
     const ctx = new FakeAudioContext();
     const audio = ctx.asAudioContext();
     const pops = [
@@ -603,9 +603,8 @@ describe('ladi sound', () => {
     const levels = bangs.map((b) => (b.outputs[0] as GainNode).gain.value);
     expect(levels).toEqual(pops.map((p) => p.level));
     expect(new Set(bangs.map((b) => b.outputs[0])).size).toBe(pops.length);
-    // Every bang plays at its own pitch, the loudest one deeper than the dud.
-    expect(new Set(bangs.map((b) => b.playbackRate.value)).size).toBe(pops.length);
-    expect(bangs[0]!.playbackRate.value).toBeLessThan(bangs[3]!.playbackRate.value);
+    // A bang has no pitch: every one plays within a few percent of its recorded speed.
+    for (const bang of bangs) expect(Math.abs(bang.playbackRate.value - 1)).toBeLessThanOrEqual(BANGER_RATE_SPREAD);
     // And each has finished by the time the voice ends.
     for (const bang of bangs) expect(bang.stoppedAt).toBeLessThanOrEqual(1.45 + 1e-9);
   });
