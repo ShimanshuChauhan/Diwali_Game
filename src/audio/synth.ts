@@ -425,30 +425,6 @@ const RECIPES: Record<SoundKind, Recipe> = {
     }
   },
 
-  cheer(b, p) {
-    b.sustain(b.output.gain, p.gain, 0.25, 0.9);
-    const formantA = b.filter('bandpass', 750, 4);
-    const formantB = b.filter('bandpass', 1250, 5);
-    const voices = b.gain(0.18);
-    b.chain(formantA, voices);
-    b.chain(formantB, voices);
-    voices.connect(b.output);
-    // A handful of rising-then-falling "ayy!" voices.
-    for (let i = 0; i < 5; i++) {
-      const pitch = 220 + Math.random() * 220;
-      const start = b.t0 + Math.random() * 0.25;
-      const voice = b.osc('sawtooth', pitch, start);
-      voice.frequency.setValueAtTime(pitch, start);
-      voice.frequency.linearRampToValueAtTime(pitch * 1.35, start + 0.4);
-      voice.frequency.linearRampToValueAtTime(pitch * 0.9, b.end);
-      b.lfo(voice.frequency, 5 + Math.random() * 2, pitch * 0.03);
-      voice.connect(formantA);
-      voice.connect(formantB);
-    }
-    const breath = b.gain(0.3);
-    b.chain(b.noise(b.bank.white), b.filter('bandpass', 1100, 0.8), breath, b.output);
-  },
-
   /** A small cracker going off far across town: a short crack with a little echo. */
   distantPop(b, p) {
     b.output.gain.value = p.gain;

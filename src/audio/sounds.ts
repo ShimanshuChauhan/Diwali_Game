@@ -12,7 +12,6 @@ export type SoundKind =
   | 'chakriWhine'
   | 'rocketWhistle'
   | 'burst'
-  | 'cheer'
   | 'distantPop'
   | 'distantBomb'
   | 'distantLadi'
@@ -36,7 +35,6 @@ export const SOUNDS: Readonly<Record<SoundKind, SoundSpec>> = {
   anarRoar: { priority: 3, gain: 0.6, refDistance: 4 },
   chakriWhine: { priority: 3, gain: 0.45, refDistance: 4 },
   phuljhariCrackle: { priority: 3, gain: 0.35, refDistance: 1.5 },
-  cheer: { priority: 2, gain: 0.4, refDistance: 5 },
   fuseHiss: { priority: 1, gain: 0.25, refDistance: 1.5 },
   // Crackers elsewhere in town are the first to go when the budget is tight.
   distantShell: { priority: 1, gain: 0.6, refDistance: 1 },
@@ -58,7 +56,6 @@ export const ACTIVE_SOUND: Readonly<Record<CrackerType, SoundKind>> = {
 
 /** Length of a burst's boom plus crackle tail, seconds. */
 export const BURST_DURATION = 3.2;
-export const CHEER_DURATION = 2.2;
 export const DISTANT_POP_DURATION = 1.4;
 export const DISTANT_BOMB_DURATION = 2.2;
 export const DISTANT_SHELL_DURATION = 3;
