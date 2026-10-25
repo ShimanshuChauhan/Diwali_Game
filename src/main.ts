@@ -328,7 +328,7 @@ async function boot(): Promise<void> {
       outboundSpot: familyHomeSpots(familyHome).giftSpot!,
       returnSpot: neighbourHome.giftSpot,
       table: familyHome.giftTable,
-      ...neighbourHome.sideTable,
+      received: neighbourHome.sideTable.received,
     },
   });
   const subtitles = createSubtitles(document.body);

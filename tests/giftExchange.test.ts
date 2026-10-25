@@ -73,16 +73,17 @@ function record(bus: GameEventBus): Logged[] {
 const place = (boxes: readonly GiftBoxSnapshot[], id: 'outbound' | 'return') => boxes.find((b) => b.id === id)?.place;
 
 /**
- * Every box is drawn in exactly one place: by the gift scene (a spot, Uncle's
- * side table, the family table, the player's hands) or in a host's hands.
+ * Every box in play is drawn in exactly one place: by the gift scene (a
+ * spot, Uncle's side table, the family table, the player's hands) or in a
+ * host's hands. The return box is drawn nowhere until Uncle lifts it.
  */
 function expectEachBoxOnce(boxes: readonly GiftBoxSnapshot[]): void {
   const shown = giftVisibility(boxes);
   const withHost = (id: 'outbound' | 'return') => (place(boxes, id)?.kind === 'host' ? 1 : 0);
   const outbound = [shown.outboundSpot, shown.outboundReceived, shown.held === 'outbound'].filter(Boolean).length;
-  const returned = [shown.returnWaiting, shown.returnSpot, shown.returnTable, shown.held === 'return'].filter(Boolean).length;
+  const returned = [shown.returnSpot, shown.returnTable, shown.held === 'return'].filter(Boolean).length;
   expect(outbound + withHost('outbound'), JSON.stringify(boxes)).toBe(1);
-  expect(returned + withHost('return'), JSON.stringify(boxes)).toBe(1);
+  expect(returned + withHost('return'), JSON.stringify(boxes)).toBe(place(boxes, 'return') ? 1 : 0);
 }
 
 /** The gift rules alone, with the player wherever `where` says and aarti ended by hand. */
@@ -270,15 +271,39 @@ describe('gift exchange — the handover', () => {
     expect(log.filter((e) => e.name === 'giftReceived')).toEqual([{ name: 'giftReceived', payload: { host: 'uncle' } }]);
   });
 
-  it('keeps every box in exactly one place at every step', () => {
+  it('keeps every box in exactly one place at every step, the return box hidden until Uncle lifts it', () => {
     const { gifts, run, exchange } = setup();
     expectEachBoxOnce(gifts.boxes());
     exchange(false);
+    let t = 0;
+    let firstSeen: number | null = null;
     while (gifts.handover) {
       expectEachBoxOnce(gifts.boxes());
+      const returned = place(gifts.boxes(), 'return');
+      if (returned && firstSeen === null) firstSeen = t;
+      // Before then it is in no place at all: not on the side table, not on its console.
+      if (!returned) expect(giftVisibility(gifts.boxes())).toMatchObject({ returnSpot: false, returnTable: false, held: null });
       run(STEP);
+      t += STEP;
     }
     expectEachBoxOnce(gifts.boxes());
+    // First in Uncle's hands as he finishes setting the family's box down, 2.8 s in.
+    expect(firstSeen).toBeCloseTo(GIFT_HANDOVER.receiving + GIFT_HANDOVER.settingAside, 1);
+  });
+
+  it('offers no return box to pick up before Uncle hands it over, nor after a fresh session', () => {
+    const { gifts, goTo, run, exchange, count } = setup();
+    goTo('neighbourHome');
+    expect(gifts.pickUp('return')).toEqual({ ok: false, reason: 'wrongLocation' });
+    expect(gifts.boxes().map((b) => b.id)).toEqual(['outbound']);
+    exchange(false);
+    run(GIFT_HANDOVER.receiving + GIFT_HANDOVER.settingAside - 0.1);
+    expect(gifts.boxes().map((b) => b.id)).toEqual(['outbound']);
+    expect(gifts.pickUp('return')).toEqual({ ok: false, reason: 'wrongLocation' });
+    gifts.reset();
+    expect(gifts.boxes().map((b) => b.id)).toEqual(['outbound']);
+    expect(giftVisibility(gifts.boxes())).toMatchObject({ returnSpot: false, returnTable: false, held: null });
+    expect(count('giftExchanged')).toBe(0);
   });
 
   it('happens once: giving again during the handover neither restarts it nor adds a box', () => {
@@ -330,6 +355,7 @@ describe('gift exchange — the handover', () => {
         { id: 'return', place: { kind: 'hands' } },
       ]);
       expect(hands.hands).toEqual({ kind: 'giftBox', box: 'return' });
+      expect(giftVisibility(gifts.boxes()).held).toBe('return');
       expect(count('giftExchanged')).toBe(1);
       // Nothing more happens later, nor on walking out again.
       run(HANDOVER_TIME);
@@ -367,6 +393,8 @@ describe('gift exchange — the handover', () => {
     hands.take({ kind: 'sweetsPlate' });
     run(HANDOVER_TIME);
     expect(place(gifts.boxes(), 'return')).toEqual({ kind: 'spot', home: 'neighbourHome' });
+    // Seen there, ready to pick up.
+    expect(giftVisibility(gifts.boxes()).returnSpot).toBe(true);
     expect(hands.hands).toEqual({ kind: 'sweetsPlate' });
     expect(count('giftExchanged')).toBe(1);
     expectEachBoxOnce(gifts.boxes());
@@ -501,20 +529,19 @@ describe('gift exchange — fresh session', () => {
 
 describe('gift exchange — presentation', () => {
   it('shows each box in exactly one place, keeping the acknowledged return box on the table', () => {
+    // The return box is nowhere to be seen before the handover.
     expect(giftVisibility([{ id: 'outbound', place: { kind: 'spot', home: 'familyHome' } }])).toEqual({
       outboundSpot: true,
       outboundReceived: false,
-      returnWaiting: true,
       returnSpot: false,
       returnTable: false,
       held: null,
     });
     expect(giftVisibility([{ id: 'outbound', place: { kind: 'hands' } }])).toMatchObject({ outboundSpot: false, held: 'outbound' });
-    // In Uncle's hands it is the household scene's to draw; the return box still waits on his side table.
+    // In Uncle's hands it is the household scene's to draw; the return box is still hidden.
     expect(giftVisibility([{ id: 'outbound', place: { kind: 'host', host: 'uncle' } }])).toEqual({
       outboundSpot: false,
       outboundReceived: false,
-      returnWaiting: true,
       returnSpot: false,
       returnTable: false,
       held: null,
@@ -523,11 +550,10 @@ describe('gift exchange — presentation', () => {
       { id: 'outbound', place: { kind: 'delivered' } },
       { id: 'return', place },
     ];
-    // The family's box down on the side table as the return box comes up off it.
+    // The family's box down on the side table as the return box comes up into Uncle's hands.
     expect(giftVisibility(exchanged({ kind: 'host', host: 'uncle' }))).toEqual({
       outboundSpot: false,
       outboundReceived: true,
-      returnWaiting: false,
       returnSpot: false,
       returnTable: false,
       held: null,
@@ -535,7 +561,6 @@ describe('gift exchange — presentation', () => {
     expect(giftVisibility(exchanged({ kind: 'hands' }))).toEqual({
       outboundSpot: false,
       outboundReceived: true,
-      returnWaiting: false,
       returnSpot: false,
       returnTable: false,
       held: 'return',

@@ -491,7 +491,7 @@ describe('the gift boxes in Uncle’s hands through the handover', () => {
   /** Where `root` is facing, flat. */
   const forward = (root: THREE.Object3D) => new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), root.rotation.y);
 
-  it('takes the box at arm’s length toward the player, sets it down on the side table and lifts the return box off it', () => {
+  it('takes the box at arm’s length toward the player, sets it down on the side table and brings the return box up beside it', () => {
     const { gifts, home, uncle, viewer, frame, start } = neighbours();
     for (let i = 0; i < 30; i++) frame();
     start();
@@ -506,12 +506,14 @@ describe('the gift boxes in Uncle’s hands through the handover', () => {
       frame();
       if (step() === 'giving') {
         // Set down where his hands were, near enough that it reads as put there.
-        const { received, waiting } = home.sideTable;
+        const { received } = home.sideTable;
         expect(Math.hypot(wasBox.x - received.x, wasBox.z - received.z)).toBeLessThan(0.08);
         expect(Math.abs(wasBox.y - received.y)).toBeLessThan(0.06);
+        // The return box first appears low in his hands at the table, beside the family's box rather than on it.
         const lifted = uncle.getObjectByName('household.gift.return')!.getWorldPosition(new THREE.Vector3());
-        expect(Math.hypot(lifted.x - waiting.x, lifted.z - waiting.z)).toBeLessThan(0.08);
-        expect(Math.abs(lifted.y - waiting.y)).toBeLessThan(0.06);
+        expect(Math.abs(lifted.y - received.y)).toBeLessThan(0.06);
+        expect(Math.hypot(lifted.x - received.x, lifted.z - received.z)).toBeGreaterThan(GIFT_BOX.depth);
+        expect(Math.hypot(lifted.x - received.x, lifted.z - received.z)).toBeLessThan(0.4);
       }
     }
     // Then turns back and holds it out to the player.
@@ -527,14 +529,12 @@ describe('the gift boxes in Uncle’s hands through the handover', () => {
     const { home } = neighbours();
     const table = home.solids.find((s) => s.id === 'greeting.sideTable')!.box;
     const uncle = home.hosts.uncle.position;
-    for (const spot of [home.sideTable.received, home.sideTable.waiting]) {
-      expect(spot.y).toBeCloseTo(table.max.y);
-      expect(spot.x).toBeGreaterThan(table.min.x + GIFT_BOX.width / 2 - 0.01);
-      expect(spot.x).toBeLessThan(table.max.x - GIFT_BOX.width / 2 + 0.01);
-      expect(Math.hypot(spot.x - uncle.x, spot.z - uncle.z)).toBeLessThan(0.6);
-    }
-    // Side by side without touching.
-    expect(Math.abs(home.sideTable.received.z - home.sideTable.waiting.z)).toBeGreaterThan(GIFT_BOX.depth);
+    const spot = home.sideTable.received;
+    expect(spot.y).toBeCloseTo(table.max.y);
+    expect(spot.x).toBeGreaterThan(table.min.x + GIFT_BOX.width / 2 - 0.01);
+    expect(spot.x).toBeLessThan(table.max.x - GIFT_BOX.width / 2 + 0.01);
+    expect(spot.z).toBeLessThan(table.max.z - GIFT_BOX.depth / 2 + 0.01);
+    expect(Math.hypot(spot.x - uncle.x, spot.z - uncle.z)).toBeLessThan(0.6);
   });
 
   it('holds still while paused, mid-handover', () => {

@@ -12,8 +12,6 @@ export interface GiftVisibility {
   readonly outboundSpot: boolean;
   /** The outbound box set down on Uncle's side table, kept there once handed over. */
   readonly outboundReceived: boolean;
-  /** The return box waiting on Uncle's side table until he hands it over. */
-  readonly returnWaiting: boolean;
   /** The return box on Uncle and Aunty's console. */
   readonly returnSpot: boolean;
   /** The return box on the family sweets table, waiting or acknowledged. */
@@ -23,19 +21,18 @@ export interface GiftVisibility {
 }
 
 /**
- * Which box shows where. Until Uncle lifts it, the return box (not yet in
- * `boxes`) waits on his side table; the delivered outbound box is kept
- * there; the acknowledged return box stays on the family table.
+ * Which box shows where. The return box is nowhere to be seen until Uncle
+ * lifts it to hand over (before then it is not in `boxes`); the delivered
+ * outbound box is kept on his side table; the acknowledged return box stays
+ * on the family table.
  */
 export function giftVisibility(boxes: readonly GiftBoxSnapshot[]): GiftVisibility {
   let outboundSpot = false;
   let outboundReceived = false;
-  let returnWaiting = true;
   let returnSpot = false;
   let returnTable = false;
   let held: GiftBoxId | null = null;
   for (const { id, place } of boxes) {
-    if (id === 'return') returnWaiting = false;
     if (place.kind === 'hands') held = id;
     else if (place.kind === 'host') continue;
     else if (id === 'outbound') {
@@ -44,7 +41,7 @@ export function giftVisibility(boxes: readonly GiftBoxSnapshot[]): GiftVisibilit
     } else if (place.kind === 'spot') returnSpot = true;
     else returnTable = true;
   }
-  return { outboundSpot, outboundReceived, returnWaiting, returnSpot, returnTable, held };
+  return { outboundSpot, outboundReceived, returnSpot, returnTable, held };
 }
 
 /** Box size, metres: a mithai-and-dry-fruits gift box. */
@@ -70,9 +67,8 @@ export interface GiftSceneOptions {
     readonly outboundSpot: Vec3;
     readonly returnSpot: Vec3;
     readonly table: Vec3;
-    /** Uncle's side table: the family's box once received, and the return box until handed over. */
+    /** Uncle's side table, where the family's box is kept once received. */
     readonly received: Vec3;
-    readonly waiting: Vec3;
   };
 }
 
@@ -109,7 +105,6 @@ export function buildGiftBox(assets: InteriorAssets, id: GiftBoxId): THREE.Group
 export class GiftScene {
   private readonly outboundSpot: THREE.Group;
   private readonly outboundReceived: THREE.Group;
-  private readonly returnWaiting: THREE.Group;
   private readonly returnSpot: THREE.Group;
   private readonly returnTable: THREE.Group;
   private readonly held: Record<GiftBoxId, THREE.Group>;
@@ -118,7 +113,6 @@ export class GiftScene {
     const { assets, places } = options;
     this.outboundSpot = this.box(assets, 'outbound', 'gift.outbound.spot', places.outboundSpot, options.familyHome);
     this.outboundReceived = this.box(assets, 'outbound', 'gift.outbound.received', places.received, options.neighbourHome);
-    this.returnWaiting = this.box(assets, 'return', 'gift.return.waiting', places.waiting, options.neighbourHome);
     this.returnSpot = this.box(assets, 'return', 'gift.return.spot', places.returnSpot, options.neighbourHome);
     this.returnTable = this.box(assets, 'return', 'gift.return.table', places.table, options.familyHome);
     this.held = {
@@ -133,7 +127,6 @@ export class GiftScene {
     const shown = giftVisibility(boxes);
     this.outboundSpot.visible = shown.outboundSpot;
     this.outboundReceived.visible = shown.outboundReceived;
-    this.returnWaiting.visible = shown.returnWaiting;
     this.returnSpot.visible = shown.returnSpot;
     this.returnTable.visible = shown.returnTable;
     for (const id of ['outbound', 'return'] as const) {
@@ -147,8 +140,8 @@ export class GiftScene {
   }
 
   dispose(): void {
-    const { outboundSpot, outboundReceived, returnWaiting, returnSpot, returnTable, held } = this;
-    for (const group of [outboundSpot, outboundReceived, returnWaiting, returnSpot, returnTable, held.outbound, held.return]) {
+    const { outboundSpot, outboundReceived, returnSpot, returnTable, held } = this;
+    for (const group of [outboundSpot, outboundReceived, returnSpot, returnTable, held.outbound, held.return]) {
       group.removeFromParent();
       group.clear();
     }

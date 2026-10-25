@@ -184,8 +184,9 @@ Ownership rules:
   the outbound box starts on the family side table; `exchange` with Uncle
   starts a handover of about four seconds on the fixed step
   (`GIFT_HANDOVER`): the box in his hands (`host`) while he thanks the
-  player, set down on his side table (`delivered`) as he lifts the return
-  box (`host`), which he holds out until it is in the player's hands and
+  player, set down on his side table (`delivered`) as he brings up the
+  return box (`host`; unseen anywhere before that), which he holds out
+  until it is in the player's hands and
   `giftExchanged` goes out. Walking out completes it at once; a fresh
   session drops it. Either box goes back on its own spot until delivered.
   On the sweets table

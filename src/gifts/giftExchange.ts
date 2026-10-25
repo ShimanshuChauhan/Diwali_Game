@@ -27,7 +27,7 @@ export type GiftHands = Pick<HeldItemsModule, 'hands' | 'take' | 'returnTo' | 'd
 export const GIFT_HANDOVER: Readonly<Record<GiftHandoverStep, number>> = {
   /** Uncle takes the box at arm's length, draws it in and says his thanks holding it. */
   receiving: 2,
-  /** He lowers it onto his side table and lifts the return box waiting there. */
+  /** He lowers it onto his side table and brings up the return box from beside it, unseen until then. */
   settingAside: 0.8,
   /** He holds the return box out to the player. */
   giving: 1,
@@ -110,7 +110,7 @@ export class GiftExchange implements GiftExchangeModule {
     );
   }
 
-  /** The boxes in play so far: the outbound one, and the return one once Uncle lifts it to hand over. */
+  /** The boxes in play so far: the outbound one, and the return one once Uncle lifts it to hand over; until then it is nowhere. */
   boxes(): readonly GiftBoxSnapshot[] {
     return this.snapshots;
   }

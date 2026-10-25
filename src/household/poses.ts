@@ -227,8 +227,8 @@ const BOX_OUT: Upper = { lean: 0.14, headPitch: -0.12, leftArm: 1.05, rightArm: 
 const BOX_HELD: Upper = { lean: 0.06, headPitch: -0.05, leftArm: 0.35, rightArm: 0.35, leftElbow: 1.25, rightElbow: 1.25, leftSpread: -0.22, rightSpread: -0.22 };
 /**
  * Bent over the side table in front, the box low on both palms: setting the
- * family's box down on his left, or lifting the return box from his right
- * (the spreads shift both hands about 14 cm to that side).
+ * family's box down on his left, or bringing the return box up from beside
+ * the table on his right (the spreads shift both hands about 14 cm to that side).
  */
 const BOX_ASIDE = (side: 1 | -1): Upper => ({
   lean: 0.9,

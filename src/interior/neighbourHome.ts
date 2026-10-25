@@ -30,11 +30,11 @@ export interface NeighbourHomeLayout extends InteriorLayout {
   /** Where the return box rests on the console by the door. */
   readonly giftSpot: Placement['position'];
   /**
-   * Uncle's side table, just west of him: the return box waits on it until
-   * he hands it over, and the family's box is set down on it once received.
-   * `yaw` turns him to face it.
+   * Uncle's side table, just west of him: the family's box is set down on it
+   * once received (`received`), and he brings the return box up from beside
+   * it. `yaw` turns him to face it.
    */
-  readonly sideTable: { readonly waiting: Placement['position']; readonly received: Placement['position']; readonly yaw: number };
+  readonly sideTable: { readonly received: Placement['position']; readonly yaw: number };
 }
 
 /**
@@ -237,8 +237,7 @@ export function createNeighbourHomeLayout(anchor = HOME_ENTRANCES.neighbourHome.
     hosts,
     giftSpot,
     sideTable: {
-      // Side by side as Uncle faces the table: the return box on his right, the family's box set down on his left.
-      waiting: b.at(sideX, sideTable.top, sideZ - 0.14),
+      // On his left as he faces the table; the return box comes up on his right.
       received: b.at(sideX, sideTable.top, sideZ + 0.14),
       yaw: facing(hosts.uncle.position, b.at(sideX, 0, sideZ)),
     },
