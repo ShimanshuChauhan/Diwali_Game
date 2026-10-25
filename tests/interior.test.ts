@@ -131,10 +131,19 @@ describe('family home layout', () => {
     }
   });
 
-  it('has a puja corner with chowki, thali, diyas, bell, idols and frame', () => {
-    for (const id of ['puja.chowki', 'puja.mandir', 'puja.thali', 'puja.bell', 'puja.frame', 'puja.idol.0', 'puja.rangoli']) {
+  it('has a puja corner with chowki, mandir, thali, diyas and rangoli', () => {
+    for (const id of ['puja.chowki', 'puja.mandir', 'puja.thali', 'puja.rangoli']) {
       expect(byId(id), id).toBeDefined();
     }
+    // The mandir is drawn by its own model; its body stays a solid on the chowki.
+    const mandir = home.solids.find((s) => s.id === 'puja.mandir')!;
+    expect(mandir.hidden).toBe(true);
+    expect(home.mandir.id).toBe('puja.mandir');
+    expect(home.mandir.position).toEqual(v((mandir.box.min.x + mandir.box.max.x) / 2, mandir.box.min.y, mandir.box.min.z));
+    const chowki = byId('puja.chowki')!.box;
+    expect(mandir.box.min.y).toBeCloseTo(chowki.max.y);
+    expect(mandir.box.min.x).toBeGreaterThanOrEqual(chowki.min.x);
+    expect(mandir.box.max.x).toBeLessThanOrEqual(chowki.max.x);
     const flames = home.decor.filter((d) => d.id.startsWith('puja.') && d.material === 'flame');
     expect(flames.length).toBeGreaterThanOrEqual(3);
     expect(inside(home.thali, byId('puja.chowki')!.box, 0.01)).toBe(true);
@@ -478,7 +487,9 @@ describe('family home presentation', () => {
   it('draws every solid and decor box exactly once, dressing apart', () => {
     const drawn = (meshes: THREE.InstancedMesh[]) => meshes.reduce((n, m) => n + m.count, 0);
     const dressing = home.decor.filter((d) => d.detail).length;
-    expect(drawn(core)).toBe(home.solids.length + home.decor.length - dressing);
+    const hidden = home.solids.filter((s) => s.hidden).length;
+    expect(hidden).toBe(1);
+    expect(drawn(core)).toBe(home.solids.length - hidden + home.decor.length - dressing);
     expect(drawn(detail)).toBe(dressing);
     expect(dressing).toBeGreaterThan(0);
   });

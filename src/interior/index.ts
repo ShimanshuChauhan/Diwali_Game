@@ -19,7 +19,20 @@ export {
   type InteriorMaterial,
   type InteriorSolid,
   type InteriorSolidKind,
+  type MandirSite,
 } from './layout';
+export {
+  buildMandir,
+  buildMandirModel,
+  createWoodGrainTexture,
+  MANDIR_DETAILS,
+  MandirAssets,
+  mandirDetail,
+  type MandirDetail,
+  type MandirModel,
+  type MandirPart,
+  type MandirView,
+} from './mandir';
 export { createNeighbourHomeLayout, NEIGHBOUR_ROOM, type NeighbourHomeLayout } from './neighbourHome';
 export { familyHomeSpots, neighbourHomeSpots } from './spots';
 export { LocationPresenter, type LocationPresenterOptions, type LocationPresenterStats } from './presenter';

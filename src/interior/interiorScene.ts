@@ -4,6 +4,7 @@ import type { QualityProfile } from '../core/quality';
 import { QUALITY_LEVELS } from '../core/quality';
 import type { QualityLevel } from '../core/types';
 import type { InteriorBox, InteriorLayout, InteriorMaterial } from './layout';
+import { buildMandir, MandirAssets, type MandirView } from './mandir';
 
 interface MaterialSpec {
   readonly color: string;
@@ -61,6 +62,13 @@ export function lightOnAt(minLevel: QualityLevel, level: QualityLevel): boolean 
 export class InteriorAssets {
   readonly geometry = new THREE.BoxGeometry(1, 1, 1);
   private readonly materials = new Map<InteriorMaterial, THREE.MeshStandardMaterial>();
+  private mandirAssets: MandirAssets | null = null;
+
+  /** The carved mandir's grain, materials and merged models, made on first use. */
+  get mandir(): MandirAssets {
+    this.mandirAssets ??= new MandirAssets((key) => this.material(key));
+    return this.mandirAssets;
+  }
 
   material(key: InteriorMaterial): THREE.MeshStandardMaterial {
     let material = this.materials.get(key);
@@ -84,6 +92,8 @@ export class InteriorAssets {
   }
 
   dispose(): void {
+    this.mandirAssets?.dispose();
+    this.mandirAssets = null;
     this.geometry.dispose();
     for (const material of this.materials.values()) material.dispose();
     this.materials.clear();
@@ -101,6 +111,8 @@ export interface InteriorScene {
   readonly root: THREE.Group;
   /** Optional dressing, hidden on Low. */
   readonly detail: THREE.Group;
+  /** The carved wooden mandir, if the home has one. */
+  readonly mandir: MandirView | null;
   /** Lights currently switched on for the quality level. */
   readonly activeLights: number;
   applyQuality(profile: QualityProfile): void;
@@ -111,7 +123,8 @@ export interface InteriorScene {
 /**
  * Builds a home's meshes from its layout: one `InstancedMesh` per material
  * over the shared unit box, split into always-drawn boxes and Low-dropped
- * dressing, so a whole room costs a few dozen draw calls. Lighting is a warm
+ * dressing, so a whole room costs a few dozen draw calls; a mandir, if the
+ * home has one, adds its own merged model (`mandir.ts`). Lighting is a warm
  * hemisphere fill plus at most three point lights, chosen by quality level;
  * flames, lamps and the deity frame glow through emissive materials rather
  * than lights of their own.
@@ -123,10 +136,12 @@ export function buildInteriorScene(layout: InteriorLayout, assets: InteriorAsset
   detail.name = `interior.${layout.home}.detail`;
   root.add(detail);
 
-  const core: InteriorBox[] = [...layout.solids, ...layout.decor.filter((d) => !d.detail)];
+  const core: InteriorBox[] = [...layout.solids.filter((s) => !s.hidden), ...layout.decor.filter((d) => !d.detail)];
   const dressing = layout.decor.filter((d) => d.detail);
   addInstanced(root, core, assets, `interior.${layout.home}`);
   addInstanced(detail, dressing, assets, `interior.${layout.home}.detail`);
+  const mandir = layout.mandir ? buildMandir(layout.mandir, assets.mandir, `interior.${layout.home}`) : null;
+  if (mandir) root.add(mandir.root);
 
   const { sky, ground, intensity } = layout.ambient;
   const fill = new THREE.HemisphereLight(sky, ground, intensity);
@@ -148,11 +163,13 @@ export function buildInteriorScene(layout: InteriorLayout, assets: InteriorAsset
     home: layout.home,
     root,
     detail,
+    mandir,
     get activeLights() {
       return lights.filter(({ light }) => light.visible).length;
     },
     applyQuality(profile) {
       detail.visible = profile.level !== 'low';
+      mandir?.applyQuality(profile.level);
       for (const { light, spec } of lights) light.visible = lightOnAt(spec.minLevel, profile.level);
     },
     frame(dt) {
