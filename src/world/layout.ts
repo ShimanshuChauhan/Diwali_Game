@@ -316,7 +316,9 @@ class LayoutBuilder {
       }
     }
     this.deco(`${id}.door.lintel`, onFacade(door - half - 0.1, door + half + 0.1, top - 0.1, top, 0, 0.1), 'door');
-    this.deco(`${id}.door.threshold`, onFacade(door - half - 0.1, door + half + 0.1, 0, 0.06, 0, 0.22), 'slab');
+    // A wooden sill, dark like the frame: a pale stone one sits right under the
+    // diyas' light and flares white.
+    this.deco(`${id}.door.threshold`, onFacade(door - half - 0.1, door + half + 0.1, 0, 0.06, 0, 0.22), 'door');
     // A swag of marigolds dipping below the toran.
     const beads = 11;
     for (let k = 0; k < beads; k++) {
@@ -326,9 +328,10 @@ class LayoutBuilder {
       this.deco(`${id}.marigold.swag.${k}`, onFacade(a - 0.05, a + 0.05, y - 0.09, y, 0.1, 0.18), k % 2 ? 'toran' : 'marigold');
     }
     // Brass name plate above the toran, below any balcony slab, with a few
-    // dark strokes standing in for the family's name.
+    // dark strokes standing in for the family's name. Its face glows like a
+    // window, softer than the doorway beneath it.
     this.deco(`${id}.nameplate`, onFacade(door - 0.42, door + 0.42, top + 0.26, top + 0.58, 0, 0.05), 'brass');
-    this.deco(`${id}.nameplate.face`, onFacade(door - 0.36, door + 0.36, top + 0.31, top + 0.53, 0.05, 0.07), 'doorGlow');
+    this.deco(`${id}.nameplate.face`, onFacade(door - 0.36, door + 0.36, top + 0.31, top + 0.53, 0.05, 0.07), 'window');
     for (const [k, a0, a1] of [
       [0, -0.28, -0.1],
       [1, -0.05, 0.12],
