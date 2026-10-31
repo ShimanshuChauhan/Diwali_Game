@@ -106,7 +106,7 @@ The following coverage is proposed for implementation; the user has not separate
 - Saved progress, persistent diya states, and cloud storage.
 - Missions, doorway completion rewards, unlocks, currency, shops, and a finale.
 - Injuries, damage, destruction, combat, and mischievous consequences.
-- Jumping, vehicles, character customisation, and multiple playable characters.
+- Vehicles, character customisation, and multiple playable characters.
 - Enterable house interiors, additional rooftops, and a large city map.
 - Player-placed diyas, rangoli systems, deliveries, and additional minigames.
 - Firework show editors, sequencing tools, and additional cracker types.
