@@ -12,11 +12,12 @@ const SKIN = 0.02;
 const SNAP_DISTANCE = 0.35;
 /** Narrowest free ledge the controller will autostep onto. */
 const STEP_MIN_WIDTH = 0.15;
-const GRAVITY = 9.81;
 /** Cap on fall speed so a long fall stays a few metres per step at most. */
 const MAX_FALL_SPEED = 20;
 /** Collision normals flatter than this (|y|) count as walls. */
 const WALL_NORMAL_MAX_Y = 0.3;
+/** Rise lost to collision beyond this (metres per step) means a ceiling stopped the jump. */
+const CEILING_TOLERANCE = 1e-4;
 
 const HALF_SEGMENT = PLAYER_HEIGHT / 2 - PLAYER_RADIUS;
 /** Feet → capsule centre. */
@@ -50,8 +51,8 @@ export function rightFor(yaw: number): Vec3 {
  * run, relative to `yaw`), eases the current velocity towards it, adds
  * gravity, and lets the controller resolve collisions: it slides along walls,
  * autosteps stairs, snaps down to the ground and refuses slopes steeper than
- * `maxSlope`. There is no jump; vertical motion comes only from stairs,
- * slopes and falling.
+ * `maxSlope`. A jump only leaves the ground when grounded, so there is no
+ * double jump, and a ceiling overhead ends the rise early.
  *
  * The capsule is a parentless collider moved directly, so its position is
  * current between physics steps and `move` may run any number of times per
@@ -71,7 +72,8 @@ export class PlayerController implements PlayerModule {
   /** Where a fall out of the current location lands the player. */
   private recovery: Vec3;
   private velocity = { x: 0, z: 0 };
-  private fallSpeed = 0;
+  /** Vertical speed in m/s, positive upwards. */
+  private verticalSpeed = 0;
   private current: PlayerPose;
 
   constructor(options: PlayerControllerOptions) {
@@ -109,7 +111,7 @@ export class PlayerController implements PlayerModule {
 
   move(intent: MovementIntent, dt: number): PlayerPose {
     if (dt <= 0) return this.current;
-    const { walkSpeed, runSpeed, acceleration, deceleration } = this.tuning.player;
+    const { walkSpeed, runSpeed, acceleration, deceleration, jumpSpeed, gravity } = this.tuning.player;
 
     // Target velocity from the intent, with diagonals no faster than straight.
     let forward = clampAxis(intent.forward);
@@ -139,12 +141,21 @@ export class PlayerController implements PlayerModule {
     // Gravity only while airborne: on the ground, snap-to-ground keeps the
     // capsule down steps and slopes, and pressing into the floor every step
     // makes the controller stall now and then.
-    if (!this.current.grounded) this.fallSpeed = Math.min(this.fallSpeed + GRAVITY * dt, MAX_FALL_SPEED);
-    const desired = { x: this.velocity.x * dt, y: -this.fallSpeed * dt, z: this.velocity.z * dt };
+    if (this.current.grounded) {
+      if (intent.jump) this.verticalSpeed = jumpSpeed;
+    } else {
+      this.verticalSpeed = Math.max(this.verticalSpeed - gravity * dt, -MAX_FALL_SPEED);
+    }
+    // At rest ask for -0, not +0: Rapier reads a +0 rise as moving up and
+    // the capsule drifts off the floor indoors.
+    const desired = { x: this.velocity.x * dt, y: this.verticalSpeed * dt || -0, z: this.velocity.z * dt };
     this.controller.computeColliderMovement(this.collider, desired);
     const moved = this.controller.computedMovement();
-    const grounded = this.controller.computedGrounded();
-    if (grounded) this.fallSpeed = 0;
+    // Still touching the floor on take-off is not landing.
+    const rising = this.verticalSpeed > 0;
+    const grounded = !rising && this.controller.computedGrounded();
+    if (grounded) this.verticalSpeed = 0;
+    else if (rising && moved.y < desired.y - CEILING_TOLERANCE) this.verticalSpeed = 0;
     this.stopAgainstWalls();
 
     const centre = this.collider.translation();
@@ -165,7 +176,7 @@ export class PlayerController implements PlayerModule {
     this.bounds = bounds;
     this.recovery = placement.position;
     this.velocity = { x: 0, z: 0 };
-    this.fallSpeed = 0;
+    this.verticalSpeed = 0;
     return (this.current = this.place(placement.position, placement.yaw, true));
   }
 
@@ -197,7 +208,7 @@ export class PlayerController implements PlayerModule {
 
   private respawn(yaw: number): PlayerPose {
     this.velocity = { x: 0, z: 0 };
-    this.fallSpeed = 0;
+    this.verticalSpeed = 0;
     return this.place(this.recovery, yaw, true);
   }
 

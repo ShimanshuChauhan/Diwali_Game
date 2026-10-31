@@ -59,6 +59,7 @@ export function allowedDuringFade(action: GameAction): boolean {
     case 'select':
     case 'place':
     case 'interact':
+    case 'jump':
       return false;
   }
 }

@@ -13,6 +13,7 @@ export interface StartScreenOptions {
 const CONTROLS: readonly [string, string][] = [
   ['WASD', 'move'],
   ['Shift', 'run'],
+  ['Space', 'jump'],
   ['Mouse', 'look'],
   ['1–5', 'phuljhari · anar · chakri · rocket · ladi'],
   ['Click', 'place'],

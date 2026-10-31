@@ -4,7 +4,7 @@ import { CRACKER_TYPES, type CrackerType } from './types';
  * Gameplay actions produced by the session/input module. Downstream modules
  * consume these rather than raw DOM events, so they never see a keyboard.
  *
- * Proposed bindings (PRD → Controls): WASD move, Shift run, mouse look,
+ * Proposed bindings (PRD → Controls): WASD move, Shift run, Space jump, mouse look,
  * 1–5 select, click place (hold to circle the thali in aarti), E
  * light/interact, V toggle camera, Escape pause.
  */
@@ -13,6 +13,8 @@ export type GameAction =
   | { readonly type: 'move'; readonly forward: number; readonly right: number }
   /** Run is held, so it carries the current state rather than a toggle. */
   | { readonly type: 'run'; readonly active: boolean }
+  /** One jump per press; the player only leaves the ground if standing on it. */
+  | { readonly type: 'jump' }
   /** Mouse delta in pixels since the previous look action. */
   | { readonly type: 'look'; readonly dx: number; readonly dy: number }
   | { readonly type: 'select'; readonly slot: SelectSlot }

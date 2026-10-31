@@ -14,7 +14,7 @@ describe('key bindings', () => {
   it('binds every control the PRD lists', () => {
     expect(Object.keys(KEY_BINDINGS).sort()).toEqual(
       [
-        'KeyW', 'KeyA', 'KeyS', 'KeyD', 'ShiftLeft', 'ShiftRight',
+        'KeyW', 'KeyA', 'KeyS', 'KeyD', 'ShiftLeft', 'ShiftRight', 'Space',
         'Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'KeyE', 'KeyV', 'Escape',
       ].sort(),
     );
@@ -62,6 +62,20 @@ describe('Input action mapping', () => {
     expect(input.drainActions()).toEqual([{ type: 'run', active: true }]);
     input.keyUp('ShiftRight');
     expect(input.drainActions()).toEqual([{ type: 'run', active: false }]);
+  });
+
+  it('maps Space to one jump per press', () => {
+    const input = new Input();
+    expect(press(input, 'Space')).toEqual([{ type: 'jump' }]);
+    input.keyDown('Space');
+    input.keyDown('Space');
+    expect(input.drainActions()).toEqual([{ type: 'jump' }]);
+  });
+
+  it('ignores Space while disabled, e.g. paused', () => {
+    const input = new Input({ enabled: false });
+    expect(input.keyDown('Space')).toBe(true);
+    expect(input.drainActions()).toEqual([]);
   });
 
   it('maps 1–5, E, V and Escape to one-shot actions', () => {

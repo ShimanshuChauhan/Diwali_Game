@@ -312,6 +312,7 @@ describe('locations: control during the fade', () => {
     { type: 'toggleCamera' },
     { type: 'pause' },
     { type: 'placeReleased' },
+    { type: 'jump' },
   ];
 
   it('drops cracker and interaction actions but keeps look, camera, pause and held keys', () => {

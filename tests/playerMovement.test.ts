@@ -305,7 +305,122 @@ describe('player movement: grounding', () => {
   });
 });
 
+describe('player movement: jumping', () => {
+  const jump = (yaw = NORTH, forward = 0): MovementIntent => ({ ...walk(yaw, forward), jump: true });
+  const { jumpSpeed, gravity } = TUNING.player;
+  const apex = (jumpSpeed * jumpSpeed) / (2 * gravity);
+
+  /** Jump once from rest, then stand still until landed; returns every pose. */
+  function jumpOnce(player: PlayerController, intent = jump()): PlayerPose[] {
+    const poses = [player.move(intent, STEP)];
+    physics.step();
+    return poses.concat(simulate(player, { ...intent, jump: false }, 1.5));
+  }
+
+  it('leaves the ground, rises about the tuned height and lands back on it', () => {
+    const player = spawnAt(world.spawn);
+    const poses = jumpOnce(player);
+    expect(poses[0]!.grounded).toBe(false);
+    expect(poses[0]!.position.y).toBeGreaterThan(world.spawn.y);
+    const peak = Math.max(...poses.map((p) => p.position.y)) - world.spawn.y;
+    expect(peak).toBeGreaterThan(apex * 0.85);
+    expect(peak).toBeLessThan(apex * 1.1);
+    const last = poses[poses.length - 1]!;
+    expect(last.grounded).toBe(true);
+    expect(last.position.y).toBeCloseTo(world.spawn.y, 2);
+  });
+
+  it('carries the walking speed through the air', () => {
+    const player = spawnAt(world.spawn);
+    simulate(player, walk(NORTH), 0.5);
+    const before = player.pose.position;
+    player.move(jump(NORTH, 1), STEP);
+    physics.step();
+    simulate(player, walk(NORTH), 0.3);
+    expect(player.pose.grounded).toBe(false);
+    expect(horizontal(player.pose.position, before)).toBeGreaterThan(TUNING.player.walkSpeed * 0.25);
+  });
+
+  it('cannot jump again in mid-air', () => {
+    const player = spawnAt(world.spawn);
+    const poses: PlayerPose[] = [];
+    // Press jump on every step of the flight: only the first press counts.
+    for (let i = 0; i < 60; i++) {
+      poses.push(player.move(jump(), STEP));
+      physics.step();
+      if (i > 0 && poses[i]!.grounded) break;
+    }
+    const peak = Math.max(...poses.map((p) => p.position.y)) - world.spawn.y;
+    expect(peak).toBeLessThan(apex * 1.1);
+    expect(poses[poses.length - 1]!.grounded).toBe(true);
+  });
+
+  it('jumps again once landed', () => {
+    const player = spawnAt(world.spawn);
+    jumpOnce(player);
+    expect(player.pose.grounded).toBe(true);
+    expect(player.move(jump(), STEP).position.y).toBeGreaterThan(world.spawn.y);
+  });
+
+  it('does not jump while falling', () => {
+    const player = spawnAt({ x: 0, y: 2, z: 0 });
+    player.move(walk(NORTH, 0), STEP);
+    physics.step();
+    const before = player.pose.position.y;
+    expect(player.move(jump(), STEP).position.y).toBeLessThan(before);
+  });
+
+  it('stays inside the boundaries when jumping at them', () => {
+    const player = spawnAt(world.spawn);
+    for (let i = 0; i < 60 * 6; i++) {
+      player.move({ ...walk(EAST, 1, 0, true), jump: i % 40 === 0 }, STEP);
+      physics.step();
+      expectInsideBounds(player.pose.position);
+    }
+  });
+
+  it('a ceiling overhead stops the rise and the player drops back down', () => {
+    const room = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
+    room.createCollider(RAPIER.ColliderDesc.cuboid(5, 0.1, 5).setTranslation(0, -0.1, 0));
+    // Underside 0.2 m above the top of a standing capsule.
+    const ceiling = 1.75 + 0.02 + 0.2;
+    room.createCollider(RAPIER.ColliderDesc.cuboid(5, 0.1, 5).setTranslation(0, ceiling + 0.1, 0));
+    room.step();
+    const bounds = { min: { x: -5, y: -1, z: -5 }, max: { x: 5, y: 5, z: 5 } };
+    const player = new PlayerController({ physics: room, bounds, spawn: { x: 0, y: 0, z: 0 } });
+    const poses = [player.move(jump(), STEP)];
+    room.step();
+    for (let i = 0; i < 90; i++) {
+      poses.push(player.move(walk(NORTH, 0), STEP));
+      room.step();
+    }
+    const peak = Math.max(...poses.map((p) => p.position.y));
+    expect(peak).toBeLessThan(0.2 + 0.01);
+    expect(peak).toBeGreaterThan(0.1);
+    // The rise ends at the ceiling rather than pressing into it until gravity
+    // wins, so the player is back down in about the time a 0.2 m drop takes.
+    const landed = poses.findIndex((p, i) => i > 0 && p.grounded);
+    expect(landed).toBeGreaterThan(0);
+    expect(landed * STEP).toBeLessThan(0.4);
+    expect(poses[poses.length - 1]).toMatchObject({ grounded: true });
+    expect(poses[poses.length - 1]!.position.y).toBeCloseTo(0, 2);
+    player.dispose();
+    room.free();
+  });
+});
+
 describe('MovementIntentTracker', () => {
+  it('hands a jump press to one intent only', () => {
+    const tracker = new MovementIntentTracker();
+    tracker.apply({ type: 'jump' });
+    expect(tracker.intent(0).jump).toBe(true);
+    expect(tracker.intent(0).jump).toBe(false);
+    tracker.apply({ type: 'jump' });
+    tracker.reset();
+    expect(tracker.intent(0).jump).toBe(false);
+  });
+
+
   it('folds move and run actions into an intent and ignores the rest', () => {
     const tracker = new MovementIntentTracker();
     const actions: GameAction[] = [
@@ -315,7 +430,7 @@ describe('MovementIntentTracker', () => {
       { type: 'move', forward: 1, right: -1 },
     ];
     for (const action of actions) tracker.apply(action);
-    expect(tracker.intent(0.5)).toEqual({ forward: 1, right: -1, run: true, yaw: 0.5 });
+    expect(tracker.intent(0.5)).toEqual({ forward: 1, right: -1, run: true, jump: false, yaw: 0.5 });
     tracker.apply({ type: 'run', active: false });
     expect(tracker.intent(0).run).toBe(false);
   });
@@ -325,6 +440,6 @@ describe('MovementIntentTracker', () => {
     tracker.apply({ type: 'move', forward: -1, right: 1 });
     tracker.apply({ type: 'run', active: true });
     tracker.reset();
-    expect(tracker.intent(0)).toEqual({ forward: 0, right: 0, run: false, yaw: 0 });
+    expect(tracker.intent(0)).toEqual({ forward: 0, right: 0, run: false, jump: false, yaw: 0 });
   });
 });

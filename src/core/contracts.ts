@@ -94,6 +94,8 @@ export interface MovementIntent {
   readonly forward: number;
   readonly right: number;
   readonly run: boolean;
+  /** Jump pressed since the last step; ignored unless grounded. */
+  readonly jump?: boolean;
   /** Facing in radians about +Y; 0 looks down -Z. */
   readonly yaw: number;
 }

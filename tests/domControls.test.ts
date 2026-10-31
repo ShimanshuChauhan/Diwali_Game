@@ -87,6 +87,38 @@ describe('DOM controls', () => {
     expect(unbound.defaultPrevented).toBe(false);
   });
 
+  it('Space jumps in play without scrolling the page or clicking a focused button', () => {
+    const { win, input, controls } = setup();
+    controls.requestStart();
+    const down = event('keydown', { code: 'Space' });
+    Object.defineProperty(down, 'target', { value: { tagName: 'BUTTON' } });
+    const up = event('keyup', { code: 'Space' });
+    win.dispatchEvent(down);
+    win.dispatchEvent(up);
+    expect(down.defaultPrevented).toBe(true);
+    expect(up.defaultPrevented).toBe(true);
+    expect(input.drainActions()).toEqual([{ type: 'jump' }]);
+  });
+
+  it('while paused, Space does not jump and a focused menu button or field keeps its keys', () => {
+    const { win, doc, input, controls, session } = setup();
+    controls.requestStart();
+    doc.exitPointerLock();
+    expect(session.paused).toBe(true);
+    for (const tagName of ['BUTTON', 'SELECT', 'INPUT', 'TEXTAREA']) {
+      const down = event('keydown', { code: 'Space' });
+      Object.defineProperty(down, 'target', { value: { tagName } });
+      win.dispatchEvent(down);
+      expect(down.defaultPrevented, tagName).toBe(false);
+    }
+    // On the page itself the key is still swallowed, so it cannot scroll.
+    const onPage = event('keydown', { code: 'Space' });
+    win.dispatchEvent(onPage);
+    expect(onPage.defaultPrevented).toBe(true);
+    controls.requestStart();
+    expect(input.drainActions()).toEqual([]);
+  });
+
   it('alt-tab (blur) while holding W stops the player and pauses', () => {
     const { win, session, input, paused } = startWalking();
     win.dispatchEvent(event('blur'));

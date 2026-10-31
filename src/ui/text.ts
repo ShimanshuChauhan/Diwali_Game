@@ -66,6 +66,7 @@ export function rejectionText(reason: PlacementRejection | IgnitionRejection, ki
 export const CONTROLS_HELP: readonly (readonly [string, string])[] = [
   ['WASD', 'Move'],
   ['Shift', 'Run'],
+  ['Space', 'Jump'],
   ['Mouse', 'Look'],
   ['1–5', 'Select phuljhari · anar · chakri · rocket · ladi'],
   ['Click', 'Place the selected ground cracker'],

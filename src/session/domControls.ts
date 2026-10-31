@@ -5,6 +5,9 @@ import type { Session } from './session';
 /**
  * Browser edge of session/input: forwards DOM events to `Input`, drives the
  * session from pointer lock, and releases held keys whenever focus goes.
+ * Bound keys have their browser defaults suppressed (Space would scroll or
+ * click a focused button), except that while the pointer is free a focused
+ * form control or text field keeps its keys, so the pause menu stays usable.
  *
  * Targets are typed structurally so tests can pass plain `EventTarget`s.
  */
@@ -53,6 +56,7 @@ interface MouseLike extends Event {
 export function createDomControls(options: DomControlsOptions): DomControls {
   const { input, session, bus, element, doc, win } = options;
   const isLocked = (): boolean => doc.pointerLockElement === element;
+  const ownsKeys = (event: Event): boolean => !isLocked() && isKeyTaker(event.target);
 
   const releaseAndPause = (reason: 'user' | 'focusLost'): void => {
     input.releaseAll();
@@ -64,14 +68,16 @@ export function createDomControls(options: DomControlsOptions): DomControls {
       win,
       'keydown',
       (event: KeyLike) => {
-        if (event.code !== undefined && input.keyDown(event.code)) event.preventDefault();
+        if (event.code === undefined || ownsKeys(event)) return;
+        if (input.keyDown(event.code)) event.preventDefault();
       },
     ],
     [
       win,
       'keyup',
+      // Releases always reach `Input`, so a key held into a menu never sticks.
       (event: KeyLike) => {
-        if (event.code !== undefined && input.keyUp(event.code)) event.preventDefault();
+        if (event.code !== undefined && input.keyUp(event.code) && !ownsKeys(event)) event.preventDefault();
       },
     ],
     [win, 'blur', () => releaseAndPause('focusLost')],
@@ -145,6 +151,15 @@ export function createDomControls(options: DomControlsOptions): DomControls {
       offPaused();
     },
   };
+}
+
+/** Elements that use keys themselves: Space clicks a button, letters type into a field. */
+const KEY_TAKER_TAGS = new Set(['BUTTON', 'INPUT', 'SELECT', 'TEXTAREA']);
+
+function isKeyTaker(target: EventTarget | null): boolean {
+  const el = target as { readonly tagName?: unknown; readonly isContentEditable?: unknown } | null;
+  if (!el) return false;
+  return el.isContentEditable === true || (typeof el.tagName === 'string' && KEY_TAKER_TAGS.has(el.tagName.toUpperCase()));
 }
 
 function onLockRefused(error: unknown): void {
