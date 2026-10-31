@@ -62,6 +62,8 @@ export interface EmitterPreset {
   readonly wander?: WanderSpec;
   /** Sparks leave a spinning wheel's rim instead of its centre (chakri). */
   readonly rim?: RimSpec;
+  /** The wheel spins up after lighting and winds down as `duration` runs out (chakri). */
+  readonly spinRamp?: SpinRampSpec;
   /** A light that keeps flickering while the stream burns (chakri). */
   readonly light?: GlowLightSpec;
   /** Trailing sparks behind each burst star, so it reads as a streak. */
@@ -124,7 +126,48 @@ export interface RimSpec {
     readonly size: number;
     /** 0xRRGGBB; the glow is hotter than the thrown sparks. */
     readonly colour: number;
+    /** Colour multiplier; above 1 pushes the ring into the bloom. Default 1. */
+    readonly brightness?: number;
   };
+  /**
+   * White-hot sparks at each jet's mouth: they live for a fraction of a
+   * turn, so the spinning jets smear into a bright, hot ring.
+   */
+  readonly head?: {
+    /** Head sparks per second at a count scale of 1. */
+    readonly rate: number;
+    readonly life: Range;
+    readonly size: number;
+    /** 0xRRGGBB. */
+    readonly colour: number;
+    /** Colour multiplier; above 1 pushes it into the bloom. */
+    readonly brightness: number;
+  };
+}
+
+export interface SpinRampSpec {
+  /** Fraction of full spin (and spark rate) the wheel lights at. */
+  readonly start: number;
+  /** Seconds to build to full spin. */
+  readonly rampUp: number;
+  /** Seconds before the stream's `duration` ends that it starts to wind down. */
+  readonly windDown: number;
+  /** Fraction of full spin left as it burns out. */
+  readonly end: number;
+}
+
+/**
+ * How fast a ramped wheel turns `age` seconds into a `duration`-second
+ * burn, as a fraction of full spin: it catches from a slow start, runs at
+ * full speed, then slows and thins as the powder runs out. With an endless
+ * `duration` it never winds down.
+ */
+export function spinRampFactor(ramp: SpinRampSpec, age: number, duration: number): number {
+  const up = ramp.rampUp > 0 ? Math.min(1, age / ramp.rampUp) : 1;
+  const rising = ramp.start + (1 - ramp.start) * up * (2 - up);
+  const left = duration - age;
+  const down = ramp.windDown > 0 && left < ramp.windDown ? Math.max(0, left / ramp.windDown) : 1;
+  return rising * (ramp.end + (1 - ramp.end) * down);
 }
 
 export interface GlowLightSpec {
@@ -167,6 +210,8 @@ export interface CrackleSpec {
   readonly radius: number;
   /** Height of the pops' centre above the source, metres; default 0. */
   readonly height?: number;
+  /** Pops lie on the ground round the source and spit upwards, not in a ball (chakri). */
+  readonly flat?: boolean;
   readonly speed: Range;
   readonly life: Range;
   readonly size: number;
@@ -306,9 +351,9 @@ export const ANAR_PALETTES: readonly (readonly number[])[] = [
  * Chakri: a wheel spinning about four times a second, throwing sparks off
  * its rim along the direction of travel so they trace spiral arcs, with a
  * blurred ring of fire round the wheel and a flickering glow on the ground.
- * It skitters a little as it spins.
+ * It skitters a little as it spins. The lean version, for Low quality.
  */
-export const SPINNER: EmitterPreset = {
+export const SPINNER_LOW: EmitterPreset = {
   kind: 'stream',
   count: 0,
   rate: 1500,
@@ -338,6 +383,51 @@ export const SPINNER: EmitterPreset = {
     glow: { rate: 420, life: { min: 0.04, max: 0.08 }, size: 0.06, colour: 0xfff3c8 },
   },
   light: { peak: 5, range: 6, interval: 0.1, height: 0.3 },
+};
+
+/**
+ * Chakri on Medium and High, dressed like the anar: longer-lived sparks
+ * with streaking tails that skim low over the ground in spiral arms and
+ * cool to embers, white-hot jet heads smearing into a ring that blooms,
+ * crackling pops in the shower, and a stronger flickering ground light. It
+ * catches slowly, spins up, and winds down as it burns out (the burn time
+ * is set from the tuning, see `FireworksEffects`).
+ */
+export const SPINNER: EmitterPreset = {
+  ...SPINNER_LOW,
+  rate: 1300,
+  speed: { min: 4.5, max: 8 },
+  life: { min: 0.3, max: 0.65 },
+  spread: 0.1,
+  gravity: 0.55,
+  drag: 2.4,
+  size0: 0.05,
+  size1: 0.014,
+  flicker: 0.45,
+  endColour: 0xb0300a,
+  spinRamp: { start: 0.35, rampUp: 0.7, windDown: 1.2, end: 0.25 },
+  tail: { count: 2, step: 0.07, fade: 0.6 },
+  brightness: 1.35,
+  rim: {
+    radius: 0.14,
+    height: 0.05,
+    outward: 0.35,
+    lift: 0.2,
+    glow: { rate: 600, life: { min: 0.05, max: 0.1 }, size: 0.07, colour: 0xfff3c8, brightness: 2 },
+    head: { rate: 320, life: { min: 0.05, max: 0.1 }, size: 0.1, colour: 0xfff8e4, brightness: 2.6 },
+  },
+  crackle: {
+    rate: 7,
+    count: 6,
+    radius: 1.1,
+    height: 0.08,
+    flat: true,
+    speed: { min: 1.2, max: 2.8 },
+    life: { min: 0.05, max: 0.13 },
+    size: 0.045,
+    colour: 0xfff8e8,
+  },
+  light: { peak: 12, range: 9, interval: 0.08, height: 0.3 },
 };
 
 /** Spark colours a chakri may burn with; one is picked per chakri. */
