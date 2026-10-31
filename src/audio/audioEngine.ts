@@ -27,12 +27,13 @@ import {
   silence,
   startTownCrackle,
   synthesise,
+  type BaltiContact,
   type LadiPopSound,
   type NoiseBank,
   type SynthVoice,
 } from './synth';
 import { VoicePool, type VoiceId } from './voicePool';
-import { BALTI_BOOM_DURATION, BALTI_CLANG_DURATION, BALTI_CLANG_FULL_SPEED } from './sounds';
+import { BALTI_BOOM_DURATION, BALTI_CLANG_DURATION, BALTI_CLANG_FULL_SPEED, BALTI_RATTLE_MIN } from './sounds';
 
 /** Metres per second; delays far bursts so the flash leads the boom. */
 const SPEED_OF_SOUND = 343;
@@ -87,6 +88,10 @@ interface PlayOptions {
   readonly distance?: number;
   readonly pattern?: BurstPattern;
   readonly pops?: readonly LadiPopSound[];
+  readonly contact?: BaltiContact;
+  readonly strength?: number;
+  readonly spin?: number;
+  readonly speed?: number;
 }
 
 /** A burning ladi's pops, and the first one no batch has played yet. */
@@ -295,17 +300,42 @@ export class AudioEngine implements AudioModule, Steppable {
           delay: distance / SPEED_OF_SOUND,
         });
       }),
-      // The balti blast: its fuse hisses, the bomb booms under the steel, the balti clangs down.
+      // The balti blast: its fuse spits, the bomb booms under the steel, the
+      // pail flutters up and clangs down, then rattles still or rolls away.
+      // Every part reaches the ear after the light does.
       bus.on('baltiStep', ({ step, position, fuse }) => {
-        if (step === 'lit') this.play('fuseHiss', { position, duration: fuse ?? crackers.fuse.anar });
+        if (step !== 'lit') return;
+        this.play('baltiFuse', { position, duration: fuse ?? crackers.fuse.anar, delay: this.soundDelay(position) });
       }),
-      bus.on('baltiBlast', ({ position }) => {
+      bus.on('baltiBlast', ({ position, launch }) => {
         const distance = this.listener ? distanceBetween(this.listener.position, position) : 0;
-        this.play('baltiBoom', { position, duration: BALTI_BOOM_DURATION, delay: distance / SPEED_OF_SOUND });
+        const delay = distance / SPEED_OF_SOUND;
+        this.play('baltiBoom', { position, duration: BALTI_BOOM_DURATION, delay, distance, spin: launch?.spin });
+        if (!launch) return;
+        // Up and back down, heard from about half way up.
+        const rise = launch.speed / BALTI_GRAVITY;
+        const middle = { x: position.x, y: position.y + (launch.speed * rise) / 4, z: position.z };
+        this.play('baltiWhoosh', { position: middle, duration: rise * 2, delay, spin: launch.spin });
       }),
-      bus.on('baltiBounce', ({ position, speed }) => {
-        const gain = Math.min(1, Math.max(0.15, speed / BALTI_CLANG_FULL_SPEED));
-        this.play('baltiClang', { position, duration: BALTI_CLANG_DURATION, gain });
+      bus.on('baltiBounce', ({ position, speed, contact }) => {
+        const strength = Math.min(1, speed / BALTI_CLANG_FULL_SPEED);
+        this.play('baltiClang', {
+          position,
+          duration: BALTI_CLANG_DURATION * (0.5 + 0.5 * strength),
+          gain: Math.max(0.15, strength),
+          delay: this.soundDelay(position),
+          contact,
+          strength,
+        });
+      }),
+      bus.on('baltiSettle', ({ position, contact, duration, speed }) => {
+        this.play('baltiRattle', {
+          position,
+          duration: Math.max(BALTI_RATTLE_MIN, duration),
+          delay: this.soundDelay(position),
+          contact,
+          speed,
+        });
       }),
       bus.on('paused', () => {
         this.sessionPaused = true;
@@ -439,6 +469,10 @@ export class AudioEngine implements AudioModule, Steppable {
       distance: options.distance,
       pattern: options.pattern,
       pops: options.pops,
+      contact: options.contact,
+      strength: options.strength,
+      spin: options.spin,
+      speed: options.speed,
     });
     // Disconnect once the last source finishes so finished voices are collected.
     const last = synth.sources[synth.sources.length - 1];
@@ -504,6 +538,11 @@ export class AudioEngine implements AudioModule, Steppable {
     });
   }
 
+  /** Seconds a sound from `position` takes to reach the listener. */
+  private soundDelay(position: Vec3): number {
+    return this.listener ? distanceBetween(this.listener.position, position) / SPEED_OF_SOUND : 0;
+  }
+
   private createPanner(ctx: AudioContext, position: Vec3, refDistance: number): PannerNode {
     const panner = ctx.createPanner();
     panner.panningModel = 'equalpower';
@@ -543,6 +582,9 @@ export class AudioEngine implements AudioModule, Steppable {
     return this.graph?.ctx.currentTime ?? 0;
   }
 }
+
+/** m/s², for timing the balti's flight from its launch speed. */
+const BALTI_GRAVITY = 9.81;
 
 /** How high rockets elsewhere in town climb before bursting, metres. */
 const ROCKET_APEX = { min: 25, max: 55 } as const;

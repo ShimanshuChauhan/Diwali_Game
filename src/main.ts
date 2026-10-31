@@ -317,7 +317,7 @@ async function boot(): Promise<void> {
         // Sparks leave the stick where it is burning.
         handPosition: () => sparkler.burningPoint,
       });
-  const baltiEffects = effects ? new BaltiEffects(bus, effects.engine) : null;
+  const baltiEffects = effects ? new BaltiEffects(bus, effects.engine, quality.profile) : null;
   // Bursts on High tint the street's sky fill rather than adding a light.
   const skyLight = scene.children.find((child): child is THREE.HemisphereLight => child instanceof THREE.HemisphereLight);
   const effectsView = effects ? new EffectsRenderer(effects.engine, { skyLight }) : null;

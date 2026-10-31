@@ -487,6 +487,18 @@ export class FireworksEngine {
     }
   }
 
+  /**
+   * Toss `part.count` (scaled) matte particles from (x, y, z) without an
+   * emitter, within the shared particle budget: dust or smoke drawn
+   * see-through at `opacity`. `lift` is how upright their throw is, 0–1;
+   * `flat` instead sends them out level along the ground in a ring, as a
+   * blast under a lid pushes dust out from under its edge.
+   */
+  puff(x: number, y: number, z: number, part: LadiPopPart, opacity: number, lift: number, flat = false): void {
+    this.scatterMatte(x, y, z, part, opacity, lift, flat);
+    this.refreshStats();
+  }
+
   /** Light a short flash without particles. Returns false if none was free. */
   flash(x: number, y: number, z: number, colour: number, peak: number, range: number, duration: number): boolean {
     const lit = this.flashes.trigger(x, y, z, colour, peak, range, duration) >= 0;
@@ -1322,7 +1334,7 @@ export class FireworksEngine {
    * Toss `part.count` (scaled) matte particles up from (x, y, z), within the
    * shared particle budget. `lift` is how upright their throw is, 0–1.
    */
-  private scatterMatte(x: number, y: number, z: number, part: LadiPopPart, opacity: number, lift: number): void {
+  private scatterMatte(x: number, y: number, z: number, part: LadiPopPart, opacity: number, lift: number, flat = false): void {
     const spec = this.matteSpec;
     const dir = this.scratch;
     const colour = this.axisW;
@@ -1333,7 +1345,16 @@ export class FireworksEngine {
         this.counters.droppedParticles++;
         continue;
       }
-      upward(this.random, dir, Math.PI / 2 * (1 - lift) + 0.3);
+      if (flat) {
+        // Out along the ground, at most a little above level.
+        const phi = this.random() * Math.PI * 2;
+        const rise = this.random() * 0.25;
+        dir[0] = Math.cos(phi) * Math.cos(rise);
+        dir[1] = Math.sin(rise);
+        dir[2] = Math.sin(phi) * Math.cos(rise);
+      } else {
+        upward(this.random, dir, Math.PI / 2 * (1 - lift) + 0.3);
+      }
       const speed = lerp(part.speed.min, part.speed.max, this.random());
       spec.x = x;
       spec.y = y;
