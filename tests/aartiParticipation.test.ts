@@ -55,6 +55,7 @@ describe('aarti participation — outside aarti', () => {
       { type: 'place' },
       { type: 'placeReleased' },
       { type: 'interact' },
+      { type: 'jump' },
     ];
     expect(route(...all)).toEqual(all.map(() => false));
     expect(ceremony.snapshot).toMatchObject({ state: 'waiting', participating: false, circling: false });
@@ -119,9 +120,16 @@ describe('aarti participation — looking round', () => {
     expect(ceremony.snapshot).toMatchObject({ participating: true, circling: false });
   });
 
+  it('swallows a jump while taking part, and holdStill drops one already asked for', () => {
+    const { route, ceremony } = setup();
+    ceremony.join();
+    expect(route({ type: 'jump' })).toEqual([true]);
+    expect(holdStill({ forward: 0, right: 0, run: false, jump: true, yaw: 0 }, ceremony.snapshot).jump).toBe(false);
+  });
+
   it('holds the player still while taking part, keeping the run state', () => {
     const walking: MovementIntent = { forward: 1, right: -1, run: true, yaw: 1.2 };
-    expect(holdStill(walking, { participating: true })).toEqual({ forward: 0, right: 0, run: true, yaw: 1.2 });
+    expect(holdStill(walking, { participating: true })).toEqual({ forward: 0, right: 0, run: true, jump: false, yaw: 1.2 });
     expect(holdStill(walking, { participating: false })).toBe(walking);
   });
 

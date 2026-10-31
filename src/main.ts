@@ -468,7 +468,7 @@ async function boot(): Promise<void> {
     for (let i = 0; i < steps; i++) {
       // Aarti participants stand still but can look round.
       const intent = holdStill(movement.intent(rig.yaw), ceremony.snapshot, aartiFacing);
-      player.move(locations.controlsLocked ? { ...intent, forward: 0, right: 0 } : intent, SIM_STEP);
+      player.move(locations.controlsLocked ? { ...intent, forward: 0, right: 0, jump: false } : intent, SIM_STEP);
       physics.step();
       stress?.update(SIM_STEP);
       tour?.update(SIM_STEP);

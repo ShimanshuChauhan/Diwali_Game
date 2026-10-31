@@ -26,6 +26,7 @@ export function slotForSong(song: AartiSongId): SelectSlot {
  * - 1–3 choose a song in the mini player (the hands are full, so they cannot
  *   mean crackers); 4 does nothing.
  * - E leaves: the thali goes down and movement comes back.
+ * - Space does nothing: participants stand still.
  * - Look, camera, pause and the held movement keys pass through, so the
  *   player can look round in either camera mode; `holdStill` keeps them in
  *   place, facing the puja.
@@ -45,6 +46,8 @@ export function applyAartiAction(action: GameAction, ceremony: ParticipantCeremo
       return true;
     case 'interact':
       ceremony.leave();
+      return true;
+    case 'jump':
       return true;
     case 'select': {
       const song = songForSlot(action.slot);
@@ -70,7 +73,7 @@ export function holdStill(
   aarti: Pick<AartiSnapshot, 'participating'>,
   facing = intent.yaw,
 ): MovementIntent {
-  return aarti.participating ? { ...intent, forward: 0, right: 0, yaw: facing } : intent;
+  return aarti.participating ? { ...intent, forward: 0, right: 0, jump: false, yaw: facing } : intent;
 }
 
 /** Closer than this on the ground plane, the way to the puja is no direction at all. */

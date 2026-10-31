@@ -18,6 +18,10 @@ export interface Tuning {
     readonly deceleration: number;
     /** Steepest slope (degrees from horizontal) the player walks up. */
     readonly maxSlope: number;
+    /** Upward speed at take-off (m/s); about half a metre of jump. */
+    readonly jumpSpeed: number;
+    /** Downward acceleration while airborne (m/s²). */
+    readonly gravity: number;
   };
   readonly camera: {
     readonly mouseSensitivity: number;
@@ -106,6 +110,8 @@ export const TUNING: Tuning = {
     acceleration: 30,
     deceleration: 40,
     maxSlope: 45,
+    jumpSpeed: 3.2,
+    gravity: 9.81,
   },
   camera: {
     mouseSensitivity: 0.0025,
