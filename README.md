@@ -9,7 +9,7 @@ the build plan.
 ## Stack
 
 TypeScript · Vite · Three.js (WebGL) · Rapier (physics/collision) · Vitest.
-Client-only — no backend, account, paid API or runtime CDN.
+Client-only: no backend, account, paid API or runtime CDN.
 
 ## Requirements
 

@@ -17,7 +17,7 @@ export const SWEETS_DIALOGUE: DialogueCatalogue = {
     ],
     father: [
       { text: 'Waah, kya baat hai! Ek aur ho jaye.', gesture: 'clap' },
-      { text: 'Diet kal se, beta — aaj Diwali hai!', gesture: 'wave' },
+      { text: 'Diet kal se, beta. Aaj Diwali hai!', gesture: 'wave' },
       { text: 'Halwai wale bhaiya ki barfi hai, ekdum fresh.', gesture: 'clap' },
     ],
     grandmother: [
@@ -54,7 +54,7 @@ export const SWEETS_DIALOGUE: DialogueCatalogue = {
     ],
     grandfather: [
       { text: 'Dhanyavaad, beta. Sanskaar achhe hain tumhare.', gesture: 'namaste' },
-      { text: 'Bade-bujurgon ko pehle — bahut achhe.', gesture: 'blessing' },
+      { text: 'Bade-bujurgon ko pehle, bahut achhe.', gesture: 'blessing' },
       { text: 'Khush raho. Ek peda de do bas.', gesture: 'namaste' },
     ],
     sibling: [

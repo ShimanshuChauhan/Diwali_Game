@@ -97,6 +97,31 @@
   gap: var(--ds-space-3);
 }
 
+/* ── Confirm: an inline question that replaces the button that asked ── */
+.ds-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ds-space-3);
+}
+
+.ds-panel__footer[hidden],
+.ds-confirm[hidden] {
+  display: none;
+}
+
+.ds-confirm__message {
+  margin: 0;
+  font-size: var(--ds-text-md);
+  color: var(--ds-color-text);
+}
+
+.ds-confirm__actions {
+  display: flex;
+  gap: var(--ds-space-2);
+}
+
 @keyframes ds-rise {
   from {
     opacity: 0;

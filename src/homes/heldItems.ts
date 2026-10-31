@@ -69,15 +69,15 @@ const BLOCKED_BY: Readonly<Record<HandItemKind, CrackerHandsRejection>> = {
 
 /** Return-or-deliver prompt for a blocked cracker action. */
 export const CRACKER_BLOCKED_TEXT: Readonly<Record<CrackerHandsRejection, string>> = {
-  carryingPlate: 'Hands full — offer the plate or put it back on the sweets table',
-  carryingGift: 'Hands full — deliver the gift box or put it back on its spot',
-  holdingThali: 'Holding the thali — leave aarti to free your hands',
-  midHandover: 'Uncle is handing you the return gift — just a moment',
+  carryingPlate: 'Hands full: offer the plate or put it back on the sweets table',
+  carryingGift: 'Hands full: deliver the gift box or put it back on its spot',
+  holdingThali: 'Holding the thali: leave aarti to free your hands',
+  midHandover: 'Uncle is handing you the return gift, just a moment',
 };
 
 /** Player-facing wording for a refused item command. */
 export const ITEM_REJECTION_TEXT: Readonly<Record<ItemRejection, string>> = {
-  handsFull: 'Hands full — put down what you are carrying first',
+  handsFull: 'Hands full: put down what you are carrying first',
   carryingPlate: CRACKER_BLOCKED_TEXT.carryingPlate,
   carryingGift: CRACKER_BLOCKED_TEXT.carryingGift,
   holdingThali: CRACKER_BLOCKED_TEXT.holdingThali,
@@ -86,7 +86,7 @@ export const ITEM_REJECTION_TEXT: Readonly<Record<ItemRejection, string>> = {
   trayNotServed: 'Sweets come out after aarti',
   notHolding: 'You are not carrying that',
   wrongReturnSpot: 'That goes back somewhere else',
-  outOfReach: 'Too far away — move closer',
+  outOfReach: 'Too far away: move closer',
 };
 
 const OK: CommandResult<ItemRejection> = Object.freeze({ ok: true });

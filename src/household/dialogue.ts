@@ -23,7 +23,7 @@ export type DialogueCatalogue = Readonly<
 export const FAMILY_DIALOGUE: DialogueCatalogue = {
   invite: {
     mother: [
-      { text: 'Beta, aa jao — thali taiyaar hai, jab mann ho tab shuru karenge.', gesture: 'wave' },
+      { text: 'Beta, aa jao. Thali taiyaar hai, jab mann ho tab shuru karenge.', gesture: 'wave' },
       { text: 'Aarti tumhare saath hi karenge, beta. Aaram se aao.', gesture: 'wave' },
     ],
     grandmother: [
@@ -32,11 +32,11 @@ export const FAMILY_DIALOGUE: DialogueCatalogue = {
     ],
     father: [
       { text: 'Aao beta, puja wale kone mein aa jao jab free ho.', gesture: 'wave' },
-      { text: 'Thali utha lo, beta — sab yahin hain.', gesture: 'namaste' },
+      { text: 'Thali utha lo, beta. Sab yahin hain.', gesture: 'namaste' },
     ],
     sibling: [
       { text: 'Aa jao na! Ghanti main bajaunga, thali tum ghumana.', gesture: 'tease' },
-      { text: 'Aarti ke baad mithai milegi — chalo na!', gesture: 'wave' },
+      { text: 'Aarti ke baad mithai milegi, chalo na!', gesture: 'wave' },
     ],
     grandfather: [
       { text: 'Aao bachche, saath mein aarti karte hain.', gesture: 'namaste' },
@@ -54,7 +54,7 @@ export const FAMILY_DIALOGUE: DialogueCatalogue = {
     ],
     father: [
       { text: 'Aa gaye champion! Aaj ki shaam badi achhi rahi.', gesture: 'wave' },
-      { text: 'Aao baitho, beta — thodi baatein karte hain.', gesture: 'wave' },
+      { text: 'Aao baitho, beta. Thodi baatein karte hain.', gesture: 'wave' },
     ],
     sibling: [
       { text: 'Sab ladoo main kha jaunga, jaldi aao! Mazaak tha.', gesture: 'tease' },

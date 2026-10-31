@@ -310,6 +310,36 @@ controlsList(doc, [['WASD', 'Move'], ['Space', 'Jump']]);
 `ds-list--compact` drops the separators and tightens the rows (start
 screen).
 
+### Inline confirm
+
+```ts
+const ask = confirmPrompt(doc, 'Restart the evening? Your progress resets.', {
+  confirm: 'Restart',
+  cancel: 'Cancel',
+});
+```
+
+```html
+<div class="ds-confirm" role="group" aria-labelledby="ds-confirm-1" hidden>
+  <p class="ds-confirm__message" id="ds-confirm-1">Restart the evening? Your progress resets.</p>
+  <div class="ds-confirm__actions">
+    <button type="button" class="ds-btn ds-btn--secondary">Cancel</button>
+    <button type="button" class="ds-btn ds-btn--danger">Restart</button>
+  </div>
+</div>
+```
+
+For an action that throws progress away. Never use the browser's
+`confirm()`. Show it in place of the button that asked (hide that row,
+unhide this one) and:
+
+- move focus to **Cancel**, the safe choice;
+- back out on Cancel or Escape, and return focus to the button that asked;
+- reset it whenever the panel closes, so the panel always reopens plain.
+
+Write the question as a short sentence with the consequence after it, and
+name the danger button with the verb (`Restart`), not `OK` or `Yes`.
+
 ### Divider, eyebrow, hint
 
 `<hr class="ds-divider" aria-hidden="true">` fades in and out at the edges.
@@ -333,11 +363,16 @@ compact controls list.
    - **Sound** (`createAudioControls` in `src/audio/controls.ts`): mute switch, volume slider.
    - **Quality**: Low / Medium / High segmented control.
 4. Footer: **Restart fresh celebration** (danger) with an explanation.
+   Clicking it swaps the footer for an inline confirm ("Restart the
+   evening? Your progress resets.", Cancel and Restart); only the confirm's
+   Restart calls `onRestart`.
 
 Hooks code and tests rely on: `.pause-menu` (overlay, `hidden` while
 closed), `.pause-menu__panel` (`role="dialog"`), `.pause-menu__resume` /
 `.pause-menu__restart` (also `data-action="resume"` / `"restart"`),
-`.pause-menu__controls`, `.audio-controls`, `.pause-menu__quality`, and
+`.pause-menu__footer`, `.pause-menu__confirm` with `.pause-menu__cancel` /
+`.pause-menu__confirm-restart` (`data-action="cancel-restart"` /
+`"confirm-restart"`), `.pause-menu__controls`, `.audio-controls`, `.pause-menu__quality`, and
 `.ds-list-row[data-key]` per control. Behaviour is covered by
 `tests/pauseMenu.test.ts`.
 
@@ -353,6 +388,7 @@ hints, the pause panel and this document's examples.
 
 - **No em dashes** (the long dash, U+2014). Use a comma, colon, full stop
   or parentheses instead: `Paused. Click to resume`.
+  `tests/noEmDash.test.ts` fails if one appears in the wording modules.
 - **Plain and direct.** Say what happens or what to do, with no filler:
   `Too far away to light: move closer`, not `Oops! Looks like you might be
   a little too far away`.

@@ -4,8 +4,8 @@ import type { Unsubscribe } from '../core/eventBus';
 import type { GameEventBus } from '../core/events';
 import { QUALITY_LEVELS } from '../core/quality';
 import type { QualityLevel } from '../core/types';
-import { button, controlsList, divider, el, sectionHeading, segmented } from './design/components';
-import { CONTROLS_HELP, QUALITY_LABELS } from './text';
+import { button, confirmPrompt, controlsList, divider, el, sectionHeading, segmented } from './design/components';
+import { CONTROLS_HELP, QUALITY_LABELS, RESTART_TEXT } from './text';
 
 export type QualitySettings = Pick<QualityModule, 'profile' | 'setLevel'>;
 
@@ -95,6 +95,10 @@ interface KeyLike extends Event {
  * panel, and keys pressed in the menu stop there so game bindings (which
  * would otherwise swallow Space, digits and so on) never see them. Focus is
  * dropped on close so a later key cannot press a hidden button.
+ *
+ * Restart asks first: it swaps the footer for an inline confirm with focus
+ * on Cancel. Cancel or Escape backs out and focuses Restart again; closing
+ * the menu backs out too, so it always reopens on the plain footer.
  */
 export function createPauseMenu(options: PauseMenuOptions): Unsubscribe {
   const { parent, bus, onResume, onRestart, audio, quality } = options;
@@ -148,37 +152,77 @@ export function createPauseMenu(options: PauseMenuOptions): Unsubscribe {
   const body = el(doc, 'div', 'ds-panel__body');
   body.append(help, settings);
 
-  const restart = button(doc, 'Restart fresh celebration', { variant: 'danger', className: 'pause-menu__restart' });
+  const restart = button(doc, RESTART_TEXT.button, { variant: 'danger', className: 'pause-menu__restart' });
   restart.dataset.action = 'restart';
-  restart.addEventListener('click', onRestart);
-  const footer = el(doc, 'footer', 'ds-panel__footer');
-  footer.append(el(doc, 'p', 'ds-hint', 'Starts the evening over from the beginning.'), restart);
+  const footer = el(doc, 'footer', 'pause-menu__footer ds-panel__footer');
+  footer.append(el(doc, 'p', 'ds-hint', RESTART_TEXT.hint), restart);
 
-  panel.append(header, resume, body, divider(doc), footer);
+  const ask = confirmPrompt(doc, RESTART_TEXT.confirm, {
+    confirm: RESTART_TEXT.confirmButton,
+    cancel: RESTART_TEXT.cancelButton,
+  });
+  ask.root.className += ' pause-menu__confirm';
+  ask.root.hidden = true;
+  ask.cancel.className += ' pause-menu__cancel';
+  ask.cancel.dataset.action = 'cancel-restart';
+  ask.confirm.className += ' pause-menu__confirm-restart';
+  ask.confirm.dataset.action = 'confirm-restart';
+
+  const confirming = (): boolean => !ask.root.hidden;
+  const setConfirming = (on: boolean): void => {
+    footer.hidden = on;
+    ask.root.hidden = !on;
+  };
+  const onAsk = (): void => {
+    setConfirming(true);
+    ask.cancel.focus();
+  };
+  const onCancel = (): void => {
+    setConfirming(false);
+    restart.focus();
+  };
+  const onConfirm = (): void => {
+    setConfirming(false);
+    onRestart();
+  };
+  restart.addEventListener('click', onAsk);
+  ask.cancel.addEventListener('click', onCancel);
+  ask.confirm.addEventListener('click', onConfirm);
+
+  panel.append(header, resume, body, divider(doc), footer, ask.root);
   overlay.appendChild(panel);
   parent.appendChild(overlay);
 
   const onKey = (event: KeyLike): void => {
     event.stopPropagation();
-    if (event.type !== 'keydown' || event.key !== 'Tab') return;
-    // Resume and Restart are the first and last stops; wrap between them.
+    if (event.type !== 'keydown') return;
+    if (event.key === 'Escape' && confirming()) {
+      event.preventDefault();
+      onCancel();
+      return;
+    }
+    if (event.key !== 'Tab') return;
+    // Resume and Restart (or the confirm's Restart) are the first and last stops; wrap between them.
+    const last = confirming() ? ask.confirm : restart;
     const active = doc.activeElement;
-    const leaving = event.shiftKey ? active === resume : active === restart;
+    const leaving = event.shiftKey ? active === resume : active === last;
     if (leaving || !panel.contains(active)) {
       event.preventDefault();
-      (event.shiftKey && panel.contains(active) ? restart : resume).focus();
+      (event.shiftKey && panel.contains(active) ? last : resume).focus();
     }
   };
   overlay.addEventListener('keydown', onKey);
   overlay.addEventListener('keyup', onKey);
 
   const show = (): void => {
+    setConfirming(false);
     overlay.hidden = false;
     resume.focus({ preventScroll: true });
   };
   const hide = (): void => {
     const active = doc.activeElement as HTMLElement | null;
     if (active && overlay.contains(active)) active.blur();
+    setConfirming(false);
     overlay.hidden = true;
   };
   unbinds.push(bus.on('paused', show), bus.on('resumed', hide), bus.on('sessionStarted', hide));
@@ -186,7 +230,9 @@ export function createPauseMenu(options: PauseMenuOptions): Unsubscribe {
   return () => {
     for (const unbind of unbinds.splice(0)) unbind();
     resume.removeEventListener('click', onResume);
-    restart.removeEventListener('click', onRestart);
+    restart.removeEventListener('click', onAsk);
+    ask.cancel.removeEventListener('click', onCancel);
+    ask.confirm.removeEventListener('click', onConfirm);
     overlay.removeEventListener('keydown', onKey);
     overlay.removeEventListener('keyup', onKey);
     overlay.remove();

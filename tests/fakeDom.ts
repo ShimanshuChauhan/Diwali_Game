@@ -25,6 +25,7 @@ export class FakeElement extends EventTarget {
   readonly dataset: Record<string, string> = {};
   private readonly attributes = new Map<string, string>();
   className = '';
+  id = '';
   hidden = false;
   // Form-control fields, plain properties as far as the tests care.
   type = '';
