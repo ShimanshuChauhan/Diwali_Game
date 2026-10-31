@@ -324,7 +324,8 @@ export class AudioEngine implements AudioModule, Steppable {
         this.play('baltiClang', {
           position,
           duration: BALTI_CLANG_DURATION * (0.5 + 0.5 * strength),
-          gain: Math.max(0.15, strength),
+          // Even a late, soft bounce of a heavy pail is a clear clank.
+          gain: Math.max(0.35, Math.sqrt(strength)),
           delay: this.soundDelay(position),
           contact,
           strength,

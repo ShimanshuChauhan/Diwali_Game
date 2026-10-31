@@ -69,8 +69,10 @@ export const SOUNDS: Readonly<Record<SoundKind, SoundSpec>> = {
   // and carries across the street.
   baltiBoom: { priority: 4, gain: 14, refDistance: 14, bus: 'bomb' },
   baltiWhoosh: { priority: 0, gain: 0.14, refDistance: 3 },
-  baltiClang: { priority: 2, gain: 0.5, refDistance: 3 },
-  baltiRattle: { priority: 1, gain: 0.6, refDistance: 3 },
+  // A heavy steel pail hitting stone is a big, ringing clang heard across
+  // the courtyard, not a tap: driven into the sutli's limiter like the boom.
+  baltiClang: { priority: 2, gain: 4, refDistance: 10, bus: 'bomb' },
+  baltiRattle: { priority: 1, gain: 1.6, refDistance: 6, bus: 'bomb' },
 };
 
 /** Sustained sound a cracker makes while active; a ladi has none, only its pops. */
@@ -119,7 +121,7 @@ export const DISTANT_SHELL_DURATION = 3;
 /** The balti's muffled boom and its ring, and one clang as it hits the ground, seconds. */
 export const BALTI_BOOM_DURATION = 2.4;
 /** A full-speed clang; softer landings ring out shorter, down to half. */
-export const BALTI_CLANG_DURATION = 0.9;
+export const BALTI_CLANG_DURATION = 2.2;
 /** A rattle or roll never plays shorter than this, seconds. */
 export const BALTI_RATTLE_MIN = 0.3;
 /** Landing this fast (m/s) clangs at full level; slower bounces are quieter. */
