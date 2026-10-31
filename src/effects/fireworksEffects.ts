@@ -18,6 +18,7 @@ import {
   ROCKET_TRAIL,
   SPARKLER,
   SPINNER,
+  SPINNER_LOW,
   type EmitterPreset,
 } from './presets';
 
@@ -51,7 +52,7 @@ const FUSE_HEIGHT: Readonly<Record<CrackerType, number>> = { phuljhari: 0, anar:
 /** The anar's fountain leaves the mouth of its pot, not the ground. */
 const ACTIVE_HEIGHT: Readonly<Record<CrackerType, number>> = { phuljhari: 0, anar: 0.26, chakri: 0, rocket: 0, ladi: 0 };
 
-/** Stream preset started when each ground/held cracker becomes active. */
+/** Stream preset started when each ground/held cracker becomes active; the chakri's follows the quality level. */
 const ACTIVE_PRESETS: Readonly<Record<CrackerType, EmitterPreset>> = {
   phuljhari: SPARKLER,
   anar: FOUNTAIN,
@@ -90,6 +91,10 @@ export class FireworksEffects implements EffectsModule {
   private readonly handPosition: (() => Vec3) | null;
   private readonly random: () => number;
   private readonly spinners = new Set<CrackerId>();
+  /** Medium and High's chakri, burning for the tuned time so it can wind down. */
+  private readonly fullSpinner: EmitterPreset;
+  /** Chakri preset for the current quality level. */
+  private spinner: EmitterPreset = SPINNER_LOW;
   /** Rockets in flight: their path, launch point and time since launch. */
   private readonly flights = new Map<CrackerId, { flight: RocketFlight; origin: Vec3; time: number }>();
   /** Ladi fuses burning in from their tip to the string: from, to, seconds burnt. */
@@ -102,6 +107,7 @@ export class FireworksEffects implements EffectsModule {
     this.tuning = options.tuning ?? TUNING;
     this.handPosition = options.handPosition ?? null;
     this.random = options.random ?? Math.random;
+    this.fullSpinner = { ...SPINNER, duration: this.tuning.crackers.activeDuration.chakri };
     this.engine = new FireworksEngine({
       particleCapacity: maxOver('maxParticles'),
       // Each lit cracker may need a stream and, for rockets, a burst.
@@ -118,6 +124,8 @@ export class FireworksEffects implements EffectsModule {
   }
 
   applyQuality(profile: QualityProfile): void {
+    // Low keeps the lean chakri; the richer levels afford the anar's extras.
+    this.spinner = profile.level === 'low' ? SPINNER_LOW : this.fullSpinner;
     this.engine.applyBudget({
       maxParticles: profile.maxParticles,
       maxActiveEffects: profile.maxActiveEffects,
@@ -234,7 +242,8 @@ export class FireworksEffects implements EffectsModule {
     // A ladi's fire starts where its fuse meets the string.
     const start = ladi ? ladiPoint(position, ladi.heading, 0, 0, { x: 0, y: 0, z: 0 }) : position;
     const y = start.y + ACTIVE_HEIGHT[type];
-    const handle = this.engine.startStream(ACTIVE_PRESETS[type], start.x, y, start.z, colours);
+    const preset = type === 'chakri' ? this.spinner : ACTIVE_PRESETS[type];
+    const handle = this.engine.startStream(preset, start.x, y, start.z, colours);
     if (handle === NO_EFFECT) return;
     this.track(id, type, handle);
     if (type === 'chakri') this.spinners.add(id);

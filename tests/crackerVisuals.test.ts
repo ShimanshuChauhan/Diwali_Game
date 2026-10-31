@@ -16,6 +16,8 @@ import {
   PATTERN_SHAPES,
   SKY_BURST,
   SPINNER,
+  SPINNER_LOW,
+  spinRampFactor,
 } from '../src/effects/presets';
 
 const step = 1 / 60;
@@ -240,19 +242,113 @@ describe('anar fountain', () => {
 });
 
 describe('chakri wheel', () => {
-  it('throws its sparks from the rim of the wheel, not its centre', () => {
+  it.each([
+    ['full', SPINNER],
+    ['lean', SPINNER_LOW],
+  ] as const)('throws its %s sparks from the rim of the wheel, not its centre', (_name, preset) => {
     const engine = new FireworksEngine({ particleCapacity: 4000, emitterCapacity: 2, flashCapacity: 4, random: seeded(3) });
-    engine.startStream({ ...SPINNER, wander: undefined }, 0, 0, 0);
-    engine.update(1 / 240);
-    const rim = SPINNER.rim!;
+    engine.startStream({ ...preset, wander: undefined }, 0, 0, 0);
+    engine.update(1 / 120);
+    const rim = preset.rim!;
     const p = engine.particles.positions;
     expect(engine.particles.count).toBeGreaterThan(3);
     for (let i = 0; i < engine.particles.count; i++) {
       const r = Math.hypot(p[i * 3]!, p[i * 3 + 2]!);
       expect(r).toBeGreaterThan(rim.radius - 0.02);
-      expect(r).toBeLessThan(rim.radius + 0.06);
+      expect(r).toBeLessThan(rim.radius + 0.08);
       expect(p[i * 3 + 1]).toBeCloseTo(rim.height, 1);
     }
+  });
+
+  /** Live sparks, white-hot sparks at the rim, and sparks well out in the shower, after `seconds`. */
+  function chakriAt(level: 'low' | 'medium' | 'high', seconds: number) {
+    const { bus, effects } = effectsFor(QUALITY_PROFILES[level]);
+    bus.emit('crackerActive', { id: 'c', type: 'chakri', position: { x: 0, y: 0, z: 0 } });
+    run(effects, seconds);
+    const at = effects.engine.emitterPosition(effects.handleFor('c'))!;
+    const { positions: p, colours: c } = effects.engine.particles;
+    let hotAtRim = 0;
+    let far = 0;
+    for (let i = 0; i < effects.engine.particles.count; i++) {
+      const r = Math.hypot(p[i * 3]! - at.x, p[i * 3 + 2]! - at.z);
+      if (r < SPINNER.rim!.radius + 0.1 && c[i * 4]! > 1.2 && c[i * 4 + 2]! > 0.5) hotAtRim++;
+      if (r > 1) far++;
+    }
+    return { effects, live: effects.engine.particles.count, hotAtRim, far };
+  }
+
+  it('dresses the chakri like the anar on Medium and High: a dense, streaking shower and a white-hot ring', () => {
+    const low = chakriAt('low', 3);
+    const medium = chakriAt('medium', 3);
+    const high = chakriAt('high', 3);
+    // Tails and longer-lived sparks: several times Low's spark count, scaled up again on High.
+    expect(medium.live).toBeGreaterThan(low.live * 4);
+    expect(high.live).toBeGreaterThan(medium.live * 1.3);
+    // Sparks fly well out from the wheel in its spiral arms.
+    expect(medium.far).toBeGreaterThan(100);
+    expect(medium.far).toBeGreaterThan(low.far * 5);
+    // Jet heads bright enough to bloom, which Low's lean wheel never has.
+    expect(medium.hotAtRim).toBeGreaterThan(5);
+    expect(low.hotAtRim).toBe(0);
+    // A stronger light on the ground round it.
+    expect(SPINNER.light!.peak).toBeGreaterThan(SPINNER_LOW.light!.peak * 2);
+    expect(SPINNER.light!.range).toBeGreaterThan(SPINNER_LOW.light!.range);
+    // Every level stays inside its particle budget.
+    for (const { effects } of [low, medium, high]) {
+      expect(effects.stats.liveParticles).toBeLessThanOrEqual(effects.stats.particleLimit);
+    }
+  });
+
+  it('crackles in the shower round the wheel on Medium, but not on Low', () => {
+    const crackle = SPINNER.crackle!;
+    expect(SPINNER_LOW.crackle).toBeUndefined();
+    const { bus, effects } = effectsFor();
+    bus.emit('crackerActive', { id: 'c', type: 'chakri', position: { x: 0, y: 0, z: 0 } });
+    let pops = 0;
+    for (let i = 0; i < 2 / step; i++) {
+      effects.update(step);
+      const { positions: p, colours: c } = effects.engine.particles;
+      for (let k = 0; k < effects.engine.particles.count; k++) {
+        // Crackle sparks are the near-white ones above the ground plane, away from the rim.
+        const r = Math.hypot(p[k * 3]!, p[k * 3 + 2]!);
+        const white = c[k * 4]! > 1.2 && c[k * 4 + 2]! > 1;
+        if (white && r > 0.4 && p[k * 3 + 1]! > -0.05) pops++;
+      }
+    }
+    expect(pops).toBeGreaterThan(crackle.count);
+  });
+
+  it('spins up after lighting and winds down as it burns out, on Medium and High', () => {
+    const { bus, effects } = effectsFor();
+    bus.emit('crackerActive', { id: 'c', type: 'chakri', position: { x: 0, y: 0, z: 0 } });
+    const spinOver = (seconds: number): number => {
+      const before = effects.spinnerPose('c')!.angle;
+      run(effects, seconds);
+      return (effects.spinnerPose('c')!.angle - before) / seconds;
+    };
+    const catching = spinOver(0.2);
+    run(effects, 1);
+    const full = spinOver(0.5);
+    const sparksAtFull = effects.engine.particles.count;
+    run(effects, activeDuration.chakri - 2.4);
+    const dying = spinOver(0.5);
+    expect(catching).toBeLessThan(full * 0.75);
+    expect(full / SPINNER.spin).toBeCloseTo(1, 1);
+    expect(dying).toBeLessThan(full * 0.6);
+    expect(effects.engine.particles.count).toBeLessThan(sparksAtFull * 0.75);
+    // The ramp holds at full speed in the middle and never stops the wheel dead.
+    const ramp = SPINNER.spinRamp!;
+    expect(spinRampFactor(ramp, 3, activeDuration.chakri)).toBe(1);
+    expect(spinRampFactor(ramp, activeDuration.chakri, activeDuration.chakri)).toBeCloseTo(ramp.end);
+    expect(spinRampFactor(ramp, 100, Infinity)).toBe(1);
+  });
+
+  it('keeps the lean chakri on Low, spinning at full speed from the start', () => {
+    const { bus, effects } = effectsFor(QUALITY_PROFILES.low);
+    bus.emit('crackerActive', { id: 'c', type: 'chakri', position: { x: 0, y: 0, z: 0 } });
+    const first = effects.spinnerPose('c')!;
+    run(effects, 0.2);
+    expect(effects.spinnerPose('c')!.angle - first.angle).toBeCloseTo(SPINNER_LOW.spin * 0.2, 0);
   });
 
   it('keeps a flickering light on while it burns and lets it fade after', () => {
@@ -289,6 +385,7 @@ describe('chakri wheel', () => {
     bus.emit('crackerActive', { id: 'c', type: 'chakri', position: { x: 2, y: 0, z: -1 } });
     bus.emit('crackerActive', { id: 'a', type: 'anar', position: { x: 0, y: 0, z: 0 } });
     expect(effects.spinnerPose('a')).toBeNull();
+    run(effects, 1);
     const first = effects.spinnerPose('c')!;
     run(effects, 0.2);
     const later = effects.spinnerPose('c')!;

@@ -9,6 +9,7 @@ import {
   BURST_LOOKS,
   PATTERN_SHAPES,
   SKY_BURST,
+  spinRampFactor,
   surgeFactor,
   type BurstLook,
   type CoreSpec,
@@ -92,6 +93,8 @@ interface EmitterSlot {
   crackleCarry: number;
   /** Fractional rim glow sparks carried between steps. */
   glowCarry: number;
+  /** Fractional rim jet-head sparks carried between steps. */
+  headCarry: number;
   /** Seconds until the stream's glow light flickers again. */
   lightTimer: number;
   /** First colour as 0xRRGGBB, for lights. */
@@ -209,6 +212,7 @@ export class FireworksEngine {
         carry: 0,
         crackleCarry: 0,
         glowCarry: 0,
+        headCarry: 0,
         lightTimer: 0,
         lightColour: 0xffffff,
         live: 0,
@@ -517,6 +521,7 @@ export class FireworksEngine {
     emitter.carry = 0;
     emitter.crackleCarry = 0;
     emitter.glowCarry = 0;
+    emitter.headCarry = 0;
     emitter.lightTimer = 0;
     emitter.live = 0;
     emitter.pending = 0;
@@ -596,16 +601,19 @@ export class FireworksEngine {
   private emitStream(index: number, emitter: EmitterSlot, dt: number): void {
     const preset = emitter.preset;
     emitter.age += dt;
-    emitter.spinAngle += preset.spin * dt;
+    // A ramped wheel (chakri) spins, throws and glows in step with its pace.
+    const pace = preset.spinRamp ? spinRampFactor(preset.spinRamp, emitter.age, preset.duration) : 1;
+    emitter.spinAngle += preset.spin * pace * dt;
     if (emitter.age >= preset.duration) emitter.emitting = false;
 
-    emitter.carry += preset.rate * this.countScale * dt;
+    emitter.carry += preset.rate * this.countScale * pace * dt;
     const n = Math.floor(emitter.carry);
     emitter.carry -= n;
     const surge = preset.surge ? surgeFactor(preset.surge, emitter.age) : 1;
-    if (preset.light) this.glowLight(emitter, preset.light, dt);
+    if (preset.light) this.glowLight(emitter, preset.light, dt, 0.5 + 0.5 * pace);
     if (preset.rim) {
-      this.emitRim(index, emitter, preset, preset.rim, n, surge, dt);
+      this.emitRim(index, emitter, preset, preset.rim, n, surge, pace, dt);
+      if (preset.crackle) this.crackle(index, emitter, preset, dt);
       return;
     }
     const jets = Math.max(1, preset.jets ?? 1);
@@ -657,8 +665,10 @@ export class FireworksEngine {
   }
 
   /**
-   * Sparks thrown off a spinning wheel's rim along its direction of travel,
-   * plus short-lived glow sparks round the rim that blur into a ring (chakri).
+   * Sparks thrown off a spinning wheel's rim along its direction of travel
+   * (with tails, where the preset has them), short-lived glow sparks round
+   * the rim that blur into a ring, and white-hot heads at the jets (chakri).
+   * `pace` is the wheel's spin as a fraction of full speed.
    */
   private emitRim(
     index: number,
@@ -667,18 +677,22 @@ export class FireworksEngine {
     rim: RimSpec,
     n: number,
     surge: number,
+    pace: number,
     dt: number,
   ): void {
     const spec = this.spec;
     const jets = Math.max(1, preset.jets ?? 1);
     const turn = preset.spin < 0 ? -1 : 1;
+    const spin = preset.spin * pace;
     const cosOut = Math.cos(rim.outward);
     const sinOut = Math.sin(rim.outward);
     const y = emitter.y + rim.height;
+    // A slowing wheel throws its sparks less hard.
+    const thrust = surge * (0.6 + 0.4 * pace);
     for (let k = 0; k < n; k++) {
       // The jets sweep round during the step; spread sparks back along the arc.
       const back = this.random() * dt;
-      const angle = emitter.spinAngle - preset.spin * back + ((k % jets) * Math.PI * 2) / jets;
+      const angle = emitter.spinAngle - spin * back + ((k % jets) * Math.PI * 2) / jets;
       const c = Math.cos(angle);
       const s = Math.sin(angle);
       // Tangent in the direction of travel, turned out from the wheel.
@@ -686,22 +700,26 @@ export class FireworksEngine {
       const dx = -s * turn * cosOut + c * sinOut + (this.random() - 0.5) * 2 * jitter;
       const dy = rim.lift + (this.random() - 0.5) * jitter;
       const dz = c * turn * cosOut + s * sinOut + (this.random() - 0.5) * 2 * jitter;
-      const speed = (lerp(preset.speed.min, preset.speed.max, this.random()) * surge) / (Math.hypot(dx, dy, dz) || 1);
+      const speed = (lerp(preset.speed.min, preset.speed.max, this.random()) * thrust) / (Math.hypot(dx, dy, dz) || 1);
       this.fillSpec(index, emitter, preset, dx * speed, dy * speed, dz * speed, 0, 1);
       spec.x = emitter.x + c * rim.radius;
       spec.y = y;
       spec.z = emitter.z + s * rim.radius;
-      this.spawn(emitter);
+      this.spawnStar(emitter, preset, null);
     }
 
     const glow = rim.glow;
-    emitter.glowCarry += glow.rate * this.countScale * dt;
+    emitter.glowCarry += glow.rate * this.countScale * pace * dt;
     const g = Math.floor(emitter.glowCarry);
     emitter.glowCarry -= g;
     const hot = this.scratch;
     writeLinear(glow.colour, hot, 0);
+    const bright = glow.brightness ?? 1;
+    hot[0] = hot[0]! * bright;
+    hot[1] = hot[1]! * bright;
+    hot[2] = hot[2]! * bright;
     // Glow sparks drift along the rim at a fraction of its speed, so they streak a little.
-    const rimSpeed = rim.radius * preset.spin * 0.35;
+    const rimSpeed = rim.radius * spin * 0.35;
     for (let k = 0; k < g; k++) {
       const angle = this.random() * Math.PI * 2;
       const c = Math.cos(angle);
@@ -723,15 +741,50 @@ export class FireworksEngine {
       spec.drag = 4;
       this.spawn(emitter);
     }
+
+    const head = rim.head;
+    if (!head) return;
+    emitter.headCarry += head.rate * this.countScale * pace * dt;
+    const h = Math.floor(emitter.headCarry);
+    emitter.headCarry -= h;
+    writeLinear(head.colour, hot, 0);
+    for (let k = 0; k < h; k++) {
+      const back = this.random() * dt;
+      const angle = emitter.spinAngle - spin * back + ((k % jets) * Math.PI * 2) / jets;
+      const c = Math.cos(angle);
+      const s = Math.sin(angle);
+      // Spat gently out along the jet, so each head lingers as a short arc of the spin.
+      const spit = rimSpeed * 0.5;
+      this.fillSpec(index, emitter, preset, -s * turn * spit, 0, c * turn * spit, 0, 1);
+      spec.x = emitter.x + c * rim.radius;
+      spec.y = y;
+      spec.z = emitter.z + s * rim.radius;
+      spec.life = lerp(head.life.min, head.life.max, this.random());
+      spec.r0 = hot[0]! * head.brightness;
+      spec.g0 = hot[1]! * head.brightness;
+      spec.b0 = hot[2]! * head.brightness;
+      spec.r1 = spec.r0 * 0.5;
+      spec.g1 = spec.g0 * 0.3;
+      spec.b1 = spec.b0 * 0.1;
+      spec.size0 = head.size;
+      spec.size1 = head.size * 0.4;
+      spec.gravity = 0;
+      spec.drag = 6;
+      spec.flicker = 0.3;
+      this.spawn(emitter);
+    }
   }
 
-  /** Re-light a short flash every `interval` so the light flickers while the stream burns. */
-  private glowLight(emitter: EmitterSlot, light: GlowLightSpec, dt: number): void {
+  /**
+   * Re-light a short flash every `interval` so the light flickers while the
+   * stream burns; `strength` scales it (a chakri dims as it winds down).
+   */
+  private glowLight(emitter: EmitterSlot, light: GlowLightSpec, dt: number, strength: number): void {
     emitter.lightTimer -= dt;
     if (emitter.lightTimer > 0) return;
     emitter.lightTimer += light.interval;
     if (emitter.lightTimer < 0) emitter.lightTimer = light.interval;
-    const peak = light.peak * (0.65 + 0.35 * this.random());
+    const peak = light.peak * strength * (0.65 + 0.35 * this.random());
     this.flashes.trigger(
       emitter.x,
       emitter.y + light.height,
@@ -759,10 +812,12 @@ export class FireworksEngine {
       randomUnit(this.random, dir, 0);
       const reach = crackle.radius * this.random();
       const cx = emitter.x + dir[0]! * reach;
-      const cy = emitter.y + lift + dir[1]! * reach;
+      // Flat pops sit on the ground; their sparks spit upwards, not into it.
+      const cy = emitter.y + lift + (crackle.flat ? 0 : dir[1]! * reach);
       const cz = emitter.z + dir[2]! * reach;
       for (let k = 0; k < sparks; k++) {
-        randomUnit(this.random, dir, 0);
+        if (crackle.flat) upward(this.random, dir, Math.PI / 2);
+        else randomUnit(this.random, dir, 0);
         const speed = lerp(crackle.speed.min, crackle.speed.max, this.random());
         this.fillSpec(index, emitter, preset, dir[0]! * speed, dir[1]! * speed, dir[2]! * speed, 0, 1);
         spec.x = cx;
