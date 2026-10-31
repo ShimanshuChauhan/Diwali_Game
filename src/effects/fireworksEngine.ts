@@ -17,6 +17,7 @@ import {
   type GlowLightSpec,
   type LadiPopPart,
   type LadiPopSpec,
+  type LadiSparkPart,
   type NozzleSpec,
   type PatternShape,
   type RimSpec,
@@ -388,19 +389,22 @@ export class FireworksEngine {
    * stream `handle`, whose hot point hops there: a tiny flash, sparks, red
    * paper and smoke. A loud one bangs bigger and, only when a light is idle,
    * briefly lights the ground, so pops never take a light from another
-   * firework. Returns false for a stale handle.
+   * firework. A banger thrown off the string goes off with `hop` false, so
+   * the hot point stays on the string. Returns false for a stale handle.
    */
-  pop(handle: EffectHandle, x: number, y: number, z: number, pop: LadiPopSpec, loud: boolean): boolean {
+  pop(handle: EffectHandle, x: number, y: number, z: number, pop: LadiPopSpec, loud: boolean, hop = true): boolean {
     const emitter = this.resolve(handle);
     if (!emitter) return false;
     const index = handle % HANDLE_STRIDE;
+    const hotX = emitter.x;
+    const hotY = emitter.y;
+    const hotZ = emitter.z;
     emitter.x = x;
     emitter.y = y;
     emitter.z = z;
     const scale = loud ? pop.loudScale : 1;
     const spec = this.spec;
     const preset = emitter.preset;
-    const dir = this.scratch;
 
     // The bang: a brief white-hot sprite.
     const core = pop.core;
@@ -418,27 +422,7 @@ export class FireworksEngine {
     spec.flicker = 0;
     this.spawn(emitter);
 
-    const sparks = pop.sparks;
-    writeLinear(sparks.colour, this.axisU, 0);
-    const sparkCount = Math.max(2, Math.round(sparks.count * this.countScale * scale));
-    for (let k = 0; k < sparkCount; k++) {
-      upward(this.random, dir, sparks.spread);
-      const speed = lerp(sparks.speed.min, sparks.speed.max, this.random());
-      this.fillSpec(index, emitter, preset, dir[0]! * speed, dir[1]! * speed, dir[2]! * speed, 0, 1);
-      spec.life = lerp(sparks.life.min, sparks.life.max, this.random());
-      spec.r0 = this.axisU[0]! * sparks.brightness;
-      spec.g0 = this.axisU[1]! * sparks.brightness;
-      spec.b0 = this.axisU[2]! * sparks.brightness;
-      spec.r1 = spec.r0 * sparks.fade;
-      spec.g1 = spec.g0 * sparks.fade;
-      spec.b1 = spec.b0 * sparks.fade;
-      spec.size0 = sparks.size0;
-      spec.size1 = sparks.size1;
-      spec.gravity = sparks.gravity;
-      spec.drag = sparks.drag;
-      spec.flicker = 0.5;
-      this.spawn(emitter);
-    }
+    this.spray(index, emitter, pop.sparks, Math.max(2, Math.round(pop.sparks.count * this.countScale * scale)));
 
     this.scatterMatte(x, y, z, pop.paper, 1, 0.9);
     this.scatterMatte(x, y, z, pop.smoke, pop.smoke.opacity, 0.4);
@@ -447,8 +431,60 @@ export class FireworksEngine {
       const flash = pop.flash;
       this.flashes.trigger(x, y + 0.35, z, core.colour, flash.peak, flash.range, flash.duration);
     }
+    if (!hop) {
+      emitter.x = hotX;
+      emitter.y = hotY;
+      emitter.z = hotZ;
+    }
     this.refreshStats();
     return true;
+  }
+
+  /**
+   * `count` sparks of `part` from (x, y, z), owned by the stream `handle`
+   * (whose source stays put): a ladi banger's fuse spitting as it flies.
+   * Returns false for a stale handle.
+   */
+  spit(handle: EffectHandle, x: number, y: number, z: number, part: LadiSparkPart, count: number): boolean {
+    const emitter = this.resolve(handle);
+    if (!emitter) return false;
+    const hotX = emitter.x;
+    const hotY = emitter.y;
+    const hotZ = emitter.z;
+    emitter.x = x;
+    emitter.y = y;
+    emitter.z = z;
+    this.spray(handle % HANDLE_STRIDE, emitter, part, count);
+    emitter.x = hotX;
+    emitter.y = hotY;
+    emitter.z = hotZ;
+    return true;
+  }
+
+  /** `count` sparks of `part` from the emitter's source, up and out within the part's spread. */
+  private spray(index: number, emitter: EmitterSlot, part: LadiSparkPart, count: number): void {
+    const spec = this.spec;
+    const dir = this.scratch;
+    const tint = this.axisU;
+    writeLinear(part.colour, tint, 0);
+    for (let k = 0; k < count; k++) {
+      upward(this.random, dir, part.spread);
+      const speed = lerp(part.speed.min, part.speed.max, this.random());
+      this.fillSpec(index, emitter, emitter.preset, dir[0]! * speed, dir[1]! * speed, dir[2]! * speed, 0, 1);
+      spec.life = lerp(part.life.min, part.life.max, this.random());
+      spec.r0 = tint[0]! * part.brightness;
+      spec.g0 = tint[1]! * part.brightness;
+      spec.b0 = tint[2]! * part.brightness;
+      spec.r1 = spec.r0 * part.fade;
+      spec.g1 = spec.g0 * part.fade;
+      spec.b1 = spec.b0 * part.fade;
+      spec.size0 = part.size0;
+      spec.size1 = part.size1;
+      spec.gravity = part.gravity;
+      spec.drag = part.drag;
+      spec.flicker = 0.5;
+      this.spawn(emitter);
+    }
   }
 
   /** Light a short flash without particles. Returns false if none was free. */
