@@ -4,6 +4,7 @@ import { LADI_STRING, ladiBanger, ladiPoint } from '../core/ladi';
 import type { MutableVec3 } from '../core/rocketFlight';
 import type { CrackerId, CrackerType } from '../core/types';
 import type { SpinnerPose } from '../effects/fireworksEffects';
+import type { LadiStrayPose } from '../effects/ladiStrays';
 
 /** Ground crackers drawn as one model each; the ladi is a string of many. */
 type ModelType = Exclude<CrackerType, 'phuljhari' | 'ladi'>;
@@ -214,6 +215,8 @@ export class CrackerProps {
   private readonly rotation = new THREE.Quaternion();
   private readonly scale = new THREE.Vector3(1, 1, 1);
   private readonly up = new THREE.Vector3(0, 1, 0);
+  private readonly euler = new THREE.Euler(0, 0, 0, 'YZX');
+  private readonly offset = new THREE.Vector3();
 
   constructor(capacity: number) {
     this.object.name = 'crackerProps';
@@ -244,16 +247,21 @@ export class CrackerProps {
   /**
    * Show every ground cracker in `crackers` that still sits on the ground.
    * `spinnerPose` places a burning chakri where its sparks are and turns it
-   * with them.
+   * with them; `ladiStray` flies a ladi's bangers that were blown off the
+   * string.
    */
-  sync(crackers: readonly CrackerSnapshot[], spinnerPose?: (id: CrackerId) => SpinnerPose | null): void {
+  sync(
+    crackers: readonly CrackerSnapshot[],
+    spinnerPose?: (id: CrackerId) => SpinnerPose | null,
+    ladiStray?: (id: CrackerId, banger: number) => LadiStrayPose | null,
+  ): void {
     const { anar, chakri, rocket } = this.meshes;
     anar.count = chakri.count = rocket.count = this.ladiCords.count = this.ladiBangers.count = 0;
     for (let i = 0; i < crackers.length; i++) {
       const cracker = crackers[i]!;
       if (cracker.type === 'phuljhari' || !onGround(cracker)) continue;
       if (cracker.type === 'ladi') {
-        this.addLadi(cracker);
+        this.addLadi(cracker, ladiStray);
         continue;
       }
       const mesh = this.meshes[cracker.type];
@@ -269,8 +277,12 @@ export class CrackerProps {
     this.ladiCords.instanceMatrix.needsUpdate = this.ladiBangers.instanceMatrix.needsUpdate = true;
   }
 
-  /** A ladi's cord and fuse, and each banger still to pop; the next few twitch while it burns. */
-  private addLadi(cracker: CrackerSnapshot): void {
+  /**
+   * A ladi's cord and fuse, and each banger still to pop; the next few
+   * twitch while it burns, and any blown off the string fly and tumble
+   * where `ladiStray` says.
+   */
+  private addLadi(cracker: CrackerSnapshot, ladiStray?: (id: CrackerId, banger: number) => LadiStrayPose | null): void {
     const cords = this.ladiCords;
     const bangers = this.ladiBangers;
     if (cords.count >= cords.instanceMatrix.count) return;
@@ -284,6 +296,11 @@ export class CrackerProps {
     const jumping = cracker.state === 'active' ? popped + LADI_JUMPING : 0;
     for (let b = popped; b < LADI_STRING.bangers; b++) {
       if (bangers.count >= bangers.instanceMatrix.count) return;
+      const stray = cracker.state === 'active' ? (ladiStray?.(cracker.id, b) ?? null) : null;
+      if (stray) {
+        this.addStray(stray);
+        continue;
+      }
       const banger = ladiBanger(b);
       const at = ladiPoint(p, heading, banger.along, 0, this.point);
       let turn = heading + banger.turn;
@@ -296,6 +313,16 @@ export class CrackerProps {
       this.rotation.setFromAxisAngle(this.up, turn);
       bangers.setMatrixAt(bangers.count++, this.matrix.compose(this.position, this.rotation, this.scale));
     }
+  }
+
+  /** A banger off the string: its model's middle at the pose, turned and tumbling with it. */
+  private addStray(pose: LadiStrayPose): void {
+    const { bangerLength, bangerRadius } = LADI_STRING;
+    this.rotation.setFromEuler(this.euler.set(0, pose.yaw, pose.tumble, 'YZX'));
+    // The model runs from the cord at its origin; put its middle on the pose.
+    this.offset.set(bangerLength / 2, bangerRadius, 0).applyQuaternion(this.rotation);
+    this.position.set(pose.x - this.offset.x, pose.y - this.offset.y, pose.z - this.offset.z);
+    this.ladiBangers.setMatrixAt(this.ladiBangers.count++, this.matrix.compose(this.position, this.rotation, this.scale));
   }
 
   dispose(): void {

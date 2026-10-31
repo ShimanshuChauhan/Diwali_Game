@@ -14,13 +14,19 @@ import {
   FOUNTAIN,
   FUSE,
   LADI_BURN,
-  LADI_POP,
+  LADI_FIZZLE,
+  LADI_POPS,
+  LADI_SCATTER,
+  LADI_STRAY_POP,
   ROCKET_TRAIL,
   SPARKLER,
   SPINNER,
   SPINNER_LOW,
   type EmitterPreset,
+  type LadiPopSpec,
+  type LadiScatter,
 } from './presets';
+import { LadiStrays, type LadiStrayPose } from './ladiStrays';
 
 /**
  * Effects module: turns cracker events into pooled particles, trails and
@@ -73,6 +79,9 @@ export function countScaleFor(profile: QualityProfile): number {
   return Math.min(1.5, Math.max(0.5, scale));
 }
 
+/** Bangers that may be off the string at once, across every ladi. */
+const STRAY_CAPACITY = 48;
+
 function maxOver(key: 'maxParticles' | 'maxActiveEffects' | 'maxDynamicLights'): number {
   return Math.max(...QUALITY_LEVELS.map((level) => QUALITY_PROFILES[level][key]));
 }
@@ -99,6 +108,12 @@ export class FireworksEffects implements EffectsModule {
   private readonly flights = new Map<CrackerId, { flight: RocketFlight; origin: Vec3; time: number }>();
   /** Ladi fuses burning in from their tip to the string: from, to, seconds burnt. */
   private readonly ladiFuses = new Map<CrackerId, { from: Vec3; to: Vec3; time: number }>();
+  /** Bangers blown off burning ladis, on levels that scatter them. */
+  private readonly strays: LadiStrays;
+  private scatter: LadiScatter = LADI_SCATTER.low;
+  private ladiPop: LadiPopSpec = LADI_POPS.low;
+  private sparkScale = 1;
+  private readonly strayAt: MutableVec3 = { x: 0, y: 0, z: 0 };
   private readonly flightNow: MutableVec3 = { x: 0, y: 0, z: 0 };
   private readonly flightNext: MutableVec3 = { x: 0, y: 0, z: 0 };
   private readonly unsubscribes: Unsubscribe[] = [];
@@ -115,6 +130,7 @@ export class FireworksEffects implements EffectsModule {
       flashCapacity: maxOver('maxDynamicLights'),
       random: options.random,
     });
+    this.strays = new LadiStrays(STRAY_CAPACITY, this.random);
     this.applyQuality(options.quality ?? qualityProfile(DEFAULT_QUALITY));
     if (bus) this.subscribe(bus);
   }
@@ -126,6 +142,10 @@ export class FireworksEffects implements EffectsModule {
   applyQuality(profile: QualityProfile): void {
     // Low keeps the lean chakri; the richer levels afford the anar's extras.
     this.spinner = profile.level === 'low' ? SPINNER_LOW : this.fullSpinner;
+    // Ladis already burning keep the scatter they were lit with.
+    this.scatter = LADI_SCATTER[profile.level];
+    this.ladiPop = LADI_POPS[profile.level];
+    this.sparkScale = countScaleFor(profile);
     this.engine.applyBudget({
       maxParticles: profile.maxParticles,
       maxActiveEffects: profile.maxActiveEffects,
@@ -150,6 +170,7 @@ export class FireworksEffects implements EffectsModule {
     }
     this.steerRockets(dt);
     this.burnLadiFuses(dt);
+    this.strays.update(dt, this.engine, this.scatter.spit * this.sparkScale);
     this.engine.update(dt);
   }
 
@@ -192,6 +213,7 @@ export class FireworksEffects implements EffectsModule {
     this.spinners.clear();
     this.flights.clear();
     this.ladiFuses.clear();
+    this.strays.clear();
     this.engine.reset();
   }
 
@@ -213,6 +235,20 @@ export class FireworksEffects implements EffectsModule {
     const angle = this.engine.emitterSpin(handle);
     if (!position || angle === null) return null;
     return { x: position.x, y: position.y, z: position.z, angle };
+  }
+
+  /**
+   * Where banger `banger` of ladi `id` is while it is blown off the string,
+   * so its model can fly and tumble with it; null while it is still on the
+   * string, once it has gone off, or for other crackers. The pose is reused.
+   */
+  ladiStray(id: CrackerId, banger: number): LadiStrayPose | null {
+    return this.strays.poseOf(id, banger);
+  }
+
+  /** Bangers off the string right now, across every ladi. */
+  get strayCount(): number {
+    return this.strays.flying;
   }
 
   /** Stop listening to the bus. */
@@ -247,6 +283,7 @@ export class FireworksEffects implements EffectsModule {
     if (handle === NO_EFFECT) return;
     this.track(id, type, handle);
     if (type === 'chakri') this.spinners.add(id);
+    if (ladi) this.strays.plan(id, ladi.chain, position, ladi.heading, handle, this.scatter);
     if (type === 'rocket') {
       const { rocketApexHeight, activeDuration } = this.tuning.crackers;
       // Without a rolled flight (e.g. the effects demo), climb straight up at the nominal pace.
@@ -255,11 +292,20 @@ export class FireworksEffects implements EffectsModule {
     }
   }
 
-  /** A banger going off on a burning ladi; nothing if its effect was refused. */
-  onLadiPop({ id, position, loud }: GameEvents['ladiPop']): void {
+  /**
+   * A banger going off on a burning ladi; nothing if its effect was refused.
+   * One blown off the string goes off where it got to (or fizzles there),
+   * and the bang may throw a few of the bangers just ahead.
+   */
+  onLadiPop({ id, index, banger, position, loud }: GameEvents['ladiPop']): void {
     const handle = this.byCracker.get(id);
     if (handle === undefined) return;
-    this.engine.pop(handle, position.x, position.y, position.z, LADI_POP, loud);
+    const at = this.strayAt;
+    const landing = this.strays.land(id, banger, at);
+    if (landing === 'none') this.engine.pop(handle, position.x, position.y, position.z, this.ladiPop, loud);
+    else if (landing === 'blast') this.engine.pop(handle, at.x, at.y, at.z, LADI_STRAY_POP, loud, false);
+    else this.engine.pop(handle, at.x, at.y, at.z, LADI_FIZZLE, false, false);
+    this.strays.kick(id, index);
   }
 
   onBurst({ id, position, pattern, colours }: GameEvents['burst']): void {
@@ -280,6 +326,7 @@ export class FireworksEffects implements EffectsModule {
     this.spinners.delete(id);
     this.flights.delete(id);
     this.ladiFuses.delete(id);
+    this.strays.drop(id);
   }
 
   private track(id: CrackerId, type: CrackerType, handle: EffectHandle): void {

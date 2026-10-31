@@ -534,12 +534,15 @@ export interface LadiPopPart {
   readonly fade: number;
 }
 
+/** Glowing sparks thrown up and out within `spread` radians of straight up. */
+export type LadiSparkPart = LadiPopPart & { readonly spread: number; readonly brightness: number };
+
 /** One banger going off: a tiny white flash, a spit of sparks, red paper shreds and a puff of smoke. */
 export interface LadiPopSpec {
   /** The bang: one brief, hot sprite. */
   readonly core: CoreSpec;
   /** Sparks thrown up and out in a wide cone. */
-  readonly sparks: LadiPopPart & { readonly spread: number; readonly brightness: number };
+  readonly sparks: LadiSparkPart;
   /** Shreds of the banger's red paper, tossed up to flutter down (drawn opaque, not glowing). */
   readonly paper: LadiPopPart;
   /** A soft grey puff that swells and rises (drawn see-through). */
@@ -590,6 +593,131 @@ export const LADI_POP: LadiPopSpec = {
   },
   loudScale: 1.6,
   flash: { peak: 2.5, range: 4, duration: 0.08 },
+};
+
+/**
+ * The same bang on Medium and High: a hotter flash, a fuller spray of
+ * sparks, a real shower of red paper and smoke that lingers and builds into
+ * a haze over the string as it burns.
+ */
+export const LADI_RICH_POP: LadiPopSpec = {
+  core: { size: 0.2, life: 0.05, colour: 0xfff4dc, brightness: 2.8 },
+  sparks: { ...LADI_POP.sparks, count: 16, speed: { min: 1.4, max: 4.2 }, life: { min: 0.06, max: 0.2 }, spread: 1.3 },
+  paper: { ...LADI_POP.paper, count: 8, speed: { min: 0.8, max: 2.8 }, life: { min: 0.8, max: 1.6 } },
+  smoke: { ...LADI_POP.smoke, count: 3, life: { min: 1.6, max: 3 }, size1: 0.55, opacity: 0.2 },
+  loudScale: LADI_POP.loudScale,
+  flash: LADI_POP.flash,
+};
+
+/** Each level's bang for bangers on the string; Low keeps the lean one. */
+export const LADI_POPS: Readonly<Record<QualityLevel, LadiPopSpec>> = {
+  low: LADI_POP,
+  medium: LADI_RICH_POP,
+  high: LADI_RICH_POP,
+};
+
+/**
+ * A banger that was blown off the string and goes off where it landed: on
+ * its own, on bare ground, so it bangs a little bigger than the ones still
+ * on the cord, its sparks skim out low over the ground and it leaves more
+ * paper and a fuller puff of smoke.
+ */
+export const LADI_STRAY_POP: LadiPopSpec = {
+  core: { size: 0.22, life: 0.05, colour: 0xfff4dc, brightness: 2.9 },
+  sparks: {
+    count: 18,
+    speed: { min: 1.4, max: 4.2 },
+    life: { min: 0.06, max: 0.2 },
+    size0: 0.022,
+    size1: 0.006,
+    gravity: 0.8,
+    drag: 3.5,
+    colour: 0xffd27a,
+    fade: 0.3,
+    spread: 1.45,
+    brightness: 1.9,
+  },
+  paper: { ...LADI_RICH_POP.paper, count: 9, speed: { min: 0.9, max: 3 } },
+  smoke: { ...LADI_RICH_POP.smoke, count: 4, size1: 0.6, opacity: 0.24 },
+  loudScale: 1.5,
+  flash: { peak: 3, range: 4.5, duration: 0.09 },
+};
+
+/**
+ * A stray that fizzles instead of banging: its powder burns off in a dull
+ * orange sputter and a thick puff of smoke, and the paper only splits.
+ */
+export const LADI_FIZZLE: LadiPopSpec = {
+  core: { size: 0.07, life: 0.09, colour: 0xffa04a, brightness: 1.2 },
+  sparks: {
+    count: 7,
+    speed: { min: 0.4, max: 1.4 },
+    life: { min: 0.12, max: 0.3 },
+    size0: 0.018,
+    size1: 0.006,
+    gravity: 0.5,
+    drag: 2.5,
+    colour: 0xff9a3c,
+    fade: 0.25,
+    spread: 0.9,
+    brightness: 1.3,
+  },
+  paper: { ...LADI_POP.paper, count: 1, speed: { min: 0.3, max: 0.8 } },
+  smoke: { ...LADI_POP.smoke, count: 3, speed: { min: 0.1, max: 0.3 }, size1: 0.36, opacity: 0.3 },
+  loudScale: 1,
+  flash: LADI_POP.flash,
+};
+
+/** The burning fuse of a banger in flight: a thin spit of tiny sparks it trails. */
+export const LADI_SPIT: LadiSparkPart = {
+  count: 1,
+  speed: { min: 0.2, max: 0.9 },
+  life: { min: 0.04, max: 0.12 },
+  size0: 0.014,
+  size1: 0.004,
+  gravity: 0.3,
+  drag: 3,
+  colour: 0xffc45e,
+  fade: 0.3,
+  spread: 1.4,
+  brightness: 2,
+};
+
+/**
+ * How a ladi scatters, per quality level. As the string burns, a share of
+ * its bangers are blown loose by an earlier bang and thrown off; each flies,
+ * bounces and skitters on the ground, its fuse spitting, and goes off where
+ * it ends up at its own time in the chain (or fizzles). Low keeps every
+ * banger on the string.
+ */
+export interface LadiScatter {
+  /** Chance each banger is blown off the string, 0 = never. */
+  readonly share: number;
+  /** Seconds from being thrown to going off. */
+  readonly flight: Range;
+  /** Launch speed out across the ground and straight up, m/s. */
+  readonly out: Range;
+  readonly up: Range;
+  /** Chance a thrown banger fizzles instead of banging. */
+  readonly fizzle: number;
+  /** Fuse sparks a banger in flight spits, per second at a count scale of 1. */
+  readonly spit: number;
+}
+
+const MEDIUM_SCATTER: LadiScatter = {
+  share: 0.16,
+  flight: { min: 0.25, max: 0.9 },
+  out: { min: 0.4, max: 1.4 },
+  up: { min: 1.2, max: 3 },
+  fizzle: 0.12,
+  spit: 40,
+};
+
+export const LADI_SCATTER: Readonly<Record<QualityLevel, LadiScatter>> = {
+  low: { ...MEDIUM_SCATTER, share: 0, fizzle: 0, spit: 0 },
+  medium: MEDIUM_SCATTER,
+  // More of the string breaks loose, and it throws them a little further.
+  high: { ...MEDIUM_SCATTER, share: 0.25, flight: { min: 0.25, max: 1.1 }, out: { min: 0.4, max: 1.7 }, up: { min: 1.2, max: 3.4 }, spit: 60 },
 };
 
 /** Shared base for overhead rocket bursts; patterns adjust it. */

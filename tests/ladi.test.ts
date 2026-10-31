@@ -16,7 +16,7 @@ import { applyCrackerAction, CRACKER_DEFINITIONS, Crackers, headingOf, rollLadiC
 import { CrackerProps } from '../src/crackers/props';
 import { FireworksEffects } from '../src/effects/fireworksEffects';
 import { FireworksEngine } from '../src/effects/fireworksEngine';
-import { LADI_BURN, LADI_POP } from '../src/effects/presets';
+import { LADI_BURN, LADI_FIZZLE, LADI_POP, LADI_SCATTER, LADI_STRAY_POP, type LadiPopSpec } from '../src/effects/presets';
 import { PlacementRules } from '../src/interaction';
 import { bindingFor } from '../src/session/bindings';
 import { Session } from '../src/session/session';
@@ -436,6 +436,7 @@ describe('ladi effects', () => {
     expect(lights).toBeGreaterThan(0);
     step(4);
     expect(effects.stats).toMatchObject({ activeEffects: 0, liveParticles: 0, dynamicLights: 0 });
+    expect(effects.strayCount).toBe(0);
   });
 
   it('never takes a light from another firework, and gives most pops none', () => {
@@ -476,6 +477,163 @@ describe('ladi effects', () => {
     step(fuse.ladi + activeDuration.ladi * 1.2, () => expect(effects.stats.liveParticles).toBe(0));
     expect(pops).toBe(LADI_STRING.bangers);
     expect(crackers.get(id)).toBeUndefined();
+  });
+});
+
+describe('ladi strays', () => {
+  interface Bang {
+    readonly x: number;
+    readonly y: number;
+    readonly z: number;
+    readonly spec: LadiPopSpec;
+    readonly loud: boolean;
+    readonly hop: boolean;
+  }
+
+  /** Burn one ladi at `level` from lighting to done, logging every bang the engine is asked for. */
+  function scatter(level: 'low' | 'medium' | 'high', seed = 6, onStep: (effects: FireworksEffects, id: string) => void = () => {}) {
+    const bus = createGameEventBus();
+    const crackers = new Crackers({ bus, random: seeded(seed) });
+    const effects = new FireworksEffects(bus, { quality: QUALITY_PROFILES[level], random: seeded(seed + 1) });
+    const bangs: Bang[] = [];
+    const pop = effects.engine.pop.bind(effects.engine);
+    effects.engine.pop = (handle, x, y, z, spec, loud, hop = true) => {
+      bangs.push({ x, y, z, spec, loud, hop });
+      return pop(handle, x, y, z, spec, loud, hop);
+    };
+    const placed = crackers.place({ type: 'ladi', position: v(0, 0, 0) });
+    if (!placed.ok) throw new Error(placed.reason);
+    crackers.ignite(placed.id);
+    let peak = 0;
+    for (let i = 0; i < Math.round((fuse.ladi + activeDuration.ladi * 1.3) / STEP); i++) {
+      crackers.update(STEP);
+      effects.update(STEP);
+      peak = Math.max(peak, effects.strayCount);
+      onStep(effects, placed.id);
+    }
+    return { bangs, peak, effects, id: placed.id };
+  }
+
+  /** Distance across the ground from the string, which runs along Z through the origin. */
+  const offString = (b: Bang) => Math.max(Math.abs(b.x), Math.abs(b.z) - LADI_STRING.length / 2, 0);
+
+  it('keeps every banger on the string on Low', () => {
+    expect(LADI_SCATTER.low.share).toBe(0);
+    const { bangs, peak } = scatter('low');
+    expect(peak).toBe(0);
+    expect(bangs).toHaveLength(LADI_STRING.bangers);
+    expect(bangs.every((b) => b.spec === LADI_POP && b.hop)).toBe(true);
+  });
+
+  it.each(['medium', 'high'] as const)('throws some bangers off on %s, which go off where they land', (level) => {
+    const { bangs, peak } = scatter(level);
+    // Still one bang per banger, in the chain's own rhythm.
+    expect(bangs).toHaveLength(LADI_STRING.bangers);
+    const strays = bangs.filter((b) => !b.hop);
+    expect(peak).toBeGreaterThan(0);
+    expect(strays.length).toBeGreaterThanOrEqual(3);
+    // A share, not most of the string.
+    expect(strays.length).toBeLessThan(LADI_STRING.bangers / 2);
+    for (const b of strays) {
+      expect([LADI_STRAY_POP, LADI_FIZZLE]).toContain(b.spec);
+      // On the ground or just above it, a hand's breadth to a couple of metres off the string.
+      expect(b.y).toBeGreaterThanOrEqual(0);
+      expect(b.y).toBeLessThan(1.2);
+      expect(offString(b)).toBeLessThan(3);
+    }
+    expect(strays.some((b) => offString(b) > 0.15)).toBe(true);
+    // The ones still on the string bang on it.
+    for (const b of bangs.filter((b) => b.hop)) expect(offString(b)).toBeLessThan(0.05);
+  });
+
+  it('throws more of them on High than on Medium', () => {
+    let medium = 0;
+    let high = 0;
+    for (let seed = 1; seed <= 6; seed++) {
+      medium += scatter('medium', seed).bangs.filter((b) => !b.hop).length;
+      high += scatter('high', seed).bangs.filter((b) => !b.hop).length;
+    }
+    expect(high).toBeGreaterThan(medium);
+  });
+
+  it('lets the odd one fizzle: no light, a dull sputter instead of a bang', () => {
+    const fizzles = [1, 2, 3, 4, 5, 6].flatMap((seed) => scatter('high', seed).bangs.filter((b) => b.spec === LADI_FIZZLE));
+    expect(fizzles.length).toBeGreaterThan(0);
+    expect(fizzles.every((b) => !b.loud && !b.hop)).toBe(true);
+    expect(LADI_FIZZLE.core.brightness).toBeLessThan(LADI_POP.core.brightness);
+  });
+
+  it('flies them up, bounces them and skids them on the ground, never under it', () => {
+    let highest = 0;
+    let lowest = Infinity;
+    const travelled = new Map<number, { x: number; z: number }>();
+    const moved: number[] = [];
+    scatter('high', 6, (effects, id) => {
+      for (let b = 0; b < LADI_STRING.bangers; b++) {
+        const pose = effects.ladiStray(id, b);
+        if (!pose) continue;
+        highest = Math.max(highest, pose.y);
+        lowest = Math.min(lowest, pose.y);
+        const from = travelled.get(b);
+        if (!from) travelled.set(b, { x: pose.x, z: pose.z });
+        else moved[b] = Math.hypot(pose.x - from.x, pose.z - from.z);
+      }
+    });
+    expect(travelled.size).toBeGreaterThan(0);
+    // Thrown well clear of the string, a hop or so high, and back to rest on the ground.
+    expect(highest).toBeGreaterThan(0.08);
+    expect(highest).toBeLessThan(1.2);
+    expect(lowest).toBeGreaterThanOrEqual(LADI_STRING.bangerRadius - 1e-6);
+    expect(Math.max(...moved.filter((d) => d !== undefined))).toBeGreaterThan(0.2);
+  });
+
+  it('spits fuse sparks as they fly, all inside the ladi\'s one effect', () => {
+    let effectsPeak = 0;
+    let spat = 0;
+    let wrapped = false;
+    scatter('medium', 6, (effects) => {
+      if (!wrapped) {
+        wrapped = true;
+        const spit = effects.engine.spit.bind(effects.engine);
+        effects.engine.spit = (...args) => {
+          spat += args[5];
+          return spit(...args);
+        };
+      }
+      if (effects.strayCount > 0) effectsPeak = Math.max(effectsPeak, effects.stats.activeEffects);
+    });
+    expect(effectsPeak).toBe(1);
+    expect(spat).toBeGreaterThan(5);
+  });
+
+  it('scatters the same way for the same random source', () => {
+    const a = scatter('high', 9).bangs;
+    const b = scatter('high', 9).bangs;
+    expect(a).toEqual(b);
+  });
+
+  it('keeps the burning point on the string when a stray goes off', () => {
+    const engine = new FireworksEngine({ particleCapacity: 4000, emitterCapacity: 4, flashCapacity: 2, random: seeded(1) });
+    const handle = engine.startStream(LADI_BURN, 0, 0, 0.1);
+    engine.pop(handle, 1, 0.005, -0.5, LADI_STRAY_POP, false, false);
+    expect(engine.emitterPosition(handle)).toMatchObject({ x: 0, y: 0, z: 0.1 });
+    expect(engine.matte.count).toBeGreaterThan(0);
+    engine.pop(handle, 0, 0.005, -0.2, LADI_POP, false);
+    expect(engine.emitterPosition(handle)).toMatchObject({ x: 0, z: -0.2 });
+  });
+
+  it('forgets every stray when the ladi is reclaimed or the session resets', () => {
+    let seen = false;
+    const { effects } = scatter('high', 6, (fx, id) => {
+      if (!seen && fx.strayCount > 0) {
+        seen = true;
+        fx.onCrackerFinished({ id, type: 'ladi', reason: 'reclaimed' });
+        expect(fx.strayCount).toBe(0);
+      }
+    });
+    expect(seen).toBe(true);
+    effects.reset();
+    expect(effects.strayCount).toBe(0);
   });
 });
 
@@ -521,6 +679,31 @@ describe('ladi prop', () => {
     props.sync([]);
     expect(bangers.count).toBe(0);
     expect(mesh(props, 'crackerProps.ladiCord').count).toBe(0);
+  });
+
+  it('flies a banger blown off the string where its pose says, tumbling', () => {
+    const props = new CrackerProps(4);
+    const pose = { x: 3, y: 0.3, z: -2.5, yaw: 0.4, tumble: 1.1 };
+    props.sync([snap('active', 20)], undefined, (_id, banger) => (banger === 30 ? pose : null));
+    const bangers = mesh(props, 'crackerProps.ladiBanger');
+    expect(bangers.count).toBe(LADI_STRING.bangers - 20);
+    const matrix = new THREE.Matrix4();
+    const middle = new THREE.Vector3();
+    let found = 0;
+    for (let i = 0; i < bangers.count; i++) {
+      bangers.getMatrixAt(i, matrix);
+      // The model's middle, from its cord end at the origin.
+      middle.set(LADI_STRING.bangerLength / 2, LADI_STRING.bangerRadius, 0).applyMatrix4(matrix);
+      if (middle.distanceTo(new THREE.Vector3(pose.x, pose.y, pose.z)) < 1e-4) found++;
+    }
+    expect(found).toBe(1);
+    // A placed ladi is never asked: nothing is off its string yet.
+    let asked = 0;
+    props.sync([snap('placed')], undefined, () => {
+      asked++;
+      return pose;
+    });
+    expect(asked).toBe(0);
   });
 });
 
