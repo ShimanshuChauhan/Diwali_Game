@@ -19,7 +19,9 @@ export type SoundKind =
   | 'distantShell'
   | 'distantWhistle'
   | 'distantFountain'
-  | 'distantChakri';
+  | 'distantChakri'
+  | 'baltiBoom'
+  | 'baltiClang';
 
 export interface SoundSpec {
   /** Voice-stealing rank; see `VoicePool`. */
@@ -53,6 +55,9 @@ export const SOUNDS: Readonly<Record<SoundKind, SoundSpec>> = {
   distantWhistle: { priority: 0, gain: 0.2, refDistance: 1 },
   distantFountain: { priority: 0, gain: 0.3, refDistance: 1 },
   distantChakri: { priority: 0, gain: 0.22, refDistance: 1 },
+  // The balti blast: a bomb's boom, muffled by the steel over it, and the clatter as it lands.
+  baltiBoom: { priority: 4, gain: 1.4, refDistance: 8 },
+  baltiClang: { priority: 2, gain: 0.5, refDistance: 3 },
 };
 
 /** Sustained sound a cracker makes while active; a ladi has none, only its pops. */
@@ -98,6 +103,11 @@ export const BURST_DURATION = 3.2;
 export const DISTANT_POP_DURATION = 1.4;
 export const DISTANT_BOMB_DURATION = 2.2;
 export const DISTANT_SHELL_DURATION = 3;
+/** The balti's muffled boom and its ring, and one clang as it hits the ground, seconds. */
+export const BALTI_BOOM_DURATION = 2.4;
+export const BALTI_CLANG_DURATION = 0.9;
+/** Landing this fast (m/s) clangs at full level; slower bounces are quieter. */
+export const BALTI_CLANG_FULL_SPEED = 10;
 /** Echo left ringing after a ladi's last pop, seconds. */
 export const LADI_TAIL = 1.2;
 

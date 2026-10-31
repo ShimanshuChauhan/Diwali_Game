@@ -6,6 +6,7 @@ import { createGameEventBus } from './core/events';
 import { AartiCeremony, applyAartiAction, facePuja, holdStill } from './aarti';
 import { firstPersonThali, heldThali, participantThali, stepThali, Thali, THALI_REST, thaliPalm } from './aarti/thali';
 import { Atmosphere } from './atmosphere';
+import { applyBaltiAction, BALTI_SPOT, BaltiBlast, BaltiEffects, baltiPrompt, BaltiScene } from './balti';
 import { AartiAudio } from './audio/aarti/aartiAudio';
 import { AudioEngine } from './audio/audioEngine';
 import { unlockOnFirstGesture } from './audio/controls';
@@ -170,6 +171,17 @@ async function boot(): Promise<void> {
   const neighbours = new Neighbours({ areas: world.neighbourAreas, bus });
   const neighbourScene = new NeighbourScene({ scene, neighbours });
 
+  // Kids playing the balti blast in the courtyard; the player can join in at the spot.
+  const balti = new BaltiBlast({
+    spot: BALTI_SPOT,
+    bus,
+    playerPosition: () => (locations.location === 'outdoors' ? player.pose.position : null),
+  });
+  const baltiScene = new BaltiScene({ scene, blast: balti });
+  bus.on('baltiBlast', ({ position }) => neighbours.react(position));
+  // Both lists are built once and hold live positions, so ground crackers keep clear of the kids too.
+  const streetPeople = [...neighbours.positions(), ...balti.positions()];
+
   const audio = new AudioEngine({ bus, profile: quality.profile });
   unlockOnFirstGesture(window, audio);
   createPauseMenu({
@@ -259,7 +271,7 @@ async function boot(): Promise<void> {
     hasRoom: () => capacity.hasRoom(),
     playerPosition: () => player.pose.position,
     isDiyaUsable: (id) => !diyas.isLit(id),
-    neighbours: () => neighbours.positions(),
+    neighbours: () => streetPeople,
     location: () => locations.location,
     doorways: () => doorways,
     hands: () => heldItems.hands,
@@ -286,6 +298,12 @@ async function boot(): Promise<void> {
       return { mode: rig.mode, position: camera.position, forward: listenerForward, yaw: rig.yaw, pitch: rig.pitch };
     },
   };
+  const baltiControls = {
+    balti,
+    feet: () => (locations.location === 'outdoors' && !locations.controlsLocked ? player.pose.position : null),
+    forward: () => crackerControls.view().forward,
+    busy: () => heldItems.hands !== null,
+  };
   // Audition the synthesised sounds without starting the game.
   if (new URLSearchParams(location.search).has('sounds')) createSoundBoard(document.body);
   const effectsDemo = new URLSearchParams(location.search).has('effects-demo')
@@ -299,6 +317,7 @@ async function boot(): Promise<void> {
         // Sparks leave the stick where it is burning.
         handPosition: () => sparkler.burningPoint,
       });
+  const baltiEffects = effects ? new BaltiEffects(bus, effects.engine) : null;
   // Bursts on High tint the street's sky fill rather than adding a light.
   const skyLight = scene.children.find((child): child is THREE.HemisphereLight => child instanceof THREE.HemisphereLight);
   const effectsView = effects ? new EffectsRenderer(effects.engine, { skyLight }) : null;
@@ -436,6 +455,8 @@ async function boot(): Promise<void> {
         // Doors, puja, tray, people and return spots first; then diyas and crackers as before.
         const target = interaction.findInteractable(crackerControls.view());
         if (applyHomeAction(action, target, homeActions)) continue;
+        // At the balti spot with nothing else in reach, E takes the next step of the prank.
+        if (!target && applyBaltiAction(action, baltiControls)) continue;
         if (action.type === 'interact' && target?.kind === 'diya') diyas.light(target.id);
         else applyCrackerAction(action, crackerControls);
       } else if (!applyCrackerAction(action, crackerControls)) movement.apply(action);
@@ -452,6 +473,8 @@ async function boot(): Promise<void> {
       stress?.update(SIM_STEP);
       tour?.update(SIM_STEP);
       crackers.update(SIM_STEP);
+      balti.update(SIM_STEP);
+      baltiEffects?.update(SIM_STEP);
       effects?.update(SIM_STEP);
       capacity.update(SIM_STEP);
       audio.update(SIM_STEP);
@@ -516,6 +539,7 @@ async function boot(): Promise<void> {
       atmosphere.frame();
       diyaScene.frame(camera.position);
       neighbourScene.frame(session.paused ? 0 : delta);
+      baltiScene.frame(session.paused ? 0 : delta);
     } else {
       presenter.frame(session.paused ? 0 : delta);
       if (presenter.active === 'familyHome') familyScene.frame(session.paused ? 0 : delta, player.pose.position);
@@ -543,13 +567,16 @@ async function boot(): Promise<void> {
       session.paused || !crackersAllowed(locations.location) || isHandheld(selected) || heldItems.hands
         ? null
         : interaction.previewPlacement({ type: selected, playerPosition: feet, target: aimPoint(feet, view.forward) });
+    // At the balti spot its own prompt replaces the cracker ones, and there is no ghost.
+    const activity = interactable || session.paused ? null : baltiPrompt(baltiControls);
     // At an unlit cracker or a home target, E comes first: a red ghost over it would only read as an error.
-    ghost.update(interactable && interactable.kind !== 'diya' && !placement?.ok ? null : placement);
+    ghost.update(activity || (interactable && interactable.kind !== 'diya' && !placement?.ok) ? null : placement);
     hud.setContext({
       interactable,
       interactableType,
       held: crackers.held,
       placement,
+      activity,
       homes: {
         hands: heldItems.hands,
         sparklerLit: crackers.held?.lit ?? false,
