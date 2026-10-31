@@ -1,4 +1,5 @@
 import type { BurstPattern } from '../core/types';
+import { BALTI } from '../balti/baltiBlast';
 import { FOUNTAIN, surgeFactor } from '../effects/presets';
 import { BANGER_SECONDS, fillBanger, fillBlast, randomBangerShape, randomBlastShape } from './blast';
 import { fillBrown, fillCrackle, fillLaneImpulse, fillLaneRoom, fillWhite } from './noise';
@@ -176,7 +177,18 @@ export interface SynthParams {
   readonly pattern?: BurstPattern;
   /** Ladi pops: seconds after `t0` (ascending) and relative loudness, 0–1. */
   readonly pops?: readonly LadiPopSound[];
+  /** The balti: what part of it hits the ground. */
+  readonly contact?: BaltiContact;
+  /** The balti: how hard it lands, 0–1. */
+  readonly strength?: number;
+  /** The balti: its tumble end over end, rad/s. */
+  readonly spin?: number;
+  /** The balti: how fast it rolls away, m/s. */
+  readonly speed?: number;
 }
+
+/** What part of the balti meets the ground (see `src/balti`). */
+export type BaltiContact = 'rim' | 'base' | 'side';
 
 export interface LadiPopSound {
   readonly at: number;
@@ -334,22 +346,50 @@ class VoiceBuilder {
     }
   }
 
+  /** `t`, but never past the voice's end. */
+  until(t: number): number {
+    return Math.min(this.end, t);
+  }
+
   /**
-   * A struck metal shell ringing from `at`: one decaying sine per partial
-   * (each detuned a little so no two strikes match), the higher ones
-   * quieter and shorter. `peak` is the first partial's level.
+   * The steel balti struck at `at`: its shell's inharmonic modes (see
+   * `BALTI_MODES`), the lowest few as close pairs that beat, since a pressed
+   * pail is never quite round. `bright` weights the upper modes (around 1;
+   * a sharp rim strike rings bright, a flat slap on the base dull), `decay`
+   * scales how long it rings. Into `into`, by default the voice's output.
    */
-  ring(at: number, partials: readonly number[], peak: number, decay: number): void {
-    for (let k = 0; k < partials.length; k++) {
+  steel(at: number, peak: number, decay: number, bright: number, into: AudioNode = this.output): void {
+    const last = BALTI_MODES.length - 1;
+    for (let k = 0; k <= last; k++) {
+      const mode = BALTI_MODES[k]!;
+      const tilt = 1 + (bright - 1) * (k / last);
+      const top = Math.max(0.0002, peak * mode.level * Math.max(0.05, tilt));
+      const fade = this.until(at + Math.max(0.03, decay * mode.decay));
+      if (fade <= at + 0.004) continue;
+      const pair = k < BALTI_SPLIT_MODES ? 2 : 1;
       const level = this.gain(0);
-      const top = Math.max(0.0002, peak / (1 + k * 0.8));
-      const fade = Math.min(this.end, at + decay / (1 + k * 0.5));
       level.gain.setValueAtTime(0.0001, this.t0);
       level.gain.setValueAtTime(0.0001, at);
-      level.gain.exponentialRampToValueAtTime(top, at + 0.003);
-      level.gain.exponentialRampToValueAtTime(0.0001, Math.max(at + 0.01, fade));
-      this.chain(this.osc('sine', partials[k]! * (0.97 + Math.random() * 0.06), at), level, this.output);
+      level.gain.exponentialRampToValueAtTime(top / pair, at + 0.002);
+      level.gain.exponentialRampToValueAtTime(0.0001, fade);
+      level.connect(into);
+      const f = mode.frequency * (0.985 + Math.random() * 0.03);
+      for (let j = 0; j < pair; j++) {
+        // The split pair a few hertz apart, beating as it dies.
+        const split = pair === 2 ? (j === 0 ? -1 : 1) * f * BALTI_MODE_SPLIT : 0;
+        this.osc('sine', f + split, at, fade).connect(level);
+      }
     }
+  }
+
+  /** A short burst of filtered noise peaking at `peak` from `at`, gone after `decay`. */
+  burst(buffer: AudioBuffer, at: number, peak: number, decay: number, filter: BiquadFilterNode, into: AudioNode = this.output): void {
+    const stop = this.until(at + decay + 0.02);
+    if (stop <= at) return;
+    const level = this.gain(0);
+    level.gain.setValueAtTime(0.0001, this.t0);
+    this.hit(level.gain, peak, at, Math.max(0.01, Math.min(decay, stop - at)));
+    this.chain(this.noise(buffer, at, stop), filter, level, into);
   }
 
   /**
@@ -671,34 +711,251 @@ const RECIPES: Record<SoundKind, Recipe> = {
   },
 
   /**
-   * A sutli bomb going off under an upturned balti: the same blast, but
-   * pitched down and muffled by the steel over it into a deep, dull boom,
-   * with the balti itself ringing out as it is struck from inside.
+   * A sutli fuse burning in under the balti: a crackling, spitting fizz
+   * with the odd louder sputter and the low rush of its powder core, bright
+   * while the burning tip is still out in the open, then duller and quieter
+   * as it eats its way in under the rim.
+   */
+  baltiFuse(b, p) {
+    b.sustain(b.output.gain, p.gain, 0.02, 0.05);
+    const length = b.end - b.t0;
+    const covered = b.t0 + length * BALTI_FUSE_COVERED[0];
+    const under = b.t0 + length * BALTI_FUSE_COVERED[1];
+    const steel = b.filter('lowpass', 9000, 0.7);
+    steel.frequency.setValueAtTime(9000, b.t0);
+    steel.frequency.setValueAtTime(9000, covered);
+    steel.frequency.exponentialRampToValueAtTime(1300, under);
+    const level = b.gain(1);
+    level.gain.setValueAtTime(1, b.t0);
+    level.gain.setValueAtTime(1, covered);
+    level.gain.linearRampToValueAtTime(0.45, under);
+    b.chain(steel, level, b.output);
+
+    const fizz = b.gain(0.45);
+    b.chain(b.noise(b.bank.white), b.filter('bandpass', 5200, 0.8), fizz, steel);
+    b.wander(fizz.gain, 0.35, 0.08);
+    const spits = b.gain(0.75);
+    b.chain(b.noise(b.bank.crackle, b.t0, b.end, 1.4), b.filter('bandpass', 3200, 1), spits, steel);
+    const core = b.gain(0.18);
+    b.chain(b.noise(b.bank.brown, b.t0, b.end, 1.2), b.filter('bandpass', 900, 0.7), core, steel);
+    // Now and then it sputters: a louder spit of burning powder.
+    const sputter = b.gain(0);
+    const times: number[] = [];
+    for (let t = b.t0 + 0.15 + Math.random() * 0.4; t < b.end - 0.1; t += 0.25 + Math.random() * 0.6) times.push(t);
+    b.hits(sputter.gain, times, 0.6, 0.035);
+    b.chain(b.noise(b.bank.white), b.filter('highpass', 2500, 0.7), sputter, steel);
+  },
+
+  /**
+   * A sutli bomb going off under an upturned steel balti: a deep, punchy
+   * thump, the blast itself dulled by the steel over it, the sharp bang of
+   * the base struck from inside, the pail's short inharmonic ring swelling
+   * and fading as it tumbles away, the street slapping it back, and grit
+   * and shreds pattering down after.
    */
   baltiBoom(b, p) {
     b.output.gain.value = p.gain;
-    const body = b.gain(1);
-    b.chain(b.blast(b.t0, 0.7 + Math.random() * 0.1), b.filter('lowpass', 900, 0.7), body, b.output);
-    b.ring(b.t0 + 0.004, BALTI_PARTIALS, 0.16, 1.1);
+    const at = b.t0;
+    const far = p.distance;
+    // The thump: the gas shoved down against the ground and out under the rim.
+    const thump = b.gain(0);
+    thump.gain.setValueAtTime(0.0001, b.t0);
+    b.hit(thump.gain, 0.8, at, 0.42);
+    const sub = b.osc('sine', 95, at, b.until(at + 0.5));
+    sub.frequency.setValueAtTime(95, at);
+    sub.frequency.exponentialRampToValueAtTime(38, b.until(at + 0.35));
+    b.chain(sub, thump, b.output);
+    const body = b.gain(0.8);
+    b.chain(b.blast(at, 0.62 + Math.random() * 0.08), b.filter('lowpass', muffle(far, 1000), 0.8), body, b.output);
+
+    // The bang of the steel: the shock hitting the base from inside.
+    b.burst(b.bank.white, at + 0.002, 0.5, 0.05, b.filter('bandpass', muffle(far, 2600), 0.8));
+    b.burst(b.bank.white, at + 0.001, 0.25, 0.015, b.filter('highpass', 5000, 0.7));
+
+    // Its ring, swelling and fading as the open mouth turns towards and away.
+    const ring = b.gain(0.75);
+    ring.connect(b.output);
+    const turns = Math.abs(p.spin ?? 0) / (Math.PI * 2);
+    if (turns > 0.2) b.lfo(ring.gain, Math.min(2.5, turns), 0.35);
+    b.steel(at + 0.003, 0.22, 1.1, 1.1, ring);
+
+    // The street answering: the houses opposite slapping the bang back, duller each time.
+    const echo = b.gain(0);
+    echo.gain.setValueAtTime(0.0001, b.t0);
+    let when = at;
+    for (let k = 0; k < 3; k++) {
+      when += 0.08 + Math.random() * 0.12;
+      if (when + 0.14 > b.end) break;
+      echo.gain.setValueAtTime(0.0001, when);
+      echo.gain.exponentialRampToValueAtTime(0.22 * Math.pow(0.55, k), when + 0.006);
+      echo.gain.exponentialRampToValueAtTime(0.0001, when + 0.14);
+    }
+    b.chain(b.noise(b.bank.white, at, b.until(when + 0.16)), b.filter('lowpass', muffle(far, 1500), 0.6), echo, b.output);
+
+    // Grit and shreds of the bomb pattering down after.
+    const patterFrom = at + 0.3;
+    const patterTo = b.until(at + 1.9);
+    if (patterTo > patterFrom + 0.4) {
+      const patter = b.gain(0);
+      patter.gain.setValueAtTime(0, b.t0);
+      patter.gain.setValueAtTime(0, patterFrom);
+      patter.gain.linearRampToValueAtTime(0.06, patterFrom + 0.3);
+      patter.gain.linearRampToValueAtTime(0, patterTo);
+      b.chain(b.noise(b.bank.crackle, patterFrom, patterTo, 0.9), b.filter('bandpass', muffle(far, 2500), 0.8), patter, b.output);
+    }
   },
 
-  /** The balti landing: a bright metal clang and a short scrape of grit. */
+  /**
+   * The open pail tumbling through the air: a soft flutter, two puffs a
+   * turn, loudest leaving the ground and coming back down, silent at the top.
+   */
+  baltiWhoosh(b, p) {
+    b.output.gain.value = p.gain;
+    const length = b.end - b.t0;
+    const rise = length / 2;
+    const air = b.gain(0);
+    air.connect(b.output);
+    b.follow(air.gain, (age) => {
+      const speed = Math.abs(1 - age / rise);
+      return speed * speed * Math.min(1, age / 0.08, (length - age) / 0.05);
+    });
+    const flutter = b.gain(0.6);
+    const rate = Math.min(6, Math.max(1, Math.abs(p.spin ?? 0) / Math.PI));
+    b.lfo(flutter.gain, rate, 0.4);
+    b.chain(b.noise(b.bank.white), b.filter('bandpass', 650, 1.3), flutter, air);
+    const edge = b.gain(0.2);
+    b.chain(b.noise(b.bank.white), b.filter('bandpass', 1900, 2), edge, flutter);
+  },
+
+  /**
+   * The balti landing: the strike (a hard click of steel on stone), a
+   * thud, and the pail's ring. How it lands sets the colour: on its rolled
+   * rim it rings bright and long, the far side of the rim slapping down a
+   * moment after; flat on its base it slaps dull and short; on its side it
+   * clanks, its wire handle clinking. Harder landings ring brighter and longer.
+   */
   baltiClang(b, p) {
     b.output.gain.value = p.gain;
-    const hit = b.gain(0);
-    hit.gain.setValueAtTime(0.0001, b.t0);
-    hit.gain.exponentialRampToValueAtTime(0.5, b.t0 + 0.002);
-    hit.gain.exponentialRampToValueAtTime(0.0001, b.t0 + 0.05);
-    b.chain(b.noise(b.bank.white, b.t0, b.t0 + 0.08), b.filter('bandpass', 3200, 0.9), hit, b.output);
-    b.ring(b.t0, BALTI_PARTIALS, 0.22, Math.max(0.2, b.end - b.t0 - 0.05));
+    const at = b.t0;
+    const s = Math.min(1, Math.max(0, p.strength ?? 1));
+    const tone = BALTI_CLANG[p.contact ?? 'rim'];
+    const ringFor = Math.max(0.15, b.end - at - 0.04);
+    b.burst(b.bank.white, at, tone.click * (0.5 + 0.5 * s), 0.02 + 0.025 * s, b.filter('bandpass', tone.clickAt, 0.9));
+    b.burst(b.bank.brown, at, tone.thud * (0.4 + 0.6 * s), 0.06 + 0.06 * s, b.filter('lowpass', 420, 0.7));
+    b.steel(at + 0.001, 0.24, ringFor * tone.decay * (0.5 + 0.5 * s), tone.bright * (0.7 + 0.3 * s));
+    if (tone.second && s > 0.2) {
+      const later = at + 0.02 + Math.random() * 0.045;
+      b.burst(b.bank.white, later, tone.click * 0.45 * s, 0.02, b.filter('bandpass', tone.clickAt * 0.8, 0.9));
+    }
+    if (tone.handle) {
+      // The wire handle clinking against the pail.
+      for (let k = 0; k < 3; k++) {
+        const when = at + 0.008 + Math.random() * 0.09;
+        const ping = b.gain(0);
+        ping.gain.setValueAtTime(0.0001, b.t0);
+        b.hit(ping.gain, 0.05 * (0.5 + s), when, 0.06);
+        b.chain(b.osc('sine', 5200 + Math.random() * 2200, when, b.until(when + 0.07)), ping, b.output);
+      }
+    }
+    // A scrape of grit under it.
+    b.burst(b.bank.white, at + 0.005, 0.06 * s, 0.07, b.filter('bandpass', 1500, 0.6));
+  },
+
+  /**
+   * The balti coming to rest. On its rim or base it rocks still like a
+   * dropped lid: ticks of steel on stone, quicker and quieter as the sway
+   * dies (timed from the same sway as `BaltiFlight`), into a last buzz. On
+   * its side it rolls away: a gritty rumble dying with its speed, the
+   * handle knocking once a turn.
+   */
+  baltiRattle(b, p) {
+    b.output.gain.value = p.gain;
+    const length = b.end - b.t0;
+    const ticks = b.gain(0);
+    ticks.gain.setValueAtTime(0.0001, b.t0);
+    const click = b.gain(0.5);
+    b.chain(b.noise(b.bank.white), b.filter('bandpass', 3400, 1), click, ticks);
+    const ring = b.gain(1);
+    ring.connect(ticks);
+    for (const k of [1, 2, 4]) b.chain(b.osc('sine', BALTI_MODES[k]!.frequency * (0.98 + Math.random() * 0.04)), b.gain(0.12), ring);
+    ticks.connect(b.output);
+
+    const w = BALTI.wobble;
+    if (p.contact !== 'side') {
+      // The sway it settled with, from how long it takes to die (see `BaltiFlight`).
+      let sway = Math.min(w.max, 0.004 * Math.exp(w.decay * length));
+      let phase = 0;
+      let next = Math.PI / 2;
+      const dt = 1 / 400;
+      for (let t = 0; t < length - 0.03; t += dt) {
+        sway *= Math.exp(-w.decay * dt);
+        phase += (w.rate / Math.sqrt(sway / w.max + 0.05)) * dt;
+        if (phase < next) continue;
+        // Each swing brings the rim down on the other side.
+        next += Math.PI;
+        const when = b.t0 + t;
+        const peak = Math.max(0.0003, 0.5 * Math.pow(sway / w.max, 0.6));
+        ticks.gain.setValueAtTime(0.0001, when);
+        ticks.gain.exponentialRampToValueAtTime(peak, when + 0.002);
+        ticks.gain.exponentialRampToValueAtTime(0.0001, Math.min(b.end, when + 0.03));
+      }
+      return;
+    }
+    // Rolling: the handle knocks once a turn, the turns slowing with it.
+    const speed0 = Math.max(0.05, p.speed ?? 0.5);
+    const circumference = Math.PI * (BALTI.rimRadius + BALTI.baseRadius);
+    let travelled = circumference * Math.random();
+    for (let t = 0; t < length - 0.04; t += 1 / 400) {
+      const speed = speed0 * Math.exp(-BALTI.rollDrag * t);
+      travelled += speed / 400;
+      if (travelled < circumference) continue;
+      travelled -= circumference;
+      const when = b.t0 + t;
+      ticks.gain.setValueAtTime(0.0001, when);
+      ticks.gain.exponentialRampToValueAtTime(Math.max(0.0003, 0.35 * Math.min(1, speed / 1.2)), when + 0.002);
+      ticks.gain.exponentialRampToValueAtTime(0.0001, Math.min(b.end, when + 0.04));
+    }
+    const rumble = b.gain(0);
+    rumble.gain.setValueAtTime(0, b.t0);
+    rumble.gain.linearRampToValueAtTime(0.5 * Math.min(1, speed0 / 1.2), b.t0 + 0.04);
+    rumble.gain.setTargetAtTime(0, b.t0 + 0.04, 1 / BALTI.rollDrag);
+    b.chain(b.noise(b.bank.brown, b.t0, b.end, 1.6), b.filter('bandpass', 520, 0.9), rumble, b.output);
+    const grit = b.gain(0.25);
+    b.chain(b.noise(b.bank.crackle, b.t0, b.end, 1.3), b.filter('bandpass', 2400, 1.1), grit, rumble);
   },
 };
 
 /**
- * A steel balti's partials, Hz: inharmonic like any struck shell, so it
- * clangs rather than plays a note.
+ * A steel balti's ringing modes: frequency (Hz), level and ring time
+ * relative to the lowest. Inharmonic like any struck shell, so it clangs
+ * rather than plays a note; the higher modes quieter and much shorter, as
+ * thin steel damps them fast.
  */
-const BALTI_PARTIALS: readonly number[] = [430, 1010, 1730, 2590];
+const BALTI_MODES: readonly { readonly frequency: number; readonly level: number; readonly decay: number }[] = [
+  { frequency: 318, level: 1, decay: 1 },
+  { frequency: 497, level: 0.85, decay: 0.85 },
+  { frequency: 786, level: 0.7, decay: 0.65 },
+  { frequency: 1163, level: 0.55, decay: 0.48 },
+  { frequency: 1618, level: 0.45, decay: 0.36 },
+  { frequency: 2211, level: 0.34, decay: 0.26 },
+  { frequency: 3062, level: 0.24, decay: 0.18 },
+  { frequency: 4172, level: 0.16, decay: 0.12 },
+];
+/** The lowest this many modes are split pairs, this fraction of their frequency either side. */
+const BALTI_SPLIT_MODES = 3;
+const BALTI_MODE_SPLIT = 0.004;
+
+/** How each way of landing sounds: click level and centre, thud, ring brightness and length, and extras. */
+const BALTI_CLANG: Readonly<
+  Record<BaltiContact, { click: number; clickAt: number; thud: number; bright: number; decay: number; second?: boolean; handle?: boolean }>
+> = {
+  rim: { click: 0.55, clickAt: 4200, thud: 0.15, bright: 1.3, decay: 1, second: true },
+  base: { click: 0.4, clickAt: 1800, thud: 0.6, bright: 0.45, decay: 0.45 },
+  side: { click: 0.45, clickAt: 2600, thud: 0.35, bright: 0.85, decay: 0.6, handle: true },
+};
+
+/** Fractions of the fuse: its burning tip goes in under the rim, then is well inside. */
+const BALTI_FUSE_COVERED = [0.45, 0.85] as const;
 
 /** Of a distant ladi's pops, how many are its louder bangers. */
 const LADI_LOUD_CHANCE = 0.15;

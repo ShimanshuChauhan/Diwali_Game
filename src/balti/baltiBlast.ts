@@ -19,7 +19,10 @@ import { yawToward } from '../neighbours/neighbours';
  */
 
 /** Where the prank is in its round. */
-export type BaltiPhase = 'ready' | 'bombPlaced' | 'covered' | 'fuseBurning' | 'flying' | 'cheering';
+export type BaltiPhase = 'ready' | 'bombPlaced' | 'covered' | 'fuseBurning' | 'flying' | 'cheering' | 'fetching';
+
+/** What part of the balti meets the ground: its rolled rim, its flat base or its side. */
+export type BaltiContact = 'rim' | 'base' | 'side';
 
 /** Who set the current round up. */
 export type BaltiActor = 'player' | 'kid';
@@ -29,10 +32,12 @@ export type BaltiStep = 'placed' | 'covered' | 'lit';
 
 /**
  * What a kid is doing: `chat` stands in the huddle, `walk` heads somewhere,
- * `crouch` works at the bomb, `run` makes for a safe spot, `brace` waits
- * there with fingers in ears, and `cheer` jumps and laughs at the blast.
+ * `crouch` works at the bomb (or picks the balti up), `run` makes for a safe
+ * spot, `brace` waits there with fingers in ears, `flinch` ducks at the bang,
+ * `watch` follows the balti up, pointing, `cheer` jumps and laughs once it is
+ * down, and `carry` brings it back to the spot.
  */
-export type KidActivity = 'chat' | 'walk' | 'crouch' | 'run' | 'brace' | 'cheer';
+export type KidActivity = 'chat' | 'walk' | 'crouch' | 'run' | 'brace' | 'flinch' | 'watch' | 'cheer' | 'carry';
 
 /** Everything the scene needs to pose one kid. */
 export interface KidView extends NeighbourSnapshot {
@@ -45,6 +50,8 @@ export interface KidView extends NeighbourSnapshot {
   readonly activityTime: number;
   /** Index into the scene's looks. */
   readonly look: number;
+  /** How near the bang is while bracing, 0–1: the kids hunch lower and turn away as the fuse runs down. */
+  readonly tension: number;
 }
 
 /** Where the balti is: its middle, how far it has tipped and turned. */
@@ -80,8 +87,8 @@ export const BALTI = {
   workRadius: 0.55,
   /** The player setting it up and walking further than this leaves it to the kids. */
   abandonRadius: 9,
-  /** Fuse burn before the bang. */
-  fuse: 3.2,
+  /** Fuse burn before the bang: no two lengths of sutli fuse burn alike. */
+  fuse: [3.2, 4.4] as const,
   /** Lowering the balti over the bomb. */
   coverTime: 0.45,
   /** A kid's time squatting over each step. */
@@ -92,36 +99,75 @@ export const BALTI = {
   turnSpeed: 7,
   /** Wait between the kids' own rounds, while the player is not at the spot. */
   kidRoundWait: [7, 12] as const,
-  /** Cheering after the balti settles, before the huddle forms again. */
-  cheerTime: 2.6,
+  /** Ducking at the bang before looking up for the balti. */
+  flinchTime: 0.4,
+  /** Cheering after the balti settles, before one of them fetches it. */
+  cheerTime: 1.8,
+  /** The fetching kid's jog out to the balti, and stooping to pick it up. */
+  fetchSpeed: 2.4,
+  pickUpTime: 0.5,
+  /** Lifting the balti off the ground into the carrying kid's hands. */
+  liftTime: 0.35,
+  /** Where the carrying kid holds the balti: its middle this high, this far in front. */
+  carryHeight: 0.47,
+  carryReach: 0.26,
   /** Highest head tilt following the balti up. */
   maxLookUp: 1.1,
 
   // ── The balti's flight ──
-  /** Straight up off the bomb: about 5.5–8.5 m high. */
-  launchSpeed: [10.5, 13] as const,
+  /** Straight up off the bomb: about 5–10 m high. */
+  launchSpeed: [10, 14] as const,
   /** Sideways kick off the blast. */
-  drift: [0.2, 1.1] as const,
+  drift: [0.2, 1.2] as const,
+  /** A lopsided blast tips it this far off upturned as it leaves, radians either way. */
+  launchLean: 0.25,
   /** Tumble end over end, rad/s, either way. */
-  tumble: [5, 9] as const,
+  tumble: [4, 11] as const,
+  /**
+   * Now and then the blast is square under it and it goes up mouth-down,
+   * barely turning over, only wobbling (rad/s), and comes down on its rim.
+   */
+  flatChance: 0.25,
+  wobbleTumble: [0.6, 2] as const,
   /** Most twirl about the vertical, rad/s, either way. */
   twirl: 3,
   gravity: 9.81,
-  /** Vertical speed kept by a bounce. */
-  restitution: 0.38,
-  /** Sideways speed kept by a bounce. */
-  friction: 0.55,
-  /** Tumble kept by a bounce. */
+  /**
+   * Per way of landing: vertical speed kept by a bounce, sideways speed kept,
+   * and spin (rad/s per m/s of impact) an off-centre hit can kick either way.
+   * The stiff rolled rim springs back the most; the flat base slaps down and
+   * keeps the least; a side hit sends it skipping and spinning.
+   */
+  bounce: {
+    rim: { restitution: 0.42, friction: 0.6, spin: 0.55 },
+    base: { restitution: 0.28, friction: 0.5, spin: 0.25 },
+    side: { restitution: 0.33, friction: 0.7, spin: 0.7 },
+  },
+  /** Each bounce's restitution varies this much either way. */
+  restitutionSpread: 0.15,
+  /** Tumble kept by a bounce, before the kick. */
   tumbleKept: 0.5,
   /** A bounce slower than this ends in a settle. */
   settleSpeed: 1.2,
   maxBounces: 4,
   /** A flight never lasts longer than this. */
   maxFlight: 6,
+  /** Settling (rocking still or rolling to a stop) never takes longer than this. */
+  maxSettle: 2,
+  /** Rocking on its rim or base: starting sway (radians), its decay per second, and its rate when wide. */
+  wobble: { min: 0.06, max: 0.4, decay: 3.2, rate: 9 },
+  /** Rolling on its side: speed lost per second, and a turn about the narrow end's point this far away. */
+  rollDrag: 1.6,
+  rollRadius: 1.15,
+  /** How much of its tumble, as rim speed, carries into a roll. */
+  rollKept: 0.3,
   /** The balti never lands further than this from the spot. */
   maxDrift: 3,
-  /** Height of its middle when standing on its base or rim, or lying on its side. */
+  /** Half its height: its middle's height standing on its base or rim. */
   restHeight: 0.15,
+  /** Its radius at the rolled rim and at the base. */
+  rimRadius: 0.168,
+  baseRadius: 0.125,
   /** Where it waits before the first round, beside the spot. */
   restOffset: { x: 0.9, z: 0.5 },
   /** The fuse pokes out under the rim this far from the spot, along +X. */
@@ -174,17 +220,46 @@ function between(random: () => number, range: readonly [number, number]): number
   return range[0] + random() * (range[1] - range[0]);
 }
 
-/** The steady way up nearest `tilt`: on its base, its side or its rim. */
+/**
+ * Lying on its side, the tapered balti rests along one line of its wall, so
+ * its mouth end sits a little higher than its base: tipped this far back
+ * from level.
+ */
+export const SIDE_LEAN = Math.atan((BALTI.rimRadius - BALTI.baseRadius) / (2 * BALTI.restHeight));
+
+/**
+ * The steady way up nearest `tilt`: on its base, on its rim, or on its side
+ * (leaning back by `SIDE_LEAN`, mouth end up).
+ */
 export function restingTilt(tilt: number): number {
-  return Math.round(tilt / QUARTER) * QUARTER;
+  const quarter = Math.round(tilt / QUARTER) * QUARTER;
+  return quarter - SIDE_LEAN * Math.round(Math.sin(quarter));
+}
+
+/** How high its middle is when its lowest point touches the ground, at `tilt`. */
+export function baltiSupport(tilt: number): number {
+  const b = BALTI;
+  const up = Math.cos(tilt);
+  const across = Math.abs(Math.sin(tilt));
+  // The lowest point is on the rim's circle or the base's, whichever reaches further down.
+  return Math.max(-b.restHeight * up + b.rimRadius * across, b.restHeight * up + b.baseRadius * across);
+}
+
+/** What part of it meets the ground at `tilt`. */
+export function contactAt(tilt: number): BaltiContact {
+  if (Math.abs(Math.sin(tilt)) > 0.85) return 'side';
+  return Math.cos(tilt) < 0 ? 'rim' : 'base';
 }
 
 /**
  * The balti's flight, as plain state: one rigid body thrown up off the bomb,
- * tumbling and twirling under gravity, bouncing off the ground a few times
- * and settling the right way up, on its rim or on its side. Bounded: it
- * never climbs above its launch's apex, never strays beyond `maxDrift` of
- * the spot and always settles within `maxFlight`.
+ * tumbling and twirling under gravity, bouncing off the ground on its rim,
+ * base or side (each springing back differently, and an off-centre hit
+ * kicking its spin), then settling: rocking still on its rim or base like a
+ * dropped lid, or rolling round in an arc on its side, as a tapered pail
+ * does. Bounded: it never climbs above its launch's apex, never strays
+ * beyond `maxDrift` of the spot and is always still within `maxFlight` and
+ * `maxSettle`.
  */
 export class BaltiFlight {
   readonly position: MutableVec3 = { x: 0, y: 0, z: 0 };
@@ -195,27 +270,42 @@ export class BaltiFlight {
   twirl = 0;
   bounces = 0;
   time = 0;
-  /** On the ground for good, rocking onto its resting side. */
+  /** What hit the ground last; on settling, what it rests on. */
+  contact: BaltiContact = 'base';
+  /** On the ground for good, rocking or rolling onto its resting side. */
   settling = false;
   /** Still and steady: the flight is over. */
   done = true;
+  /** Once settling: the tilt it comes to rest at, and how long it should take, seconds. */
+  restTilt = 0;
+  settleTime = 0;
   private readonly origin: MutableVec3 = { x: 0, y: 0, z: 0 };
+  private random: () => number = Math.random;
+  private settledAt = 0;
+  /** Rocking: how far it sways either side of `restTilt`, and where in the sway it is. */
+  private sway = 0;
+  private swayPhase = 0;
+  /** Rolling: speed along the ground, signed along its roll. */
+  private roll = 0;
 
   /** Throw it from `from` (on the ground), its tilt and yaw so far kept. */
   launch(from: Vec3, random: () => number): void {
     const b = BALTI;
+    this.random = random;
     this.origin.x = from.x;
     this.origin.y = from.y;
     this.origin.z = from.z;
-    this.position.x = from.x;
-    this.position.y = from.y + b.restHeight;
-    this.position.z = from.z;
     const heading = random() * TAU;
     const drift = between(random, b.drift);
     this.velocity.x = Math.sin(heading) * drift;
     this.velocity.y = between(random, b.launchSpeed);
     this.velocity.z = Math.cos(heading) * drift;
-    this.tumble = (random() < 0.5 ? -1 : 1) * between(random, b.tumble);
+    this.tilt += (random() * 2 - 1) * b.launchLean;
+    this.position.x = from.x;
+    this.position.y = from.y + baltiSupport(this.tilt);
+    this.position.z = from.z;
+    const flat = random() < b.flatChance;
+    this.tumble = (random() < 0.5 ? -1 : 1) * between(random, flat ? b.wobbleTumble : b.tumble);
     this.twirl = (random() * 2 - 1) * b.twirl;
     this.bounces = 0;
     this.time = 0;
@@ -225,14 +315,13 @@ export class BaltiFlight {
 
   /**
    * Advance by `dt`. Returns the speed it hit the ground at when it bounced
-   * this step, else 0.
+   * this step, else 0; `contact` then says what hit.
    */
   step(dt: number): number {
     if (this.done) return 0;
     const b = BALTI;
     const p = this.position;
     const v = this.velocity;
-    const floor = this.origin.y + b.restHeight;
     this.time += dt;
     let impact = 0;
 
@@ -243,48 +332,96 @@ export class BaltiFlight {
       p.z += v.z * dt;
       this.tilt += this.tumble * dt;
       this.yaw += this.twirl * dt;
+      const floor = this.origin.y + baltiSupport(this.tilt);
       if (p.y <= floor && v.y < 0) {
         p.y = floor;
         impact = -v.y;
         this.bounces++;
-        v.y = impact * b.restitution;
-        v.x *= b.friction;
-        v.z *= b.friction;
-        this.tumble *= b.tumbleKept;
-        this.twirl *= b.tumbleKept;
+        this.contact = contactAt(this.tilt);
+        const bounce = b.bounce[this.contact];
+        const spread = 1 + (this.random() * 2 - 1) * b.restitutionSpread;
+        v.y = impact * bounce.restitution * spread;
+        v.x *= bounce.friction;
+        v.z *= bounce.friction;
+        // An off-centre hit trades some of the fall for spin, either way.
+        this.tumble = this.tumble * b.tumbleKept + (this.random() * 2 - 1) * impact * bounce.spin;
+        this.twirl = this.twirl * b.tumbleKept + (this.random() * 2 - 1) * impact * 0.2;
         if (v.y < b.settleSpeed || this.bounces >= b.maxBounces) this.settle();
       } else if (this.time >= b.maxFlight) {
-        p.y = floor;
+        p.y = Math.max(p.y, floor);
         this.settle();
       }
     } else {
-      // Sliding to a stop and rocking onto its base, side or rim.
-      const slow = Math.exp(-6 * dt);
-      v.x *= slow;
-      v.z *= slow;
-      p.x += v.x * dt;
-      p.z += v.z * dt;
-      p.y = floor;
-      this.twirl *= Math.exp(-4 * dt);
-      this.yaw += this.twirl * dt;
-      const rest = restingTilt(this.tilt);
-      this.tilt = approach(this.tilt, rest, 6 * dt);
-      const still = Math.hypot(v.x, v.z) < 0.05 && Math.abs(this.twirl) < 0.05;
-      if ((this.tilt === rest && still) || this.time >= b.maxFlight + 1) {
-        this.tilt = ((rest % TAU) + TAU) % TAU;
-        this.yaw %= TAU;
-        v.x = v.y = v.z = 0;
-        this.done = true;
-      }
+      this.rest(dt);
     }
     this.keepNear();
     return impact;
   }
 
   private settle(): void {
-    this.velocity.y = 0;
-    this.tumble = 0;
+    const b = BALTI;
+    const rest = restingTilt(this.tilt);
+    this.restTilt = rest;
+    this.contact = contactAt(rest);
     this.settling = true;
+    this.settledAt = this.time;
+    this.velocity.y = 0;
+    if (this.contact === 'side') {
+      // Rolling where it is heading, across its own axis, helped on by its tumble.
+      const dirX = Math.cos(this.yaw);
+      const dirZ = -Math.sin(this.yaw);
+      const along = this.velocity.x * dirX + this.velocity.z * dirZ;
+      const spun = Math.abs(this.tumble) * b.rimRadius * b.rollKept;
+      this.roll = along + (along < 0 ? -spun : spun);
+      this.sway = 0;
+      this.settleTime = Math.min(b.maxSettle, Math.log(Math.max(1, Math.abs(this.roll) / 0.04)) / b.rollDrag + 0.3);
+    } else {
+      const off = this.tilt - rest;
+      this.sway = Math.min(b.wobble.max, Math.max(b.wobble.min, Math.abs(off)));
+      this.swayPhase = off < 0 ? Math.PI : 0;
+      this.roll = 0;
+      this.settleTime = Math.min(b.maxSettle, Math.log(this.sway / 0.004) / b.wobble.decay);
+    }
+    this.tumble = 0;
+  }
+
+  /** On the ground: rocking still on its rim or base, or rolling to a stop on its side. */
+  private rest(dt: number): void {
+    const b = BALTI;
+    const p = this.position;
+    const v = this.velocity;
+    const rest = this.restTilt;
+    this.twirl *= Math.exp(-4 * dt);
+    let still: boolean;
+    if (this.contact === 'side') {
+      // A tapered pail rolls round in a circle about where its narrow end points.
+      this.roll *= Math.exp(-b.rollDrag * dt);
+      this.yaw += (this.roll / b.rollRadius) * Math.sign(Math.sin(rest)) * dt + this.twirl * dt;
+      v.x = Math.cos(this.yaw) * this.roll;
+      v.z = -Math.sin(this.yaw) * this.roll;
+      this.tilt = approach(this.tilt, rest, 5 * dt);
+      still = Math.abs(this.roll) < 0.04 && this.tilt === rest;
+    } else {
+      // Sliding to a stop while it rocks, quicker as the sway dies, like a dropped lid.
+      const slow = Math.exp(-6 * dt);
+      v.x *= slow;
+      v.z *= slow;
+      this.yaw += this.twirl * dt;
+      this.sway *= Math.exp(-b.wobble.decay * dt);
+      this.swayPhase += (b.wobble.rate / Math.sqrt(this.sway / b.wobble.max + 0.05)) * dt;
+      this.tilt = rest + this.sway * Math.cos(this.swayPhase);
+      still = this.sway < 0.004 && Math.hypot(v.x, v.z) < 0.05;
+    }
+    p.x += v.x * dt;
+    p.z += v.z * dt;
+    p.y = this.origin.y + baltiSupport(this.tilt);
+    if (still || this.time - this.settledAt >= b.maxSettle) {
+      this.tilt = ((rest % TAU) + TAU) % TAU;
+      this.yaw %= TAU;
+      p.y = this.origin.y + baltiSupport(this.tilt);
+      v.x = v.y = v.z = 0;
+      this.done = true;
+    }
   }
 
   /** Never further than `maxDrift` from where it was thrown. */
@@ -299,13 +436,19 @@ export class BaltiFlight {
     p.z = this.origin.z + dz * k;
     this.velocity.x = 0;
     this.velocity.z = 0;
+    this.roll = 0;
   }
 }
 
 /**
  * The balti blast activity: the round's phases, the kids and the balti.
- * Publishes `baltiStep`, `baltiBlast` and `baltiBounce` for the effects and
- * audio, and returns to its first state on `sessionReset`.
+ * Publishes `baltiStep`, `baltiBlast`, `baltiBounce` and `baltiSettle` for
+ * the effects and audio, and returns to its first state on `sessionReset`.
+ *
+ * A round: set up (bomb, balti, fuse), everyone runs back and braces, the
+ * bang (they flinch, then watch it go up, pointing), it clatters down and
+ * settles, they cheer, and one of them runs out, picks it up and carries it
+ * back beside the spot for the next go.
  */
 export class BaltiBlast {
   readonly spot: Vec3;
@@ -338,6 +481,17 @@ export class BaltiBlast {
   private work = 0;
   /** Seconds until the kids start a round of their own. */
   private wait = 0;
+  /** This round's fuse, seconds. */
+  private fuseLength: number = BALTI.fuse[0];
+  /** The kid bringing the balti back, and whether it is in their hands yet. */
+  private fetcher: Kid | null = null;
+  private carrying = false;
+  /** Seconds it has been in the kid's hands. */
+  private carryTime = 0;
+  /** The balti's pose as it was picked up, for lifting it into the kid's hands. */
+  private readonly pickedFrom: MutableVec3 = { x: 0, y: 0, z: 0 };
+  private pickedTilt = 0;
+  private pickedYaw = 0;
   /** Whose turn it is to lead the kids' next round. */
   private nextLeader = 0;
   private rounds = 0;
@@ -352,7 +506,7 @@ export class BaltiBlast {
       const angle = (i / BALTI.kids) * TAU + 0.4;
       const position = { x: 0, y: this.spot.y, z: 0 };
       this.kids.push({
-        view: { id: `balti.kid.${i}`, position, yaw: 0, lookUp: 0, activity: 'chat', activityTime: 0, look: i },
+        view: { id: `balti.kid.${i}`, position, yaw: 0, lookUp: 0, activity: 'chat', activityTime: 0, look: i, tension: 0 },
         position,
         angle,
         wantYaw: 0,
@@ -396,7 +550,17 @@ export class BaltiBlast {
 
   /** How much of the fuse has burnt, 0–1; 0 unless it is burning. */
   get fuseProgress(): number {
-    return this.currentPhase === 'fuseBurning' ? Math.min(1, this.phaseTime / BALTI.fuse) : 0;
+    return this.currentPhase === 'fuseBurning' ? Math.min(1, this.phaseTime / this.fuseLength) : 0;
+  }
+
+  /** This round's fuse length, seconds (the last round's between rounds). */
+  get fuseSeconds(): number {
+    return this.fuseLength;
+  }
+
+  /** The kid fetching the balti back, while one is. */
+  get fetchingKid(): KidView | null {
+    return this.fetcher?.view ?? null;
   }
 
   /** Where the fuse pokes out under the rim. */
@@ -423,6 +587,21 @@ export class BaltiBlast {
       pose.position.y = this.spot.y + BALTI.restHeight + Math.sin(Math.PI * u) * 0.4;
       pose.tilt = this.restTilt + (Math.PI - this.restTilt) * s;
       pose.yaw = this.restYaw;
+    } else if (phase === 'fetching' && this.carrying && this.fetcher) {
+      // Lifted off the ground into the kid's hands, mouth up, and carried in front.
+      const kid = this.fetcher;
+      const u = Math.min(1, this.carryTime / BALTI.liftTime);
+      const s = u * u * (3 - 2 * u);
+      const yaw = kid.view.yaw;
+      const heldX = kid.position.x - Math.sin(yaw) * BALTI.carryReach;
+      const heldZ = kid.position.z - Math.cos(yaw) * BALTI.carryReach;
+      const from = this.pickedFrom;
+      pose.position.x = from.x + (heldX - from.x) * s;
+      pose.position.y = from.y + (this.spot.y + BALTI.carryHeight - from.y) * s;
+      pose.position.z = from.z + (heldZ - from.z) * s;
+      const upright = Math.round(this.pickedTilt / TAU) * TAU;
+      pose.tilt = this.pickedTilt + (upright - this.pickedTilt) * s;
+      pose.yaw = this.pickedYaw + angleDelta(this.pickedYaw, yaw) * s;
     } else {
       pose.position.x = this.rest.x;
       pose.position.y = this.rest.y;
@@ -492,16 +671,31 @@ export class BaltiBlast {
         if (this.actor === 'player' && !this.leader && !this.near(player, BALTI.abandonRadius)) this.takeOver();
         break;
       case 'fuseBurning':
-        if (this.phaseTime >= BALTI.fuse) this.blast();
+        if (this.phaseTime >= this.fuseLength) this.blast();
         break;
       case 'flying': {
-        const impact = this.flight.step(dt);
-        if (impact > 0) this.bus?.emit('baltiBounce', { position: { ...this.flight.position }, speed: impact });
-        if (this.flight.done) this.land();
+        const flight = this.flight;
+        const wasSettling = flight.settling;
+        const impact = flight.step(dt);
+        if (impact > 0) {
+          this.bus?.emit('baltiBounce', { position: { ...flight.position }, speed: impact, contact: flight.contact });
+        }
+        if (flight.settling && !wasSettling) {
+          this.bus?.emit('baltiSettle', {
+            position: { ...flight.position },
+            contact: flight.contact,
+            duration: flight.settleTime,
+            speed: Math.hypot(flight.velocity.x, flight.velocity.z),
+          });
+        }
+        if (flight.done) this.land();
         break;
       }
       case 'cheering':
-        if (this.phaseTime >= BALTI.cheerTime) this.regroup();
+        if (this.phaseTime >= BALTI.cheerTime) this.fetch();
+        break;
+      case 'fetching':
+        this.fetching(dt);
         break;
     }
     if (this.leader) this.lead(dt);
@@ -519,6 +713,8 @@ export class BaltiBlast {
     this.enter('ready');
     this.actor = null;
     this.leader = null;
+    this.fetcher = null;
+    this.carrying = false;
     this.work = 0;
     this.nextLeader = 0;
     this.rounds = 0;
@@ -529,6 +725,7 @@ export class BaltiBlast {
       kid.position.z = this.spot.z + Math.cos(kid.angle) * BALTI.gatherRadius;
       kid.view.yaw = kid.wantYaw = yawToward(kid.position, this.spot);
       kid.view.lookUp = kid.wantLookUp = 0;
+      kid.view.tension = 0;
       this.begin(kid, 'chat');
     }
   }
@@ -563,7 +760,8 @@ export class BaltiBlast {
       this.bus?.emit('baltiStep', { step, by, position: this.spot });
     } else {
       this.enter('fuseBurning');
-      this.bus?.emit('baltiStep', { step, by, position: this.fuseTip, fuse: BALTI.fuse });
+      this.fuseLength = between(this.random, BALTI.fuse);
+      this.bus?.emit('baltiStep', { step, by, position: this.fuseTip, fuse: this.fuseLength });
       // Everyone runs for it, the leader included.
       this.leader = null;
       for (const kid of this.kids) this.sendTo(kid, BALTI.safeRadius, BALTI.runSpeed, 'run', 'brace');
@@ -617,11 +815,9 @@ export class BaltiBlast {
     this.flight.yaw = this.restYaw;
     this.flight.launch(this.spot, this.random);
     this.enter('flying');
-    this.bus?.emit('baltiBlast', { position: this.spot, by });
-    for (const kid of this.kids) {
-      kid.wantYaw = yawToward(kid.position, this.spot);
-      this.begin(kid, 'cheer');
-    }
+    this.bus?.emit('baltiBlast', { position: this.spot, by, launch: { speed: this.flight.velocity.y, spin: this.flight.tumble } });
+    // Everyone ducks at the bang, then looks up for it (see `moveKid`).
+    for (const kid of this.kids) this.begin(kid, 'flinch');
   }
 
   private land(): void {
@@ -632,14 +828,93 @@ export class BaltiBlast {
     this.restTilt = this.flight.tilt;
     this.restYaw = this.flight.yaw;
     this.enter('cheering');
+    for (const kid of this.kids) this.begin(kid, 'cheer');
+  }
+
+  /** The nearest kid runs out for the balti; the rest drift back into the huddle. */
+  private fetch(): void {
+    this.enter('fetching');
+    let best = this.kids[0]!;
+    let bestD = Infinity;
+    for (const kid of this.kids) {
+      const d = Math.hypot(kid.position.x - this.rest.x, kid.position.z - this.rest.z);
+      if (d < bestD) {
+        best = kid;
+        bestD = d;
+      }
+    }
+    this.fetcher = best;
+    this.carrying = false;
+    this.work = 0;
+    for (const kid of this.kids) {
+      if (kid !== best) this.sendTo(kid, BALTI.gatherRadius, BALTI.walkSpeed, 'walk', 'chat');
+    }
+    // Stopping just short of it, on the side they came from.
+    const d = Math.max(1e-6, bestD);
+    const stand = Math.min(d, BALTI.carryReach + 0.1);
+    best.target.x = this.rest.x + ((best.position.x - this.rest.x) / d) * stand;
+    best.target.z = this.rest.z + ((best.position.z - this.rest.z) / d) * stand;
+    best.speed = BALTI.fetchSpeed;
+    best.then = 'crouch';
+    this.begin(best, 'run');
+  }
+
+  /** Stoop, pick it up, carry it back beside the spot and set it down; then the next round can come. */
+  private fetching(dt: number): void {
+    const kid = this.fetcher;
+    if (!kid) return this.regroup();
+    const view = kid.view;
+    if (!this.carrying) {
+      if (view.activity !== 'crouch') return;
+      kid.wantYaw = yawToward(kid.position, this.rest);
+      this.work += dt;
+      if (this.work < BALTI.pickUpTime) return;
+      this.work = 0;
+      this.carrying = true;
+      this.carryTime = 0;
+      this.pickedFrom.x = this.rest.x;
+      this.pickedFrom.y = this.rest.y;
+      this.pickedFrom.z = this.rest.z;
+      this.pickedTilt = this.restTilt;
+      this.pickedYaw = this.restYaw;
+      // Aim to stand where, holding it out in front, it ends up just beside the spot.
+      const placeX = this.spot.x + BALTI.restOffset.x;
+      const placeZ = this.spot.z + BALTI.restOffset.z;
+      const dx = placeX - kid.position.x;
+      const dz = placeZ - kid.position.z;
+      const d = Math.hypot(dx, dz);
+      const back = d > BALTI.carryReach ? BALTI.carryReach / d : 0;
+      kid.target.x = placeX - dx * back;
+      kid.target.z = placeZ - dz * back;
+      kid.speed = BALTI.walkSpeed;
+      kid.then = 'chat';
+      this.begin(kid, 'carry');
+      return;
+    }
+    this.carryTime += dt;
+    if (view.activity === 'carry') return;
+    // Arrived: set it down mouth up where it is held, and go back to the huddle.
+    const pose = this.balti;
+    this.rest.x = pose.position.x;
+    this.rest.y = this.spot.y + BALTI.restHeight;
+    this.rest.z = pose.position.z;
+    this.restTilt = 0;
+    this.restYaw = pose.yaw % TAU;
+    this.carrying = false;
+    this.fetcher = null;
+    this.regroup();
   }
 
   /** Back into the huddle; the next kids' round comes after a wait. */
   private regroup(): void {
     this.enter('ready');
     this.actor = null;
+    this.fetcher = null;
+    this.carrying = false;
     this.wait = between(this.random, BALTI.kidRoundWait);
-    for (const kid of this.kids) this.sendTo(kid, BALTI.gatherRadius, BALTI.walkSpeed, 'walk', 'chat');
+    for (const kid of this.kids) {
+      if (kid.view.activity !== 'walk') this.sendTo(kid, BALTI.gatherRadius, BALTI.walkSpeed, 'walk', 'chat');
+    }
   }
 
   private enter(phase: BaltiPhase): void {
@@ -664,7 +939,10 @@ export class BaltiBlast {
   private moveKid(kid: Kid, dt: number): void {
     const view = kid.view;
     view.activityTime += dt;
-    if (view.activity === 'walk' || view.activity === 'run') {
+    if (view.activity === 'flinch' && view.activityTime >= BALTI.flinchTime) this.begin(kid, 'watch');
+    view.tension = this.currentPhase === 'fuseBurning' ? this.fuseProgress : 0;
+    const moving = view.activity === 'walk' || view.activity === 'run' || view.activity === 'carry';
+    if (moving) {
       const dx = kid.target.x - kid.position.x;
       const dz = kid.target.z - kid.position.z;
       const distance = Math.hypot(dx, dz);
@@ -679,9 +957,13 @@ export class BaltiBlast {
         kid.wantYaw = yawToward(kid.position, kid.target);
       }
     }
-    if (view.activity !== 'walk' && view.activity !== 'run') {
-      // Standing anywhere, everyone watches the spot, or the balti once it flies.
-      const watching = this.currentPhase === 'flying' ? this.flight.position : this.spot;
+    if (!moving && kid === this.fetcher) {
+      // Stooping over the balti: eyes on it.
+      kid.wantLookUp = 0;
+    } else if (!moving) {
+      // Standing anywhere, everyone watches the spot, or the balti from the bang until it is fetched.
+      const phase = this.currentPhase;
+      const watching = phase === 'flying' ? this.flight.position : phase === 'cheering' || phase === 'fetching' ? this.balti.position : this.spot;
       const ground = Math.hypot(watching.x - kid.position.x, watching.z - kid.position.z);
       if (ground > 0.05) kid.wantYaw = yawToward(kid.position, watching);
       const height = watching.y - kid.position.y - 0.9;

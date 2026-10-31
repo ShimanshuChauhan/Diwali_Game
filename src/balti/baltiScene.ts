@@ -56,23 +56,90 @@ export function kidPose(view: KidView, t: number, proxy: { -readonly [K in keyof
       };
     }
     case 'brace': {
-      // Fingers in ears, hunched and leaning away, bouncing on the toes.
-      const jitter = Math.abs(Math.sin(t * 8)) * 0.02;
+      // Fingers in ears, bouncing on the toes: at first craning in to watch
+      // the fuse, then, as it runs down, hunching lower, leaning away and
+      // screwing the head round from it, the jiggle quickening.
+      const tension = view.tension;
+      const nerves = Math.abs(Math.sin(t * (7 + tension * 6))) * (0.015 + tension * 0.02);
+      const hunch = tension * tension;
       return {
-        bob: jitter - 0.04,
-        lean: -0.12,
-        headPitch: -0.05,
-        headYaw: Math.sin(t * 3) * 0.1,
-        leftLeg: 0.25,
-        rightLeg: 0.25,
-        leftKnee: 0.5,
-        rightKnee: 0.5,
+        bob: nerves - 0.03 - hunch * 0.12,
+        lean: 0.08 - tension * 0.3 + hunch * 0.15,
+        headPitch: 0.05 - hunch * 0.45,
+        headYaw: Math.sin(t * 3) * 0.1 * (1 - tension) + (view.look % 2 === 0 ? 0.5 : -0.5) * hunch,
+        leftLeg: 0.25 + hunch * 0.45,
+        rightLeg: 0.25 + hunch * 0.45,
+        leftKnee: 0.5 + hunch * 0.8,
+        rightKnee: 0.5 + hunch * 0.8,
         leftArm: 0.2,
         rightArm: 0.2,
         leftSpread: 1.3,
         rightSpread: 1.3,
         leftElbow: 2.4,
         rightElbow: 2.4,
+      };
+    }
+    case 'flinch': {
+      // The bang: ducking with a start, shoulders up and hands clapped over the
+      // head, jerked back from it, then straightening up again.
+      const u = Math.min(1, view.activityTime / BALTI.flinchTime);
+      const jolt = Math.sin(Math.min(1, u * 3) * Math.PI * 0.5) * Math.sqrt(1 - u);
+      return {
+        bob: -0.14 * jolt,
+        lean: 0.35 * jolt - 0.15 * (1 - jolt),
+        headPitch: -0.5 * jolt,
+        leftLeg: 0.5 * jolt,
+        rightLeg: 0.5 * jolt,
+        leftKnee: 1 * jolt,
+        rightKnee: 1 * jolt,
+        leftArm: 0.6,
+        rightArm: 0.6,
+        leftSpread: 1.1,
+        rightSpread: 1.1,
+        leftElbow: 2.3,
+        rightElbow: 2.3,
+      };
+    }
+    case 'watch': {
+      // Following it up, mouth open: half of them point at it, the others clutch
+      // their heads and bob with excitement.
+      const pointing = view.look % 2 === 0;
+      const bounce = Math.abs(Math.sin(t * 7)) * 0.03;
+      const up = Math.min(1, view.lookUp / BALTI.maxLookUp);
+      return {
+        bob: bounce,
+        lean: -0.12 * up,
+        headPitch: view.lookUp,
+        leftLeg: 0.05,
+        rightLeg: 0.05,
+        leftKnee: 0.15,
+        rightKnee: 0.15,
+        // The right arm up along the line of sight; the left loose, or both on the head.
+        rightArm: pointing ? 1.3 + view.lookUp * 1.1 : 0.5,
+        rightSpread: pointing ? 0.15 : 1.2,
+        rightElbow: pointing ? 0.1 : 2.2,
+        leftArm: pointing ? 0.15 : 0.5,
+        leftSpread: pointing ? 0.25 : 1.2,
+        leftElbow: pointing ? 0.4 : 2.2,
+      };
+    }
+    case 'carry': {
+      // Walking it back held out in front, both arms round the pail.
+      const step = Math.sin(t * 7);
+      return {
+        bob: Math.abs(Math.cos(t * 7)) * 0.025,
+        lean: -0.08,
+        headPitch: -0.1,
+        leftLeg: step * 0.45,
+        rightLeg: -step * 0.45,
+        leftKnee: Math.max(0, -step) * 0.7,
+        rightKnee: Math.max(0, step) * 0.7,
+        leftArm: 1,
+        rightArm: 1,
+        leftElbow: 0.7,
+        rightElbow: 0.7,
+        leftSpread: 0.3,
+        rightSpread: 0.3,
       };
     }
     default:
@@ -86,6 +153,19 @@ export function kidPose(view: KidView, t: number, proxy: { -readonly [K in keyof
 
 /** Brushed steel, a little worn. */
 const STEEL = '#d5d9de';
+/** Soot left by the blast inside the base, and round the rim where the smoke got out. */
+const SOOT = new THREE.Color('#1d1a17');
+/** Vertex colours, multiplying the steel: as made, and fully sooted. */
+const CLEAN = new THREE.Color(1, 1, 1);
+const STEEL_LINEAR = new THREE.Color(STEEL);
+const SOOTED = new THREE.Color(SOOT.r / STEEL_LINEAR.r, SOOT.g / STEEL_LINEAR.g, SOOT.b / STEEL_LINEAR.b);
+/** Each blast blackens it this much more, up to `MAX_SOOT`, and bulges the base out this much more, up to `MAX_DENT` metres. */
+const SOOT_PER_BLAST = 0.22;
+const MAX_SOOT = 0.75;
+const DENT_PER_BLAST = 0.006;
+const MAX_DENT = 0.02;
+/** The base's flat disc out to this radius takes the bulge. */
+const BASE_FLAT = 0.115;
 /** The sutli bomb's jute twine and the darker turns between. */
 const JUTE = '#a3804a';
 const JUTE_DARK = '#6e522c';
@@ -93,16 +173,20 @@ const FUSE_COLOUR = '#6f7b52';
 
 /**
  * A steel balti about 30 cm tall, its middle at the origin and mouth up:
- * a tapered pail with a rolled rim and a wire handle.
+ * a tapered pail with a rolled rim and a wire handle. The base has rings
+ * out to `BASE_FLAT` so it can bulge, and the pail carries vertex colours
+ * so it can blacken (see `BaltiScene.scorch`).
  */
 function baltiGeometry(): { pail: THREE.BufferGeometry; handle: THREE.BufferGeometry } {
   const h = BALTI.restHeight;
   const profile: [number, number][] = [
     [0, -h],
-    [0.115, -h],
-    [0.125, -h + 0.01],
+    [BASE_FLAT * 0.35, -h],
+    [BASE_FLAT * 0.7, -h],
+    [BASE_FLAT, -h],
+    [BALTI.baseRadius, -h + 0.01],
     [0.16, h - 0.01],
-    [0.168, h],
+    [BALTI.rimRadius, h],
     [0.162, h + 0.005],
   ];
   const pail = new THREE.LatheGeometry(
@@ -110,6 +194,7 @@ function baltiGeometry(): { pail: THREE.BufferGeometry; handle: THREE.BufferGeom
     24,
   );
   pail.computeVertexNormals();
+  pail.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(pail.getAttribute('position').count * 3).fill(1), 3));
   const handle = new THREE.TorusGeometry(0.165, 0.005, 5, 18, Math.PI).translate(0, h - 0.04, 0);
   return { pail, handle };
 }
@@ -147,6 +232,12 @@ export class BaltiScene {
   private readonly fuse: THREE.Mesh;
   private readonly geometries: THREE.BufferGeometry[] = [];
   private readonly materials: THREE.Material[] = [];
+  private readonly pail: THREE.BufferGeometry;
+  /** Each pail vertex's untouched height, for bulging the base from. */
+  private readonly baseY: Float32Array;
+  /** Blasts the balti's soot and dent show; follows `blast.blasts`. */
+  private scorched = 0;
+  private readonly mixed = new THREE.Color();
   private time = 0;
 
   constructor(options: { readonly scene: THREE.Object3D; readonly blast: BaltiBlast }) {
@@ -169,8 +260,12 @@ export class BaltiScene {
     }
 
     const steel = this.own(new THREE.MeshStandardMaterial({ color: STEEL, metalness: 0.35, roughness: 0.4, side: THREE.DoubleSide }));
+    const sooty = this.own(steel.clone());
+    sooty.vertexColors = true;
     const { pail, handle } = baltiGeometry();
-    const pailMesh = new THREE.Mesh(this.ownGeometry(pail), steel);
+    this.pail = pail;
+    this.baseY = Float32Array.from(pail.getAttribute('position').array as ArrayLike<number>);
+    const pailMesh = new THREE.Mesh(this.ownGeometry(pail), sooty);
     pailMesh.castShadow = true;
     this.balti.add(pailMesh, new THREE.Mesh(this.ownGeometry(handle), steel));
     this.balti.name = 'balti';
@@ -207,6 +302,8 @@ export class BaltiScene {
     this.balti.position.set(pose.position.x, pose.position.y, pose.position.z);
     this.balti.rotation.set(pose.tilt, pose.yaw, 0, 'YXZ');
 
+    if (this.blast.blasts !== this.scorched) this.scorch(this.blast.blasts);
+
     this.bomb.visible = this.blast.bombDown;
     const length = (BALTI.fuseReach - 0.04) * (1 - this.blast.fuseProgress);
     this.fuse.visible = length > 0.005;
@@ -219,6 +316,41 @@ export class BaltiScene {
     for (const material of this.materials) material.dispose();
     this.object.removeFromParent();
     this.object.clear();
+  }
+
+  /**
+   * Blacken and dent the balti for `blasts` bangs under it (none after a
+   * session reset): soot over the inside of the base fading up the wall,
+   * a band of it round the rim, and the base bulged out a little more each
+   * time. Rewrites the pail's attributes once per blast, never per frame.
+   */
+  private scorch(blasts: number): void {
+    this.scorched = blasts;
+    const soot = Math.min(MAX_SOOT, blasts * SOOT_PER_BLAST);
+    const dent = Math.min(MAX_DENT, blasts * DENT_PER_BLAST);
+    const h = BALTI.restHeight;
+    const position = this.pail.getAttribute('position') as THREE.BufferAttribute;
+    const colour = this.pail.getAttribute('color') as THREE.BufferAttribute;
+    const clean = CLEAN;
+    const black = SOOTED;
+    const mixed = this.mixed;
+    for (let i = 0; i < position.count; i++) {
+      const x = position.getX(i);
+      const z = position.getZ(i);
+      const r = Math.hypot(x, z);
+      const y0 = this.baseY[i * 3 + 1]!;
+      // Bulged out (down, mouth up) most at the middle of the base.
+      const onBase = y0 <= -h + 1e-6 && r <= BASE_FLAT + 1e-6;
+      position.setY(i, onBase ? y0 - dent * (1 - (r / BASE_FLAT) ** 2) : y0);
+      // Darkest on the base, fading up the wall, and again at the rim.
+      const up = (y0 + h) / (2 * h);
+      const weight = Math.max(onBase ? 1 : Math.max(0, 1 - up * 1.6), Math.max(0, (up - 0.9) * 6) * 0.6);
+      mixed.copy(clean).lerp(black, soot * weight);
+      colour.setXYZ(i, mixed.r, mixed.g, mixed.b);
+    }
+    position.needsUpdate = true;
+    colour.needsUpdate = true;
+    this.pail.computeVertexNormals();
   }
 
   private own<T extends THREE.Material>(material: T): T {

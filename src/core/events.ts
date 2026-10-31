@@ -160,10 +160,22 @@ export interface GameEvents {
     readonly position: Vec3;
     readonly fuse?: number;
   };
-  /** The bomb went off under the balti at `position`, throwing it up. */
-  baltiBlast: { readonly position: Vec3; readonly by: 'player' | 'kid' };
-  /** The falling balti hit the ground at `speed` m/s. */
-  baltiBounce: { readonly position: Vec3; readonly speed: number };
+  /**
+   * The bomb went off under the balti at `position`, throwing it up at
+   * `launch.speed` m/s, tumbling end over end at `launch.spin` rad/s.
+   */
+  baltiBlast: {
+    readonly position: Vec3;
+    readonly by: 'player' | 'kid';
+    readonly launch?: { readonly speed: number; readonly spin: number };
+  };
+  /** The falling balti hit the ground at `speed` m/s, on its rim, base or side. */
+  baltiBounce: { readonly position: Vec3; readonly speed: number; readonly contact?: 'rim' | 'base' | 'side' };
+  /**
+   * The balti is down for good: rocking still on its rim or base, or rolling
+   * away on its side at `speed` m/s, for about `duration` seconds.
+   */
+  baltiSettle: { readonly position: Vec3; readonly contact: 'rim' | 'base' | 'side'; readonly duration: number; readonly speed: number };
 }
 
 export type GameEventName = keyof GameEvents;

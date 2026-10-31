@@ -20,8 +20,11 @@ export type SoundKind =
   | 'distantWhistle'
   | 'distantFountain'
   | 'distantChakri'
+  | 'baltiFuse'
   | 'baltiBoom'
-  | 'baltiClang';
+  | 'baltiWhoosh'
+  | 'baltiClang'
+  | 'baltiRattle';
 
 export interface SoundSpec {
   /** Voice-stealing rank; see `VoicePool`. */
@@ -55,9 +58,15 @@ export const SOUNDS: Readonly<Record<SoundKind, SoundSpec>> = {
   distantWhistle: { priority: 0, gain: 0.2, refDistance: 1 },
   distantFountain: { priority: 0, gain: 0.3, refDistance: 1 },
   distantChakri: { priority: 0, gain: 0.22, refDistance: 1 },
-  // The balti blast: a bomb's boom, muffled by the steel over it, and the clatter as it lands.
-  baltiBoom: { priority: 4, gain: 1.4, refDistance: 8 },
+  // The balti blast: its fuse spitting, then dulled under the rim; the bomb's
+  // boom, muffled by the steel over it, with the steel's bang and ring; the
+  // tumbling pail's flutter; the clatter as it lands; its rattle or roll.
+  baltiFuse: { priority: 1, gain: 0.3, refDistance: 1.5 },
+  // Trimmed so the layered boom peaks and averages near the first, single-layer one.
+  baltiBoom: { priority: 4, gain: 1.05, refDistance: 8 },
+  baltiWhoosh: { priority: 0, gain: 0.14, refDistance: 3 },
   baltiClang: { priority: 2, gain: 0.5, refDistance: 3 },
+  baltiRattle: { priority: 1, gain: 0.6, refDistance: 3 },
 };
 
 /** Sustained sound a cracker makes while active; a ladi has none, only its pops. */
@@ -105,7 +114,10 @@ export const DISTANT_BOMB_DURATION = 2.2;
 export const DISTANT_SHELL_DURATION = 3;
 /** The balti's muffled boom and its ring, and one clang as it hits the ground, seconds. */
 export const BALTI_BOOM_DURATION = 2.4;
+/** A full-speed clang; softer landings ring out shorter, down to half. */
 export const BALTI_CLANG_DURATION = 0.9;
+/** A rattle or roll never plays shorter than this, seconds. */
+export const BALTI_RATTLE_MIN = 0.3;
 /** Landing this fast (m/s) clangs at full level; slower bounces are quieter. */
 export const BALTI_CLANG_FULL_SPEED = 10;
 /** Echo left ringing after a ladi's last pop, seconds. */

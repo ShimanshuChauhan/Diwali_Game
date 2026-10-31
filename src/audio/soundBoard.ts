@@ -1,3 +1,4 @@
+import { BALTI, BaltiBlast } from '../balti/baltiBlast';
 import { createGameEventBus } from '../core/events';
 import { TUNING } from '../core/tuning';
 import type { BurstPattern, CrackerType } from '../core/types';
@@ -67,6 +68,25 @@ export function createSoundBoard(parent: HTMLElement): () => void {
     });
   };
 
+  /** A whole balti round set off six metres in front, on the game's own timing. */
+  const baltiRound = (): void => {
+    const spot = { x: 0, y: 0, z: -6 };
+    const feet = { x: 0, y: 0, z: -5 };
+    const forward = { x: 0, y: 0, z: -1 };
+    const round = new BaltiBlast({ spot, bus, playerPosition: () => feet });
+    round.playerStep(feet, forward);
+    round.playerStep(feet, forward);
+    later(BALTI.coverTime, () => {
+      round.playerStep(feet, forward);
+      const timer = setInterval(() => {
+        round.update(1 / 60);
+        if (round.phase !== 'cheering') return;
+        clearInterval(timer);
+        round.dispose();
+      }, 1000 / 60);
+    });
+  };
+
   const actions: [string, () => void][] = [
     ['Fuse', () => bus.emit('fuseLit', { id: `board-${next++}`, type: 'anar', position: IN_FRONT })],
     ['Phuljhari', () => burnCracker('phuljhari')],
@@ -74,6 +94,7 @@ export function createSoundBoard(parent: HTMLElement): () => void {
     ['Chakri', () => burnCracker('chakri')],
     ['Ladi, at your feet', burnLadi],
     ['Rocket → peony', () => launchRocket('peony')],
+    ['Balti blast', baltiRound],
     ...BURST_PATTERNS.map((pattern): [string, () => void] => [
       `Burst: ${pattern}`,
       () => bus.emit('burst', { id: `board-${next++}`, position: SKY, pattern, colours: [0xffd34f] }),
