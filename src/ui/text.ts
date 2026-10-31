@@ -86,3 +86,12 @@ export const CONTROLS_HELP: readonly (readonly [string, string])[] = [
   ['Esc', 'Pause'],
   ['F3', 'Show or hide performance stats'],
 ];
+
+/** The pause panel's restart button and the inline confirm it opens. */
+export const RESTART_TEXT = {
+  button: 'Restart fresh celebration',
+  hint: 'Starts the evening over from the beginning.',
+  confirm: 'Restart the evening? Your progress resets.',
+  confirmButton: 'Restart',
+  cancelButton: 'Cancel',
+} as const;

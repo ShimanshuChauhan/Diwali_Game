@@ -246,7 +246,7 @@ describe('sweets — Hinglish reactions, distinct per member', () => {
       for (const id of FAMILY_MEMBERS) {
         for (const { text } of linesOf(cause, id)) {
           expect(text).toMatch(hindi);
-          expect(text).toMatch(/^[\x20-\x7e—]+$/);
+          expect(text).toMatch(/^[\x20-\x7e]+$/);
           expect(text.length).toBeLessThanOrEqual(64);
         }
       }

@@ -930,7 +930,7 @@ describe('gift prompts', () => {
     expect(homePromptLines(host('uncle'), { hands: null, handingOver: true })).toEqual([]);
     const neighbourTray: HomeInteractable = { kind: 'tray', id: 'neighbourHome', position: neighbourLayout.hosts.aunty.position };
     expect(homePromptLines(neighbourTray, { hands: null, handingOver: true })).toEqual([
-      { text: 'Uncle is handing you the return gift — just a moment', blocked: true },
+      { text: 'Uncle is handing you the return gift, just a moment', blocked: true },
     ]);
     expect(homePromptLines(host('aunty'), { hands: null, exchanged: true })).toEqual([
       { text: 'E: Greet Aunty', blocked: false },

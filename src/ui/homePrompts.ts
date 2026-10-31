@@ -98,7 +98,7 @@ export const AARTI_REJECTION_TEXT: Readonly<Record<AartiRejection, string | null
   alreadyParticipating: 'You are already taking part',
   notParticipating: 'Join aarti at the puja corner first',
   unknownSong: 'That aarti is not available',
-  songUnavailable: 'The aarti recording is not ready — try again in a moment',
+  songUnavailable: 'The aarti recording is not ready: try again in a moment',
   wrongLocation: 'Aarti happens at the puja corner at home',
 };
 

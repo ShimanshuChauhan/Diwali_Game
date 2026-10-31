@@ -171,3 +171,34 @@ export function segmented(doc: Document, label: string, options: readonly Segmen
   });
   return { root, inputs };
 }
+
+export interface ConfirmParts {
+  /** `.ds-confirm`, a labelled group; toggle `hidden` to show it. */
+  readonly root: HTMLElement;
+  readonly confirm: HTMLButtonElement;
+  readonly cancel: HTMLButtonElement;
+}
+
+let confirmGroups = 0;
+
+/**
+ * An inline confirm: a question and two buttons, Cancel then the danger
+ * action. Shown in place of the button that asked, so no browser dialog.
+ */
+export function confirmPrompt(
+  doc: Document,
+  message: string,
+  labels: { readonly confirm: string; readonly cancel: string },
+): ConfirmParts {
+  const root = el(doc, 'div', 'ds-confirm');
+  root.setAttribute('role', 'group');
+  const text = el(doc, 'p', 'ds-confirm__message', message);
+  text.id = `ds-confirm-${++confirmGroups}`;
+  root.setAttribute('aria-labelledby', text.id);
+  const actions = el(doc, 'div', 'ds-confirm__actions');
+  const cancel = button(doc, labels.cancel, { variant: 'secondary' });
+  const confirm = button(doc, labels.confirm, { variant: 'danger' });
+  actions.append(cancel, confirm);
+  root.append(text, actions);
+  return { root, confirm, cancel };
+}

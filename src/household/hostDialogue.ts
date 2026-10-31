@@ -19,7 +19,7 @@ export const HOST_DIALOGUE: DialogueCatalogue = {
       { text: 'Phir aa gaye? Achha kiya! Chhotu ne patakhe chhode ki nahi abhi tak?', gesture: 'tease' },
     ],
     aunty: [
-      { text: 'Beta, kaju katli khao — maine khud banayi hai!', gesture: 'offerMithai' },
+      { text: 'Beta, kaju katli khao, maine khud banayi hai!', gesture: 'offerMithai' },
       { text: 'Mithai liye bina nahi jaane dungi! Ek ladoo toh lo.', gesture: 'offerMithai' },
       { text: 'Mummy ko bolna besan ladoo ki recipe bhej rahi hoon. Lo, chakh ke batao!', gesture: 'offerMithai' },
     ],
@@ -42,11 +42,11 @@ export const HOST_DIALOGUE_AFTER_AARTI: DialogueCatalogue = {
   welcome: {
     uncle: [
       { text: 'Aao beta! Ghar pe aarti ho gayi? Sabko hamari taraf se Shubh Deepawali kehna.', gesture: 'namaste' },
-      { text: 'Arre, aarti ke baad aaye ho — Papa ko kehna kal chai pe aayenge.', gesture: 'wave' },
+      { text: 'Arre, aarti ke baad aaye ho. Papa ko kehna kal chai pe aayenge.', gesture: 'wave' },
       { text: 'Aao bachche! Dadi ne aashirwad diya? Ab hamara bhi le lo.', gesture: 'blessing' },
     ],
     aunty: [
-      { text: 'Aarti ho gayi na? Ab toh mithai banti hai — lo beta!', gesture: 'offerMithai' },
+      { text: 'Aarti ho gayi na? Ab toh mithai banti hai. Lo beta!', gesture: 'offerMithai' },
       { text: 'Ghar pe bhi mithai khayi hogi, par meri wali alag hai. Lo!', gesture: 'offerMithai' },
     ],
   },

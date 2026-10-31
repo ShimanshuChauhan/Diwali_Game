@@ -35,7 +35,7 @@ export interface LocationsOptions {
 /** Player-facing wording for a refused door. */
 export const TRANSITION_REJECTION_TEXT: Readonly<Record<TransitionRejection, string>> = {
   transitionInProgress: 'Just a moment…',
-  carryingPlate: 'The plate stays at home — put it back on the sweets table first',
+  carryingPlate: 'The plate stays at home: put it back on the sweets table first',
   participatingInAarti: 'Leave aarti and put down the thali first',
   unknownDoorway: 'That door does not open',
   wrongLocation: 'That door is not here',

@@ -607,5 +607,5 @@ async function boot(): Promise<void> {
 boot().catch((error: unknown) => {
   console.error(error);
   const status = document.getElementById('status');
-  if (status) status.textContent = 'Failed to start — see console.';
+  if (status) status.textContent = 'Failed to start. See the console.';
 });

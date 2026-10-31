@@ -5,7 +5,7 @@ import { QUALITY_LEVELS, qualityProfile } from '../src/core/quality';
 import type { QualityLevel } from '../src/core/types';
 import { controlsList } from '../src/ui/design/components';
 import { createPauseMenu, RadioGroupSelect } from '../src/ui/pauseMenu';
-import { CONTROLS_HELP, QUALITY_LABELS } from '../src/ui/text';
+import { CONTROLS_HELP, QUALITY_LABELS, RESTART_TEXT } from '../src/ui/text';
 import { byClass, byTag, FakeDocument, FakeElement, findAll, keyEvent } from './fakeDom';
 
 function audioSettings(): AudioSettings & { muted: boolean; masterGain: number } {
@@ -117,12 +117,14 @@ describe('pause menu: showing and hiding', () => {
     expect(doc.activeElement).toBe(doc.body);
   });
 
-  it('Resume and Restart call their handlers', () => {
+  it('Resume calls its handler; Restart only after the confirm', () => {
     const { bus, onResume, onRestart, one } = setup();
     bus.emit('paused', { reason: 'user' });
     one('pause-menu__resume').click();
     expect(onResume).toHaveBeenCalledOnce();
     one('pause-menu__restart').click();
+    expect(onRestart).not.toHaveBeenCalled();
+    one('pause-menu__confirm-restart').click();
     expect(onRestart).toHaveBeenCalledOnce();
   });
 
@@ -135,6 +137,106 @@ describe('pause menu: showing and hiding', () => {
     expect(overlay.hidden).toBe(true);
     resume.click();
     expect(onResume).not.toHaveBeenCalled();
+  });
+});
+
+describe('pause menu: restart confirm', () => {
+  function asking() {
+    const menu = setup();
+    menu.bus.emit('paused', { reason: 'user' });
+    menu.one('pause-menu__restart').click();
+    return menu;
+  }
+
+  it('asks inline instead of restarting, with focus on Cancel', () => {
+    const { doc, onRestart, one } = asking();
+    expect(onRestart).not.toHaveBeenCalled();
+    const confirm = one('pause-menu__confirm');
+    expect(confirm.hidden).toBe(false);
+    expect(confirm.getAttribute('role')).toBe('group');
+    expect(one('pause-menu__footer').hidden).toBe(true);
+    expect(byClass(confirm, 'ds-confirm__message')[0]!.textContent).toBe(RESTART_TEXT.confirm);
+    expect(confirm.getAttribute('aria-labelledby')).toBe(byClass(confirm, 'ds-confirm__message')[0]!.id);
+
+    const cancel = one('pause-menu__cancel');
+    const restart = one('pause-menu__confirm-restart');
+    expect(cancel.textContent).toBe('Cancel');
+    expect(cancel.classList.contains('ds-btn--secondary')).toBe(true);
+    expect(cancel.dataset.action).toBe('cancel-restart');
+    expect(restart.textContent).toBe('Restart');
+    expect(restart.classList.contains('ds-btn--danger')).toBe(true);
+    expect(restart.dataset.action).toBe('confirm-restart');
+    expect(doc.activeElement).toBe(cancel);
+  });
+
+  it('Cancel backs out and returns focus to Restart', () => {
+    const { doc, onRestart, one } = asking();
+    one('pause-menu__cancel').click();
+    expect(onRestart).not.toHaveBeenCalled();
+    expect(one('pause-menu__confirm').hidden).toBe(true);
+    expect(one('pause-menu__footer').hidden).toBe(false);
+    expect(doc.activeElement).toBe(one('pause-menu__restart'));
+  });
+
+  it('Escape backs out too, without reaching the game', () => {
+    const { doc, onRestart, one } = asking();
+    const game = vi.fn();
+    doc.addEventListener('keydown', game);
+    const escape = keyEvent('keydown', 'Escape');
+    one('pause-menu__cancel').dispatchEvent(escape);
+    expect(escape.defaultPrevented).toBe(true);
+    expect(game).not.toHaveBeenCalled();
+    expect(onRestart).not.toHaveBeenCalled();
+    expect(one('pause-menu__confirm').hidden).toBe(true);
+    expect(doc.activeElement).toBe(one('pause-menu__restart'));
+  });
+
+  it('confirming restarts once and puts the footer back', () => {
+    const { onRestart, one } = asking();
+    one('pause-menu__confirm-restart').click();
+    expect(onRestart).toHaveBeenCalledOnce();
+    expect(one('pause-menu__confirm').hidden).toBe(true);
+    expect(one('pause-menu__footer').hidden).toBe(false);
+  });
+
+  it('closing or resuming the menu resets the confirm', () => {
+    const { bus, doc, one } = asking();
+    bus.emit('resumed', {});
+    expect(one('pause-menu__confirm').hidden).toBe(true);
+    bus.emit('paused', { reason: 'user' });
+    expect(one('pause-menu__footer').hidden).toBe(false);
+    expect(doc.activeElement).toBe(one('pause-menu__resume'));
+
+    one('pause-menu__restart').click();
+    bus.emit('sessionStarted', {});
+    expect(one('pause-menu__confirm').hidden).toBe(true);
+    expect(one('pause-menu__footer').hidden).toBe(false);
+  });
+
+  it('wraps Tab between Resume and the confirm\'s Restart while asking', () => {
+    const { doc, one } = asking();
+    const resume = one('pause-menu__resume');
+    const restart = one('pause-menu__confirm-restart');
+
+    restart.focus();
+    const forward = keyEvent('keydown', 'Tab');
+    restart.dispatchEvent(forward);
+    expect(forward.defaultPrevented).toBe(true);
+    expect(doc.activeElement).toBe(resume);
+
+    const back = keyEvent('keydown', 'Tab', { shiftKey: true });
+    resume.dispatchEvent(back);
+    expect(back.defaultPrevented).toBe(true);
+    expect(doc.activeElement).toBe(restart);
+  });
+
+  it('Escape does nothing special when not asking', () => {
+    const { bus, doc, one } = setup();
+    bus.emit('paused', { reason: 'user' });
+    const escape = keyEvent('keydown', 'Escape');
+    one('pause-menu__resume').dispatchEvent(escape);
+    expect(escape.defaultPrevented).toBe(false);
+    expect(doc.activeElement).toBe(one('pause-menu__resume'));
   });
 });
 
