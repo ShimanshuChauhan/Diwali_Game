@@ -382,6 +382,68 @@ class VoiceBuilder {
     }
   }
 
+  /**
+   * The steel balti landing on stone. A pressed rim is never quite flat,
+   * so it comes down at a few points in quick succession (`strikes`, each
+   * a time and a weight), and every strike rings the same shell again
+   * rather than starting a fresh one. Where it lands sets which modes
+   * sound (a strike near a mode's node barely moves it), so no two
+   * landings ring alike. The shell's main modes sit `body` lower than the
+ * blast's ring (that rings the base; this, the whole pail). Above them sits a crowd of thin,
+   * quick ones that make steel sound like steel and not a bell, and a hard
+   * hit bends the low modes sharp for a moment before they settle.
+   */
+  clank(strikes: readonly (readonly [number, number])[], peak: number, decay: number, bright: number, hard: number): void {
+    if (strikes.length === 0) return;
+    const first = strikes[0]![0];
+    const where = Math.random() * Math.PI;
+    const modes: { frequency: number; level: number; decay: number }[] = BALTI_MODES.map((mode) => ({ ...mode }));
+    for (let k = 0; k < BALTI_CLANK.crowd; k++) {
+      const frequency = BALTI_CLANK.crowdFrom * Math.pow(BALTI_CLANK.crowdTo / BALTI_CLANK.crowdFrom, Math.random());
+      modes.push({ frequency, level: BALTI_CLANK.crowdLevel * (0.5 + Math.random()), decay: 0.05 + Math.random() * 0.1 });
+    }
+    const last = modes.length - 1;
+    for (let k = 0; k <= last; k++) {
+      const mode = modes[k]!;
+      const tilt = Math.max(0.05, 1 + (bright - 1) * Math.min(1, mode.frequency / 4200));
+      const struck = 0.3 + 0.7 * Math.abs(Math.sin((k + 1) * where));
+      const top = peak * mode.level * tilt * struck;
+      const fade = Math.max(0.03, decay * mode.decay);
+      const stop = this.until(strikes[strikes.length - 1]![0] + fade * 1.5);
+      if (top < 0.0003 || stop <= first + 0.004) continue;
+      const level = this.gain(0);
+      level.gain.setValueAtTime(0, this.t0);
+      for (const [at, weight] of strikes) {
+        level.gain.setTargetAtTime(top * weight, at, 0.0006);
+        level.gain.setTargetAtTime(0, at + 0.003, fade / 4.6);
+      }
+      level.connect(this.output);
+      // A landing rings the whole heavy shell, lower than the blast's quick ring off the base.
+      const f = mode.frequency * (k < BALTI_MODES.length ? BALTI_CLANK.body : 1) * (0.985 + Math.random() * 0.03);
+      const pair = k < BALTI_SPLIT_MODES ? 2 : 1;
+      for (let j = 0; j < pair; j++) {
+        const split = pair === 2 ? (j === 0 ? -1 : 1) * f * BALTI_MODE_SPLIT : 0;
+        const osc = this.osc('sine', f + split, first, stop);
+        if (k < BALTI_SPLIT_MODES && hard > 0.3) {
+          osc.frequency.setValueAtTime((f + split) * (1 + BALTI_CLANK.bend * hard), first);
+          osc.frequency.exponentialRampToValueAtTime(f + split, this.until(first + 0.08));
+        }
+        osc.connect(level);
+      }
+    }
+    // The rough edge round the ring: noise caught in the loudest modes.
+    for (const k of [1, 2, 3]) {
+      const sizzle = this.gain(0);
+      sizzle.gain.setValueAtTime(0, this.t0);
+      for (const [at, weight] of strikes) {
+        sizzle.gain.setTargetAtTime(BALTI_CLANK.sizzle * peak * weight * bright, at, 0.0006);
+        sizzle.gain.setTargetAtTime(0, at + 0.003, 0.025);
+      }
+      const stop = this.until(strikes[strikes.length - 1]![0] + 0.2);
+      this.chain(this.noise(this.bank.white, first, stop), this.filter('bandpass', BALTI_MODES[k]!.frequency * BALTI_CLANK.body, 18), sizzle, this.output);
+    }
+  }
+
   /** A short burst of filtered noise peaking at `peak` from `at`, gone after `decay`. */
   burst(buffer: AudioBuffer, at: number, peak: number, decay: number, filter: BiquadFilterNode, into: AudioNode = this.output): void {
     const stop = this.until(at + decay + 0.02);
@@ -844,21 +906,40 @@ const RECIPES: Record<SoundKind, Recipe> = {
     const s = Math.min(1, Math.max(0, p.strength ?? 1));
     const tone = BALTI_CLANG[p.contact ?? 'rim'];
     const ringFor = Math.max(0.15, b.end - at - 0.04);
-    b.burst(b.bank.white, at, tone.click * (0.5 + 0.5 * s), 0.02 + 0.025 * s, b.filter('bandpass', tone.clickAt, 0.9));
-    b.burst(b.bank.brown, at, tone.thud * (0.4 + 0.6 * s), 0.06 + 0.06 * s, b.filter('lowpass', 420, 0.7));
-    b.steel(at + 0.001, 0.24, ringFor * tone.decay * (0.5 + 0.5 * s), tone.bright * (0.7 + 0.3 * s));
-    if (tone.second && s > 0.2) {
-      const later = at + 0.02 + Math.random() * 0.045;
-      b.burst(b.bank.white, later, tone.click * 0.45 * s, 0.02, b.filter('bandpass', tone.clickAt * 0.8, 0.9));
+
+    // The rim (or base, or flank) coming down at a few points, the first the hardest.
+    const [fewest, most] = tone.strikes;
+    const count = s < 0.25 ? 1 : fewest + Math.floor(Math.random() * (most - fewest + 1));
+    const strikes: [number, number][] = [];
+    let when = at;
+    for (let k = 0; k < count; k++) {
+      const weight = k === 0 ? 1 : (0.3 + 0.45 * Math.random()) * Math.pow(0.75, k - 1);
+      strikes.push([when, weight]);
+      when = b.until(when + 0.004 + Math.random() * tone.spread);
     }
+    for (const [time, weight] of strikes) {
+      // Steel on stone: a hard, bright tick at every point of contact.
+      b.burst(b.bank.white, time, tone.click * weight * (0.5 + 0.5 * s), 0.006 + 0.01 * s, b.filter('highpass', tone.clickAt, 0.7));
+    }
+    b.clank(strikes, 0.24 * (0.6 + 0.4 * s), ringFor * tone.decay * (0.5 + 0.5 * s), tone.bright * (0.7 + 0.3 * s), s);
+
+    // The thud: the pail's weight meeting the ground, low and quick.
+    b.burst(b.bank.brown, at, tone.thud * (0.4 + 0.6 * s), 0.05 + 0.05 * s, b.filter('lowpass', 380, 0.7));
+    const knock = b.gain(0);
+    knock.gain.setValueAtTime(0.0001, b.t0);
+    b.hit(knock.gain, tone.thud * 0.9 * s, at, 0.14);
+    const low = b.osc('sine', 120, at, b.until(at + 0.18));
+    low.frequency.exponentialRampToValueAtTime(55, b.until(at + 0.15));
+    b.chain(low, knock, b.output);
+
     if (tone.handle) {
-      // The wire handle clinking against the pail.
+      // The wire handle clinking against the pail, a beat behind it.
       for (let k = 0; k < 3; k++) {
-        const when = at + 0.008 + Math.random() * 0.09;
         const ping = b.gain(0);
+        const at2 = at + 0.012 + Math.random() * 0.1;
         ping.gain.setValueAtTime(0.0001, b.t0);
-        b.hit(ping.gain, 0.05 * (0.5 + s), when, 0.06);
-        b.chain(b.osc('sine', 5200 + Math.random() * 2200, when, b.until(when + 0.07)), ping, b.output);
+        b.hit(ping.gain, 0.05 * (0.5 + s), at2, 0.05);
+        b.chain(b.osc('square', 2600 + Math.random() * 1800, at2, b.until(at2 + 0.06)), b.filter('bandpass', 4200, 2), ping, b.output);
       }
     }
     // A scrape of grit under it.
@@ -951,12 +1032,36 @@ const BALTI_MODE_SPLIT = 0.004;
 
 /** How each way of landing sounds: click level and centre, thud, ring brightness and length, and extras. */
 const BALTI_CLANG: Readonly<
-  Record<BaltiContact, { click: number; clickAt: number; thud: number; bright: number; decay: number; second?: boolean; handle?: boolean }>
+  Record<
+    BaltiContact,
+    {
+      click: number;
+      clickAt: number;
+      thud: number;
+      bright: number;
+      decay: number;
+      /** How many points it comes down on, fewest to most, and the most seconds between them. */
+      strikes: readonly [number, number];
+      spread: number;
+      handle?: boolean;
+    }
+  >
 > = {
-  rim: { click: 0.55, clickAt: 4200, thud: 0.15, bright: 1.3, decay: 1, second: true },
-  base: { click: 0.4, clickAt: 1800, thud: 0.6, bright: 0.45, decay: 0.45 },
-  side: { click: 0.45, clickAt: 2600, thud: 0.35, bright: 0.85, decay: 0.6, handle: true },
+  // On the rolled rim: a quick chatter of strikes round the circle, bright and long.
+  rim: { click: 0.55, clickAt: 3800, thud: 0.15, bright: 1.3, decay: 1, strikes: [2, 4], spread: 0.022 },
+  // Flat on the base: one slap, maybe a second, dull and choked.
+  base: { click: 0.4, clickAt: 1600, thud: 0.65, bright: 0.45, decay: 0.4, strikes: [1, 2], spread: 0.01 },
+  // On its flank: rim and base land a moment apart, then the handle.
+  side: { click: 0.45, clickAt: 2400, thud: 0.4, bright: 0.85, decay: 0.6, strikes: [2, 3], spread: 0.04, handle: true },
 };
+
+/**
+ * The landing's extra colour (see `clank`): how many thin, quick modes
+ * crowd above the main ones and over what span, how loud they are, how
+ * loud the noise round the ring is, and how sharp a hard hit bends the
+ * low modes.
+ */
+const BALTI_CLANK = { body: 0.72, crowd: 10, crowdFrom: 1300, crowdTo: 7500, crowdLevel: 0.22, sizzle: 0.5, bend: 0.012 } as const;
 
 /** Fractions of the fuse: its burning tip goes in under the rim, then is well inside. */
 const BALTI_FUSE_COVERED = [0.45, 0.85] as const;
