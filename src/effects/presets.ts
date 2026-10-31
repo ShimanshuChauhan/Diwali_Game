@@ -571,7 +571,46 @@ export interface BurstLook {
    * white; capped stars stay in the burst's colours and bloom adds the glow.
    */
   readonly starCap: number;
+  /**
+   * Multiplier on star and tail sprite size. Smaller, finer stars with their
+   * streaks read like the anar's sparks rather than soft blobs, and overlap
+   * less, so they can burn brighter before the shell washes out.
+   */
+  readonly starSize: number;
+  /** Least flicker a burst star has, so the shell shimmers as it burns (anar: 0.45). */
+  readonly starFlicker: number;
+  /** Multiplier on star gravity: stars sag and fall as they burn out, like the anar's embers. */
+  readonly droop: number;
+  /** Stars burn out up to this fraction of their life early, so the shell goes out star by star. */
+  readonly lifeJitter: number;
+  /**
+   * How far the end of each star's tail cools to a gold-orange ember, 0–1:
+   * a coloured head trailing burning charcoal, as the anar's sparks cool.
+   */
+  readonly tailEmber: number;
+  /** Crackling pops per second across a fading shell (`BURST_CRACKLE`), 0 = none. */
+  readonly crackle: number;
 }
+
+/**
+ * Tiny white-hot pops dotted over a burst shell as its stars burn out, like
+ * the crackle at an anar's crown. Times are fractions of the stars' life.
+ */
+export const BURST_CRACKLE = {
+  /** Sparks per pop at a count scale of 1. */
+  count: 5,
+  /** The pops run from `start` to `end` of the stars' mean life. */
+  start: 0.4,
+  end: 0.95,
+  speed: { min: 1.5, max: 4 },
+  life: { min: 0.05, max: 0.14 },
+  size: 0.32,
+  colour: 0xfff4e0,
+  brightness: 1.6,
+} as const;
+
+/** The gold an ember tail starts at and the dark orange it cools to. */
+export const BURST_EMBER = { hot: 0xffb04a, cool: 0xb0400c } as const;
 
 /** The burst light never sinks below this height, so it stays above the rooftops. */
 export const BURST_LIGHT_FLOOR = 14;
@@ -591,9 +630,16 @@ export const BURST_LOOKS: Readonly<Record<QualityLevel, BurstLook>> = {
     brightness: 1,
     tailStretch: 1,
     starCap: 0,
+    starSize: 1,
+    starFlicker: 0,
+    droop: 1,
+    lifeJitter: 0,
+    tailEmber: 0,
+    crackle: 0,
   },
   // A coloured flash that visibly lights the lane, rooftops and courtyard,
-  // with a short glow while the shell is at its brightest.
+  // with a short glow while the shell is at its brightest. Finer, shimmering
+  // stars trailing ember tails sag as they burn out, crackling as they go.
   medium: {
     peak: 3000,
     range: 80,
@@ -604,13 +650,20 @@ export const BURST_LOOKS: Readonly<Record<QualityLevel, BurstLook>> = {
     glowDuration: 1.4,
     sky: 0,
     skyDuration: 0,
-    brightness: 0.6,
+    brightness: 0.7,
     tailStretch: 1.15,
     starCap: 1.4,
+    starSize: 0.75,
+    starFlicker: 0.35,
+    droop: 1.25,
+    lifeJitter: 0.15,
+    tailEmber: 0.45,
+    crackle: 10,
   },
   // A strong flash, then a softer, wider glow in the burst colour that fades
   // with the sparks, washing over house fronts and the ground; the sky and
-  // everything under it lift towards the burst colour too.
+  // everything under it lift towards the burst colour too. The stars are the
+  // finest and longest-tailed, burn out the most raggedly and crackle hardest.
   high: {
     peak: 1300,
     range: 110,
@@ -621,9 +674,15 @@ export const BURST_LOOKS: Readonly<Record<QualityLevel, BurstLook>> = {
     glowDuration: 2.6,
     sky: 0.12,
     skyDuration: 1.8,
-    brightness: 0.45,
+    brightness: 0.55,
     tailStretch: 1.4,
     starCap: 1.4,
+    starSize: 0.7,
+    starFlicker: 0.4,
+    droop: 1.4,
+    lifeJitter: 0.2,
+    tailEmber: 0.55,
+    crackle: 16,
   },
 };
 
@@ -653,6 +712,11 @@ export interface PatternShape {
   readonly tailStep?: number;
   /** Stars twinkle hard as they fade (glitter). */
   readonly glitter?: boolean;
+  /**
+   * A round shell that crackles as it fades, on looks with `crackle`.
+   * Flat shapes (ring, heart) and armed ones (palm) would show pops between their lines.
+   */
+  readonly crackle?: boolean;
 }
 
 export interface BreakSpec {
@@ -679,6 +743,7 @@ export const PATTERN_SHAPES: Readonly<Record<BurstPattern, PatternShape>> = {
     armLift: 0,
     planar: false,
     pistil: 0.3,
+    crackle: true,
   },
   ring: {
     countScale: 0.7,
@@ -703,6 +768,7 @@ export const PATTERN_SHAPES: Readonly<Record<BurstPattern, PatternShape>> = {
     tailCount: 7,
     tailStep: 0.07,
     glitter: true,
+    crackle: true,
   },
   crossette: {
     countScale: 0.3,
@@ -715,6 +781,7 @@ export const PATTERN_SHAPES: Readonly<Record<BurstPattern, PatternShape>> = {
     planar: false,
     tailCount: 2,
     breaks: { stars: 12, delay: 0.75, sparks: 32, speed: 8, starSize: 1 },
+    crackle: true,
   },
   palm: {
     countScale: 0.7,

@@ -3,6 +3,8 @@ import type { BurstPattern } from '../core/types';
 import { FlashPool, SkyGlow } from './flashPool';
 import { BURST_STAR, GRAVITY, ParticlePool, SPARK, createParticleSpec } from './particlePool';
 import {
+  BURST_CRACKLE,
+  BURST_EMBER,
   BURST_LIGHT_FLOOR,
   BURST_LOOKS,
   PATTERN_SHAPES,
@@ -131,6 +133,12 @@ const GLITTER_FLICKER = 0.85;
 const PISTIL_SPEED = 0.45;
 
 /**
+ * A look's droop never pulls stars harder than this; patterns already this
+ * heavy (willow) hang as authored instead of dropping out of the sky.
+ */
+const MAX_STAR_GRAVITY = 0.9;
+
+/**
  * Particles a sky burst of `pattern` spawns at once: each star plus its
  * tail, the pistil shell, the core sprite and any crossette stars.
  */
@@ -165,6 +173,8 @@ export class FireworksEngine {
   private readonly scratch = new Float32Array(3);
   private readonly axisU = new Float32Array(3);
   private readonly axisW = new Float32Array(3);
+  /** `BURST_EMBER` as linear rgb: hot, then cool. */
+  private readonly ember = new Float32Array(6);
   /** Crossette stars in flight: xyz + velocity, packed in `[0, breakCount)`. */
   private readonly breakMotion: Float32Array;
   private readonly breakTimers: Float32Array;
@@ -185,6 +195,8 @@ export class FireworksEngine {
     this.matte = new ParticlePool(Math.max(1, Math.ceil(options.particleCapacity * MATTE_SHARE)), this.random);
     this.particleBudget = options.particleCapacity;
     this.flashes = new FlashPool(options.flashCapacity);
+    writeLinear(BURST_EMBER.hot, this.ember, 0);
+    writeLinear(BURST_EMBER.cool, this.ember, 3);
     for (let i = 0; i < options.emitterCapacity; i++) {
       this.emitters.push({
         inUse: false,
@@ -449,7 +461,10 @@ export class FireworksEngine {
       emitter.x += emitter.vx * dt;
       emitter.y += emitter.vy * dt;
       emitter.z += emitter.vz * dt;
-      if (!emitter.emitting) continue;
+      if (!emitter.emitting) {
+        if (emitter.shape) this.burstCrackle(i, emitter, emitter.shape, dt);
+        continue;
+      }
       if (emitter.preset.wander) this.wander(emitter, emitter.preset.wander, dt);
       this.emitStream(i, emitter, dt);
     }
@@ -789,6 +804,77 @@ export class FireworksEngine {
     }
   }
 
+  /** Star gravity for `shape` under the current look's droop. */
+  private starGravity(shape: PatternShape): number {
+    const droop = this.look.droop;
+    if (droop <= 1) return shape.gravity;
+    return Math.max(shape.gravity, Math.min(MAX_STAR_GRAVITY, shape.gravity * droop));
+  }
+
+  /**
+   * Crackle over a fading burst shell (Medium/High): tiny white-hot pops
+   * dotted where its stars are, as they burn out, like an anar's crown. The
+   * stars aren't tracked one by one, so each pop lands on the shell's mean
+   * flight: out from the centre, slowed by drag and sagging under gravity.
+   */
+  private burstCrackle(index: number, emitter: EmitterSlot, shape: PatternShape, dt: number): void {
+    emitter.age += dt;
+    const rate = this.look.crackle;
+    if (rate <= 0 || !shape.crackle) return;
+    const crackle = BURST_CRACKLE;
+    const preset = emitter.preset;
+    const life = ((preset.life.min + preset.life.max) / 2) * shape.lifeScale;
+    const t = emitter.age;
+    if (t < crackle.start * life || t > crackle.end * life) return;
+    emitter.crackleCarry += rate * dt;
+    const pops = Math.floor(emitter.crackleCarry);
+    emitter.crackleCarry -= pops;
+    if (pops <= 0) return;
+
+    const drag = Math.max(1e-3, shape.drag);
+    const spent = (1 - Math.exp(-drag * t)) / drag;
+    const reach = ((preset.speed.min + preset.speed.max) / 2) * shape.speedScale * spent;
+    const sag = ((GRAVITY * this.starGravity(shape)) / drag) * (t - spent);
+    const sparks = Math.max(2, Math.round(crackle.count * this.countScale));
+    const size = crackle.size * this.look.starSize;
+    const hot = this.axisW;
+    writeLinear(crackle.colour, hot, 0);
+    const dir = this.scratch;
+    const spec = this.spec;
+    for (let p = 0; p < pops; p++) {
+      randomUnit(this.random, dir, 0);
+      // Somewhere among the main shell's stars, which fly at 80–100% of its speed.
+      const r = reach * lerp(0.8, 1.05, this.random());
+      const cx = emitter.x + dir[0]! * r;
+      const cy = emitter.y + dir[1]! * r - sag;
+      const cz = emitter.z + dir[2]! * r;
+      for (let k = 0; k < sparks; k++) {
+        randomUnit(this.random, dir, 0);
+        const speed = lerp(crackle.speed.min, crackle.speed.max, this.random());
+        this.fillSpec(index, emitter, preset, dir[0]! * speed, dir[1]! * speed, dir[2]! * speed, 0, 1);
+        spec.x = cx;
+        spec.y = cy;
+        spec.z = cz;
+        spec.life = lerp(crackle.life.min, crackle.life.max, this.random());
+        spec.r0 = hot[0]! * crackle.brightness;
+        spec.g0 = hot[1]! * crackle.brightness;
+        spec.b0 = hot[2]! * crackle.brightness;
+        spec.r1 = spec.r0 * 0.3;
+        spec.g1 = spec.g0 * 0.25;
+        spec.b1 = spec.b0 * 0.15;
+        spec.size0 = size;
+        spec.size1 = size * 0.3;
+        spec.gravity = 0.3;
+        spec.drag = 3;
+        spec.flicker = 0.4;
+        // Shaded as burst stars, so the bloom levels' cap applies to them too.
+        spec.style = BURST_STAR;
+        this.spawn(emitter);
+      }
+    }
+    spec.style = SPARK;
+  }
+
   private emitBurst(index: number, emitter: EmitterSlot, shape: PatternShape | null): void {
     const preset = emitter.preset;
     const countScale = shape ? shape.countScale : 1;
@@ -884,13 +970,19 @@ export class FireworksEngine {
 
   private spawnStarAndTail(emitter: EmitterSlot, preset: EmitterPreset, shape: PatternShape | null): void {
     const spec = this.spec;
+    const look = this.look;
     if (shape) {
       spec.drag = shape.drag;
-      spec.gravity = shape.gravity;
+      spec.gravity = this.starGravity(shape);
       if (shape.glitter) spec.flicker = GLITTER_FLICKER;
+      else if (spec.flicker < look.starFlicker) spec.flicker = look.starFlicker;
+      spec.size0 *= look.starSize;
+      spec.size1 *= look.starSize;
+      // Stars burn out one by one rather than all together, never later than authored.
+      if (look.lifeJitter > 0) spec.life *= 1 - look.lifeJitter * this.random();
     }
     // Sky-burst stars (those with a shape) follow the quality's burst look.
-    const brightness = (preset.brightness ?? 1) * (shape ? this.look.brightness : 1);
+    const brightness = (preset.brightness ?? 1) * (shape ? look.brightness : 1);
     spec.r0 *= brightness;
     spec.g0 *= brightness;
     spec.b0 *= brightness;
@@ -914,23 +1006,27 @@ export class FireworksEngine {
     const r1 = spec.r1;
     const g1 = spec.g1;
     const b1 = spec.b1;
-    const step = (shape?.tailStep ?? tail.step) * (shape ? this.look.tailStretch : 1);
+    const step = (shape?.tailStep ?? tail.step) * (shape ? look.tailStretch : 1);
+    // The tail cools from the star's colour towards a gold ember that darkens as it dies.
+    const ember = shape ? look.tailEmber : 0;
+    const e = this.ember;
     for (let k = 1; k <= count; k++) {
       const slow = Math.max(0.2, 1 - step * k);
       const dim = Math.pow(tail.fade, k);
       const shrink = Math.pow(0.85, k);
+      const cool = (ember * k) / count;
       spec.vx = vx * slow;
       spec.vy = vy * slow;
       spec.vz = vz * slow;
       spec.life = life * (1 - 0.06 * k);
       spec.size0 = size0 * shrink;
       spec.size1 = size1 * shrink;
-      spec.r0 = r0 * dim;
-      spec.g0 = g0 * dim;
-      spec.b0 = b0 * dim;
-      spec.r1 = r1 * dim;
-      spec.g1 = g1 * dim;
-      spec.b1 = b1 * dim;
+      spec.r0 = (r0 + (e[0]! * brightness - r0) * cool) * dim;
+      spec.g0 = (g0 + (e[1]! * brightness - g0) * cool) * dim;
+      spec.b0 = (b0 + (e[2]! * brightness - b0) * cool) * dim;
+      spec.r1 = (r1 + (e[3]! * brightness - r1) * cool) * dim;
+      spec.g1 = (g1 + (e[4]! * brightness - g1) * cool) * dim;
+      spec.b1 = (b1 + (e[5]! * brightness - b1) * cool) * dim;
       this.spawn(emitter);
     }
   }
@@ -1002,7 +1098,7 @@ export class FireworksEngine {
       spec.g1 = spec.g0;
       spec.b1 = spec.b0;
       spec.drag = shape.drag;
-      spec.gravity = shape.gravity;
+      spec.gravity = this.starGravity(shape);
       spec.flicker = 0.1;
       spec.style = BURST_STAR;
       const spawned = this.particles.spawn(spec);
@@ -1040,7 +1136,7 @@ export class FireworksEngine {
       const m = b * BREAK_STRIDE;
       const damp = Math.exp(-shape.drag * dt);
       motion[m + 3] = motion[m + 3]! * damp;
-      motion[m + 4] = (motion[m + 4]! - GRAVITY * shape.gravity * dt) * damp;
+      motion[m + 4] = (motion[m + 4]! - GRAVITY * this.starGravity(shape) * dt) * damp;
       motion[m + 5] = motion[m + 5]! * damp;
       motion[m] = motion[m]! + motion[m + 3]! * dt;
       motion[m + 1] = motion[m + 1]! + motion[m + 4]! * dt;

@@ -5,8 +5,18 @@ import { TUNING } from '../src/core/tuning';
 import { CRACKER_TYPES, type CrackerType, type Vec3 } from '../src/core/types';
 import { CRACKER_DEFINITIONS, Crackers, rollRocketVariant, ROCKET_PALETTES } from '../src/crackers';
 import { FireworksEffects } from '../src/effects/fireworksEffects';
-import { FireworksEngine, NO_EFFECT } from '../src/effects/fireworksEngine';
-import { ANAR_PALETTES, BURST_PATTERNS, CHAKRI_PALETTES, PATTERN_SHAPES, SPINNER } from '../src/effects/presets';
+import { burstSparkCount, FireworksEngine, NO_EFFECT } from '../src/effects/fireworksEngine';
+import { BURST_STAR } from '../src/effects/particlePool';
+import {
+  ANAR_PALETTES,
+  BURST_CRACKLE,
+  BURST_LOOKS,
+  BURST_PATTERNS,
+  CHAKRI_PALETTES,
+  PATTERN_SHAPES,
+  SKY_BURST,
+  SPINNER,
+} from '../src/effects/presets';
 
 const step = 1 / 60;
 const { fuse, activeDuration } = TUNING.crackers;
@@ -383,6 +393,161 @@ describe('rocket sky bursts', () => {
       if (palette !== ROCKET_PALETTES[ROCKET_PALETTES.length - 1]) used.add(palette!);
     }
     expect(used.size).toBeGreaterThan(3);
+  });
+});
+
+describe('rocket bursts on Medium and High, as rich as the anar', () => {
+  const SKY = { x: 0, y: 40, z: 0 } as const;
+  const levels = ['low', 'medium', 'high'] as const;
+
+  function burstAt(level: (typeof levels)[number], pattern: (typeof BURST_PATTERNS)[number], colours = [0xffd34f]) {
+    const { bus, effects } = effectsFor(QUALITY_PROFILES[level]);
+    bus.emit('burst', { id: 'r', position: SKY, pattern, colours });
+    return effects;
+  }
+
+  /** Burst-star particles born in the last `within` seconds: the shell's crackle, once its stars are old. */
+  function freshStars(engine: FireworksEngine, within: number): number {
+    let fresh = 0;
+    for (let i = 0; i < engine.particles.count; i++) {
+      if (engine.particles.styles[i] === BURST_STAR && engine.particles.ageOf(i) < within) fresh++;
+    }
+    return fresh;
+  }
+
+  it('crackles with white-hot pops as a round shell fades, on Medium and High only', () => {
+    const counts = levels.map((level) => {
+      const effects = burstAt(level, 'peony');
+      let seen = 0;
+      // Sample after the crossette-free shell's stars are all well over a second old.
+      for (let t = 0; t < 3; t += step) {
+        effects.update(step);
+        if (t > 1.3) seen = Math.max(seen, freshStars(effects.engine, 0.3));
+      }
+      return seen;
+    });
+    expect(counts[0]).toBe(0);
+    expect(counts[1]).toBeGreaterThan(0);
+    expect(counts[2]).toBeGreaterThan(counts[1]!);
+  });
+
+  it('keeps flat and armed shapes free of crackle, so pops never land between their lines', () => {
+    for (const pattern of ['ring', 'heart', 'palm'] as const) {
+      const effects = burstAt('high', pattern);
+      let seen = 0;
+      for (let t = 0; t < 3; t += step) {
+        effects.update(step);
+        if (t > 1.3) seen = Math.max(seen, freshStars(effects.engine, 0.3));
+      }
+      expect(seen).toBe(0);
+    }
+  });
+
+  it('crackles where the stars are: out on the drooping shell, not at its centre', () => {
+    const effects = burstAt('high', 'peony');
+    run(effects, 1.6);
+    const p = effects.engine.particles.positions;
+    let pops = 0;
+    for (let i = 0; i < effects.engine.particles.count; i++) {
+      if (effects.engine.particles.styles[i] !== BURST_STAR || effects.engine.particles.ageOf(i) > 0.2) continue;
+      pops++;
+      const r = Math.hypot(p[i * 3]! - SKY.x, p[i * 3 + 1]! - SKY.y, p[i * 3 + 2]! - SKY.z);
+      expect(r).toBeGreaterThan(8);
+      expect(r).toBeLessThan(22);
+    }
+    expect(pops).toBeGreaterThan(0);
+  });
+
+  it('draws finer stars than Low, trailing tails that cool to a gold ember', () => {
+    // A blue ring: no pistil, and the ember is far warmer than the star.
+    const tailWarmth = (level: (typeof levels)[number]) => {
+      const effects = burstAt(level, 'ring', [0x4fb6ff]);
+      const pool = effects.engine.particles;
+      let head = 0;
+      let headWarmth = 0;
+      let tailWarmthSum = 0;
+      let tails = 0;
+      let largest = 0;
+      for (let i = 0; i < pool.count; i++) {
+        if (pool.styles[i] !== BURST_STAR) continue;
+        const size = pool.sizes[i]!;
+        largest = Math.max(largest, size);
+        const warmth = pool.colours[i * 4]! / Math.max(1e-6, pool.colours[i * 4 + 2]!);
+        if (size >= SKY_BURST.size0 * BURST_LOOKS[level].starSize * 0.99) {
+          head++;
+          headWarmth += warmth;
+        } else if (size < SKY_BURST.size0 * BURST_LOOKS[level].starSize * 0.4) {
+          tails++;
+          tailWarmthSum += warmth;
+        }
+      }
+      expect(head).toBeGreaterThan(0);
+      expect(tails).toBeGreaterThan(0);
+      return { head: headWarmth / head, tail: tailWarmthSum / tails, largest };
+    };
+    const low = tailWarmth('low');
+    expect(low.tail).toBeCloseTo(low.head, 5);
+    for (const level of ['medium', 'high'] as const) {
+      const look = tailWarmth(level);
+      expect(look.largest).toBeLessThan(low.largest);
+      expect(look.tail).toBeGreaterThan(look.head * 3);
+    }
+  });
+
+  it('lets the stars sag and burn out one by one as they fade', () => {
+    const settle = (level: (typeof levels)[number]) => {
+      const effects = burstAt(level, 'peony');
+      run(effects, 2.4);
+      const pool = effects.engine.particles;
+      let sum = 0;
+      let n = 0;
+      for (let i = 0; i < pool.count; i++) {
+        if (pool.styles[i] !== BURST_STAR) continue;
+        sum += pool.positions[i * 3 + 1]!;
+        n++;
+      }
+      return { meanY: sum / n, live: n };
+    };
+    const [low, medium, high] = levels.map(settle);
+    expect(medium!.meanY).toBeLessThan(low!.meanY);
+    expect(high!.meanY).toBeLessThan(medium!.meanY);
+    // Low's stars all outlive 2.4 s (life 2.6 s+); on High some have already burnt out.
+    const highStars = Math.round(SKY_BURST.count * 1.5);
+    expect(high!.live).toBeLessThan(burstSparkCount('peony', 1.5));
+    expect(high!.live).toBeGreaterThan(highStars * 0.3);
+  });
+
+  it('keeps a willow hanging as authored instead of dropping it out of the sky', () => {
+    const lowest = (level: (typeof levels)[number]) => {
+      const effects = burstAt(level, 'willow');
+      let y: number = SKY.y;
+      for (let t = 0; t < 7; t += step) {
+        effects.update(step);
+        const pool = effects.engine.particles;
+        for (let i = 0; i < pool.count; i++) y = Math.min(y, pool.positions[i * 3 + 1]!);
+      }
+      return y;
+    };
+    expect(lowest('high')).toBeGreaterThan(lowest('low') - 1);
+  });
+
+  it('stays within the particle budget: crackle is a trickle on top of the shell', () => {
+    for (const level of ['medium', 'high'] as const) {
+      const effects = burstAt(level, 'peony');
+      const shell = effects.stats.liveParticles;
+      let peak = shell;
+      let spawned = 0;
+      let last = shell;
+      for (let t = 0; t < 4; t += step) {
+        effects.update(step);
+        peak = Math.max(peak, effects.stats.liveParticles);
+        spawned += Math.max(0, effects.stats.liveParticles - last);
+        last = effects.stats.liveParticles;
+      }
+      expect(peak).toBe(shell);
+      expect(spawned).toBeLessThan(BURST_LOOKS[level].crackle * 4 * BURST_CRACKLE.count * 1.5);
+      expect(effects.stats.droppedParticles).toBe(0);
+    }
   });
 });
 
