@@ -205,9 +205,9 @@ describe('ladi bus in the engine', () => {
     const { bus, ctx } = await setup();
     const compressors = ctx.compressors.length;
     const convolvers = ctx.convolvers.length;
-    // The master limiter, the lane echo and the ladi bus's own.
-    expect(compressors).toBe(2);
-    expect(convolvers).toBe(2);
+    // The master limiter, the lane echo, and the ladi's and the sutli's buses.
+    expect(compressors).toBe(3);
+    expect(convolvers).toBe(3);
     lightLadi(bus, 'a');
     lightLadi(bus, 'b');
     expect(ctx.compressors).toHaveLength(compressors);
@@ -308,7 +308,8 @@ describe('ladi gain staging', () => {
     const ctx = new FakeAudioContext();
     const audio = new AudioEngine({ bus, createContext: () => ctx.asAudioContext() });
     await audio.unlock();
-    expect(ctx.shapers).toHaveLength(1);
+    // One clip each for the ladi's bus and the sutli's.
+    expect(ctx.shapers).toHaveLength(2);
     const limiter = ctx.compressors.find((c) => c.threshold.value === LADI_LIMITER.threshold)!;
     // Limiter, then the makeup trim, then the clip.
     const trim = limiter.outputs[0] as { outputs: unknown[] };
