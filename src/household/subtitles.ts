@@ -1,4 +1,5 @@
 import type { HouseholdMemberSnapshot, LocationId } from '../core/homes';
+import { DS } from '../ui/design/tokens';
 import { MEMBER_LABELS } from '../ui/homePrompts';
 
 /** One spoken line as the subtitles show it. */
@@ -47,8 +48,9 @@ export function createSubtitles(parent: HTMLElement): SubtitlesView {
     'user-select:none',
     'font-size:17px',
     'text-align:center',
+    // A touch brighter than body text: subtitles sit over the lit scene.
     'color:#fff8ec',
-    'text-shadow:0 1px 3px #000',
+    `text-shadow:${DS.shadow.textHud}`,
   ].join(';');
   parent.appendChild(root);
 
@@ -61,9 +63,9 @@ export function createSubtitles(parent: HTMLElement): SubtitlesView {
       root.replaceChildren(
         ...lines.map((line) => {
           const row = doc.createElement('div');
-          row.style.cssText = 'padding:5px 14px;border-radius:8px;background:rgba(20,10,6,0.62)';
+          row.style.cssText = `padding:5px 14px;border-radius:8px;background:${DS.color.surfaceWarm}`;
           const speaker = doc.createElement('span');
-          speaker.style.cssText = 'color:#ffcf70;font-weight:600';
+          speaker.style.cssText = `color:${DS.color.textAccent};font-weight:${DS.weight.semibold}`;
           speaker.textContent = `${line.speaker}: `;
           row.append(speaker, line.text);
           return row;

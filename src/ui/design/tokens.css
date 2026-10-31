@@ -1,0 +1,126 @@
+/*
+ * Design tokens: the single source of every colour, size and timing the DOM
+ * UI uses. Reference them as var(--ds-…) from CSS, or through `DS` in
+ * tokens.ts from inline styles. See docs/design-system.md before adding or
+ * changing one.
+ *
+ * Theme: a Diwali night. Deep indigo sky, warm cream text, marigold-gold
+ * light from the diyas, saffron for emphasis and a soft coral for warnings.
+ */
+:root {
+  /* ── Palette (raw values; prefer the semantic tokens below) ── */
+  --ds-indigo-950: #0b0a1a; /* night sky, page background */
+  --ds-indigo-900: #18142c; /* panel surface */
+  --ds-indigo-800: #241c3a; /* raised control */
+  --ds-indigo-700: #33294f; /* control hover */
+  --ds-indigo-600: #4a3c6e; /* key-cap edge, quiet borders */
+  --ds-indigo-500: #76679f; /* control border, slider track: 3:1 against panels (WCAG 1.4.11) */
+  --ds-cream-100: #f6e7c8; /* body text */
+  --ds-cream-300: #cdbfa6; /* muted text, still AA on indigo-900 */
+  --ds-gold-400: #ffcf70; /* diya gold, the accent */
+  --ds-gold-300: #ffdc96; /* accent hover */
+  --ds-saffron-500: #ff9933; /* emphasis, primary button glow */
+  --ds-coral-400: #ff8a7a; /* blocked and warning text */
+  --ds-maroon-900: #3c0c0c; /* warning surface */
+  --ds-ember-950: #140a06; /* warm dark surface (subtitles) */
+  --ds-ink-900: #2a1606; /* text on gold */
+  --ds-white: #ffffff;
+  --ds-black: #000000;
+
+  /* ── Semantic colours ── */
+  --ds-color-bg: var(--ds-indigo-950);
+  --ds-color-scrim: rgba(11, 10, 26, 0.72);
+  --ds-color-surface: rgba(24, 20, 44, 0.96);
+  --ds-color-surface-hud: rgba(11, 10, 26, 0.72);
+  --ds-color-surface-raised: var(--ds-indigo-800);
+  --ds-color-surface-hover: var(--ds-indigo-700);
+  --ds-color-surface-warm: rgba(20, 10, 6, 0.62);
+  --ds-color-surface-danger: rgba(60, 12, 12, 0.78);
+  --ds-color-surface-accent: rgba(255, 207, 112, 0.12);
+  --ds-color-surface-accent-hover: rgba(255, 207, 112, 0.2);
+
+  --ds-color-text: var(--ds-cream-100);
+  --ds-color-text-muted: var(--ds-cream-300);
+  --ds-color-text-accent: var(--ds-gold-400);
+  --ds-color-text-danger: var(--ds-coral-400);
+  --ds-color-text-on-accent: var(--ds-ink-900);
+
+  --ds-color-accent: var(--ds-gold-400);
+  --ds-color-accent-hover: var(--ds-gold-300);
+  --ds-color-emphasis: var(--ds-saffron-500);
+  --ds-color-danger: var(--ds-coral-400);
+
+  --ds-color-border: rgba(255, 207, 112, 0.18);
+  --ds-color-border-strong: rgba(255, 207, 112, 0.38);
+  --ds-color-border-control: var(--ds-indigo-500);
+  --ds-color-border-key: var(--ds-indigo-600);
+  --ds-color-border-danger: rgba(255, 138, 122, 0.45);
+  --ds-color-diya-wash: rgba(255, 170, 60, 0.1); /* warm light washing a panel's top edge */
+  --ds-color-track: var(--ds-indigo-500);
+
+  /* ── Typography ── */
+  --ds-font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --ds-font-mono: ui-monospace, Menlo, Consolas, monospace;
+  --ds-text-2xs: 11px; /* key labels, eyebrows */
+  --ds-text-xs: 12px; /* debug readouts, small hints */
+  --ds-text-sm: 13px; /* secondary text, hotbar */
+  --ds-text-md: 15px; /* body, prompts, controls */
+  --ds-text-lg: 18px; /* lead text */
+  --ds-text-xl: 24px; /* panel titles */
+  --ds-text-2xl: 32px; /* screen titles */
+  --ds-weight-regular: 400;
+  --ds-weight-semibold: 600;
+  --ds-weight-bold: 700;
+  --ds-leading-tight: 1.2;
+  --ds-leading-normal: 1.45;
+  --ds-tracking-eyebrow: 0.08em;
+
+  /* ── Spacing (4px grid) ── */
+  --ds-space-1: 4px;
+  --ds-space-2: 8px;
+  --ds-space-3: 12px;
+  --ds-space-4: 16px;
+  --ds-space-5: 20px;
+  --ds-space-6: 24px;
+  --ds-space-8: 32px;
+
+  /* ── Radii ── */
+  --ds-radius-sm: 4px; /* key-caps, small chips */
+  --ds-radius-md: 6px; /* buttons, inputs, HUD chips */
+  --ds-radius-lg: 10px; /* panels */
+  --ds-radius-pill: 999px; /* switches, slider thumbs */
+
+  /* ── Shadows and glows ── */
+  --ds-shadow-panel: 0 18px 48px rgba(0, 0, 0, 0.55);
+  --ds-shadow-control: 0 1px 0 rgba(0, 0, 0, 0.35);
+  --ds-glow-diya: 0 0 28px rgba(255, 170, 60, 0.28);
+  --ds-glow-accent: 0 0 14px rgba(255, 153, 51, 0.45);
+  --ds-text-shadow-hud: 0 1px 3px var(--ds-black);
+  --ds-text-shadow-glow: 0 0 24px rgba(255, 170, 60, 0.45);
+
+  /* ── Layers (z-index). Unlisted fixed overlays stay at auto and stack in DOM order. ── */
+  --ds-z-floating: 5; /* aarti mini player: above the pause scrim so its songs take clicks */
+  --ds-z-debug: 10; /* perf overlay */
+  --ds-z-devtool: 1000; /* sound board and other ?dev panels */
+
+  /* ── Motion ── */
+  --ds-duration-fast: 120ms;
+  --ds-duration-base: 200ms;
+  --ds-ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  /* ── Focus ── */
+  --ds-focus-ring-width: 2px;
+  --ds-focus-ring-color: var(--ds-gold-400);
+  --ds-focus-ring-offset: 2px;
+
+  /* ── Layout ── */
+  --ds-panel-width: 760px;
+  --ds-control-height: 36px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --ds-duration-fast: 0ms;
+    --ds-duration-base: 0ms;
+  }
+}

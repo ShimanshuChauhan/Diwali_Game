@@ -1,0 +1,43 @@
+/* Page-level defaults, previously inline in index.html. */
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--ds-color-bg);
+  color: var(--ds-color-text);
+  font-family: var(--ds-font-sans);
+  line-height: var(--ds-leading-normal);
+  -webkit-font-smoothing: antialiased;
+}
+
+#app {
+  position: fixed;
+  inset: 0;
+}
+
+#app canvas {
+  display: block;
+}
+
+#status {
+  position: fixed;
+  left: var(--ds-space-4);
+  bottom: var(--ds-space-4);
+  font-size: var(--ds-text-sm);
+  color: var(--ds-color-text-muted);
+  pointer-events: none;
+}
+
+/* Visible only to assistive technology. */
+.ds-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}

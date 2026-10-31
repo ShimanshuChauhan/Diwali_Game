@@ -3,33 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
     <title>Diwali Celebration Sandbox</title>
-    <style>
-      html,
-      body {
-        margin: 0;
-        height: 100%;
-        overflow: hidden;
-        background: #0b0a1a;
-        color: #f6e7c8;
-        font-family: system-ui, sans-serif;
-      }
-      #app {
-        position: fixed;
-        inset: 0;
-      }
-      #app canvas {
-        display: block;
-      }
-      #status {
-        position: fixed;
-        left: 16px;
-        bottom: 16px;
-        font-size: 13px;
-        opacity: 0.7;
-        pointer-events: none;
-      }
-    </style>
+    <!-- Design system: tokens, page defaults and components (docs/design-system.md). -->
+    <link rel="stylesheet" href="/src/ui/design/index.css" />
   </head>
   <body>
     <div id="app"></div>

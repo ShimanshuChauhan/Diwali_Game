@@ -53,6 +53,13 @@ npm run dev        # dev server at http://localhost:5173
 
 Performance results, the `?stress` test and the `?tour` family-home checkpoint: [`docs/performance.md`](docs/performance.md).
 
+## UI and design system
+
+All DOM UI (pause menu, start screen, HUD, overlays) uses the shared tokens
+and components in `src/ui/design/`. Read [`docs/design-system.md`](docs/design-system.md)
+before adding or changing any UI: it covers the theme, token tables,
+components, accessibility and writing rules, and how to add a token.
+
 ## Project layout
 
 ```
@@ -70,6 +77,7 @@ src/
   neighbours/    ambient neighbour behaviour
   audio/         sound effects and ambience
   ui/            HUD, prompts, pause menu
+    design/      design tokens, base styles and components (docs/design-system.md)
   quality/       Low/Medium/High profiles
   perf/          scripted stress test and resource-growth tracking
 tests/           headless Vitest tests

@@ -1,9 +1,10 @@
 import { ITEM_CYCLE } from '../core/actions';
 import type { HudModel } from './hudModel';
+import { DS } from './design/tokens';
 import { BARE_HANDS_LABEL, CRACKER_LABELS } from './text';
 
-const ACCENT = '#ffcf70';
-const BLOCKED = '#ff8a7a';
+const ACCENT = DS.color.accent;
+const BLOCKED = DS.color.textDanger;
 
 export interface HudView {
   /** Redraw if the model changed since the last call; cheap otherwise. */
@@ -50,7 +51,7 @@ export function createHud(parent: HTMLElement, model: HudModel): HudView {
       `height:${height}px`,
       `margin:${-height / 2}px 0 0 ${-width / 2}px`,
       'border-radius:2px',
-      'background:#fff',
+      `background:${DS.color.white}`,
       'box-shadow:0 0 0 1.5px rgba(0,0,0,0.7)',
       'opacity:0.9',
     ]);
@@ -66,9 +67,9 @@ export function createHud(parent: HTMLElement, model: HudModel): HudView {
     'display:flex',
     'flex-direction:column',
     'align-items:center',
-    'gap:4px',
-    'font-size:15px',
-    'text-shadow:0 1px 3px #000',
+    `gap:${DS.space[1]}`,
+    `font-size:${DS.text.md}`,
+    `text-shadow:${DS.shadow.textHud}`,
     'white-space:nowrap',
   ]);
 
@@ -80,10 +81,10 @@ export function createHud(parent: HTMLElement, model: HudModel): HudView {
     'bottom:96px',
     'transform:translateX(-50%)',
     'padding:6px 14px',
-    'border-radius:6px',
-    'background:rgba(60,12,12,0.78)',
+    `border-radius:${DS.radius.md}`,
+    `background:${DS.color.surfaceDanger}`,
     `color:${BLOCKED}`,
-    'font-size:15px',
+    `font-size:${DS.text.md}`,
     'white-space:nowrap',
   ]);
 
@@ -95,10 +96,10 @@ export function createHud(parent: HTMLElement, model: HudModel): HudView {
     'bottom:72px',
     'transform:translateX(-50%)',
     'padding:3px 12px',
-    'border-radius:6px',
-    'background:rgba(11,10,26,0.6)',
+    `border-radius:${DS.radius.md}`,
+    `background:${DS.color.surfaceHud}`,
     `color:${ACCENT}`,
-    'font-size:14px',
+    `font-size:${DS.text.md}`,
     'white-space:nowrap',
   ]);
 
@@ -109,21 +110,21 @@ export function createHud(parent: HTMLElement, model: HudModel): HudView {
     'bottom:24px',
     'transform:translateX(-50%)',
     'display:flex',
-    'gap:8px',
+    `gap:${DS.space[2]}`,
   ]);
   const slots = ITEM_CYCLE.map((type, i) => {
     const slot = doc.createElement('div');
     style(slot, [
       'min-width:84px',
       'padding:6px 10px',
-      'border-radius:6px',
-      'background:rgba(11,10,26,0.7)',
+      `border-radius:${DS.radius.md}`,
+      `background:${DS.color.surfaceHud}`,
       'border:2px solid transparent',
-      'font-size:13px',
+      `font-size:${DS.text.sm}`,
       'text-align:center',
     ]);
     const key = doc.createElement('div');
-    style(key, ['font-size:11px', 'opacity:0.7']);
+    style(key, [`font-size:${DS.text['2xs']}`, 'opacity:0.7']);
     // Bare hands are on the key left of 1; the crackers keep 1–5.
     key.textContent = type === null ? '`' : String(i);
     if (type === null) {
@@ -161,7 +162,7 @@ export function createHud(parent: HTMLElement, model: HudModel): HudView {
         const element = doc.createElement('div');
         element.textContent = line.text;
         if (line.blocked) element.style.color = BLOCKED;
-        if (line.hint) style(element, ['font-size:13px', 'font-style:italic', 'opacity:0.8']);
+        if (line.hint) style(element, [`font-size:${DS.text.sm}`, 'font-style:italic', 'opacity:0.8']);
         return element;
       }),
     );

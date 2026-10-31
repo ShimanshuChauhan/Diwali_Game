@@ -34,22 +34,22 @@ export const CAMERA_LABELS: Readonly<Record<CameraMode, string>> = {
 
 /** Why a ground cracker cannot go where the player is aiming. */
 export const PLACEMENT_REJECTION_TEXT: Readonly<Record<PlacementRejection, string>> = {
-  outOfReach: 'Too far away — move closer to place it',
+  outOfReach: 'Too far away: move closer to place it',
   unsupportedSurface: 'Needs flat, open ground to stand on',
-  blockedByGeometry: 'Not enough room here — too close to something',
+  blockedByGeometry: 'Not enough room here, too close to something',
   nearDoorway: 'Keep doorways clear',
-  nearNeighbour: 'Too close to a neighbour — give them some space',
+  nearNeighbour: 'Too close to a neighbour: give them some space',
   noSkyClearance: 'Rockets need open sky above them',
-  capacity: 'Too many crackers placed — light or wait for some to finish',
-  handheldOnly: 'The phuljhari is held, not placed — press E to light it',
+  capacity: 'Too many crackers placed: light some or wait for them to finish',
+  handheldOnly: 'The phuljhari is held, not placed. Press E to light it',
 };
 
 /** Why lighting a cracker was refused. */
 export const IGNITION_REJECTION_TEXT: Readonly<Record<IgnitionRejection, string>> = {
   notFound: 'That cracker is no longer there',
-  alreadyLit: 'Already lit — step back and watch',
-  outOfReach: 'Too far away to light — move closer',
-  capacity: 'Too many fireworks going off — wait a moment',
+  alreadyLit: 'Already lit. Step back and watch',
+  outOfReach: 'Too far away to light: move closer',
+  capacity: 'Too many fireworks going off: wait a moment',
 };
 
 /** A lit phuljhari does not come indoors. */

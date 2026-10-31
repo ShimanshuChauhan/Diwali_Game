@@ -1,4 +1,5 @@
 import type { AudioModule } from '../core/contracts';
+import { sectionHeading, slider, toggleSwitch } from '../ui/design/components';
 
 /**
  * DOM glue for the audio module: unlocking on the first player gesture and
@@ -76,27 +77,20 @@ export function bindAudioControls(inputs: AudioControlInputs, audio: AudioSettin
   };
 }
 
-/** A ready-made mute checkbox and volume slider for the pause menu. */
+/**
+ * The pause menu's Sound section: a mute switch and a volume slider (0–100)
+ * from the design system, under the `audio-controls` class.
+ */
 export function createAudioControls(doc: Document, audio: AudioSettings): HTMLElement {
   const root = doc.createElement('fieldset');
-  root.className = 'audio-controls';
-  const legend = doc.createElement('legend');
-  legend.textContent = 'Sound';
+  root.className = 'audio-controls ds-section';
 
-  const mute = doc.createElement('input');
-  mute.type = 'checkbox';
-  const muteLabel = doc.createElement('label');
-  muteLabel.append(mute, ' Mute');
+  const mute = toggleSwitch(doc, 'Mute');
+  const volume = slider(doc, 'Volume', { min: 0, max: 100, step: 1, format: (percent) => `${percent}%` });
 
-  const volume = doc.createElement('input');
-  volume.type = 'range';
-  volume.min = '0';
-  volume.max = '100';
-  volume.step = '1';
-  const volumeLabel = doc.createElement('label');
-  volumeLabel.append('Volume ', volume);
-
-  root.append(legend, muteLabel, volumeLabel);
-  bindAudioControls({ mute, volume }, audio);
+  root.append(sectionHeading(doc, 'Sound', 'legend'), mute.root, volume.root);
+  bindAudioControls({ mute: mute.input, volume: volume.input }, audio);
+  // The binding set the value from code, which fires no `input` event.
+  volume.refresh();
   return root;
 }

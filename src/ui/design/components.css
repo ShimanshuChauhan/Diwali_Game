@@ -1,0 +1,564 @@
+/*
+ * Reusable UI components. Every value comes from tokens.css; markup and
+ * states for each are in docs/design-system.md. Class names are `ds-*`,
+ * BEM-style: `.ds-block`, `.ds-block__part`, `.ds-block--variant`.
+ */
+
+/* ── Focus: one ring for everything interactive ── */
+.ds-btn:focus-visible,
+.ds-select:focus-visible,
+.ds-slider:focus-visible,
+.ds-switch__input:focus-visible + .ds-switch__track,
+.ds-segmented__input:focus-visible + .ds-segmented__label {
+  outline: var(--ds-focus-ring-width) solid var(--ds-focus-ring-color);
+  outline-offset: var(--ds-focus-ring-offset);
+}
+
+/* ── Scrim: full-screen dim layer that centres its content ── */
+.ds-scrim {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--ds-space-4);
+  box-sizing: border-box;
+  background: var(--ds-color-scrim);
+}
+
+.ds-scrim[hidden] {
+  display: none;
+}
+
+/* ── Panel / card ── */
+.ds-panel {
+  box-sizing: border-box;
+  width: min(var(--ds-panel-width), 100%);
+  max-height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--ds-space-6);
+  border: 1px solid var(--ds-color-border);
+  border-radius: var(--ds-radius-lg);
+  /* Warm light falling from the top edge, like a diya below the frame. */
+  background:
+    radial-gradient(120% 70% at 50% 0%, var(--ds-color-diya-wash), transparent 65%),
+    var(--ds-color-surface);
+  box-shadow: var(--ds-shadow-panel), var(--ds-glow-diya);
+  color: var(--ds-color-text);
+  font-size: var(--ds-text-md);
+  animation: ds-rise var(--ds-duration-base) var(--ds-ease-out);
+}
+
+.ds-panel--narrow {
+  width: min(420px, 100%);
+}
+
+.ds-panel__header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--ds-space-1);
+  text-align: center;
+}
+
+.ds-panel__title {
+  margin: 0;
+  font-size: var(--ds-text-xl);
+  font-weight: var(--ds-weight-semibold);
+  line-height: var(--ds-leading-tight);
+  color: var(--ds-color-text-accent);
+}
+
+.ds-panel__lead {
+  margin: 0;
+  font-size: var(--ds-text-sm);
+  color: var(--ds-color-text-muted);
+}
+
+/* Two columns on wide screens, one on narrow ones. */
+.ds-panel__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--ds-space-6);
+}
+
+@media (min-width: 720px) {
+  .ds-panel__body {
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  }
+}
+
+.ds-panel__footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ds-space-3);
+}
+
+@keyframes ds-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+/* ── Layout helpers ── */
+.ds-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-stack-gap, var(--ds-space-4));
+  min-width: 0;
+}
+
+.ds-eyebrow {
+  margin: 0;
+  font-size: var(--ds-text-2xs);
+  font-weight: var(--ds-weight-semibold);
+  letter-spacing: var(--ds-tracking-eyebrow);
+  text-transform: uppercase;
+  color: var(--ds-color-text-muted);
+}
+
+.ds-hint {
+  margin: 0;
+  font-size: var(--ds-text-sm);
+  color: var(--ds-color-text-muted);
+}
+
+/* ── Section and section heading ── */
+.ds-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-3);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.ds-section-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  font-size: var(--ds-text-2xs);
+  font-weight: var(--ds-weight-semibold);
+  letter-spacing: var(--ds-tracking-eyebrow);
+  text-transform: uppercase;
+  color: var(--ds-color-text-accent);
+}
+
+.ds-section-heading::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--ds-color-border);
+}
+
+/* A <legend> heading behaves like any other block once floated. */
+legend.ds-section-heading {
+  float: left;
+}
+
+/* ── Divider ── */
+.ds-divider {
+  height: 1px;
+  margin: 0;
+  border: 0;
+  background: linear-gradient(90deg, transparent, var(--ds-color-border-strong), transparent);
+}
+
+/* ── Buttons ── */
+.ds-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ds-space-2);
+  box-sizing: border-box;
+  min-height: var(--ds-control-height);
+  padding: 0 var(--ds-space-4);
+  border: 1px solid var(--ds-color-border-strong);
+  border-radius: var(--ds-radius-md);
+  background: var(--ds-color-surface-accent);
+  color: var(--ds-color-text);
+  font: inherit;
+  font-size: var(--ds-text-md);
+  font-weight: var(--ds-weight-semibold);
+  line-height: var(--ds-leading-tight);
+  cursor: pointer;
+  transition:
+    background-color var(--ds-duration-fast) var(--ds-ease-out),
+    border-color var(--ds-duration-fast) var(--ds-ease-out),
+    box-shadow var(--ds-duration-fast) var(--ds-ease-out),
+    color var(--ds-duration-fast) var(--ds-ease-out),
+    transform var(--ds-duration-fast) var(--ds-ease-out);
+}
+
+.ds-btn:hover {
+  border-color: var(--ds-color-accent);
+  background: var(--ds-color-surface-accent-hover);
+}
+
+.ds-btn:active {
+  transform: translateY(1px);
+}
+
+.ds-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.ds-btn--primary {
+  border-color: transparent;
+  background: linear-gradient(180deg, var(--ds-gold-300), var(--ds-gold-400));
+  color: var(--ds-color-text-on-accent);
+}
+
+.ds-btn--primary:hover {
+  border-color: transparent;
+  background: linear-gradient(180deg, var(--ds-gold-300), var(--ds-gold-300));
+  box-shadow: var(--ds-glow-accent);
+}
+
+.ds-btn--ghost {
+  border-color: transparent;
+  background: transparent;
+  color: var(--ds-color-text-muted);
+}
+
+.ds-btn--ghost:hover {
+  border-color: transparent;
+  background: var(--ds-color-surface-accent);
+  color: var(--ds-color-text);
+}
+
+.ds-btn--danger {
+  border-color: var(--ds-color-border-danger);
+  background: transparent;
+  color: var(--ds-color-text-danger);
+}
+
+.ds-btn--danger:hover {
+  border-color: var(--ds-color-danger);
+  background: var(--ds-color-surface-danger);
+}
+
+.ds-btn--lg {
+  min-height: 44px;
+  font-size: var(--ds-text-lg);
+}
+
+.ds-btn--block {
+  width: 100%;
+}
+
+/* ── Field: a label row above a control ── */
+.ds-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+}
+
+.ds-field__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--ds-space-3);
+}
+
+.ds-field__value {
+  font-size: var(--ds-text-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--ds-color-text-muted);
+}
+
+/* ── Toggle switch: a real checkbox drawn as a switch ── */
+.ds-switch {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ds-space-3);
+  min-height: var(--ds-control-height);
+  cursor: pointer;
+}
+
+.ds-switch__input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.ds-switch__track {
+  position: relative;
+  flex: none;
+  width: 40px;
+  height: 22px;
+  border: 1px solid var(--ds-color-border-control);
+  border-radius: var(--ds-radius-pill);
+  background: var(--ds-color-surface-raised);
+  transition:
+    background-color var(--ds-duration-fast) var(--ds-ease-out),
+    border-color var(--ds-duration-fast) var(--ds-ease-out);
+}
+
+.ds-switch__track::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: var(--ds-radius-pill);
+  background: var(--ds-color-text-muted);
+  transition:
+    transform var(--ds-duration-fast) var(--ds-ease-out),
+    background-color var(--ds-duration-fast) var(--ds-ease-out);
+}
+
+.ds-switch:hover .ds-switch__track {
+  border-color: var(--ds-color-accent);
+}
+
+.ds-switch__input:checked + .ds-switch__track {
+  border-color: var(--ds-color-accent);
+  background: var(--ds-color-accent);
+}
+
+.ds-switch__input:checked + .ds-switch__track::after {
+  transform: translateX(18px);
+  background: var(--ds-color-text-on-accent);
+}
+
+/* ── Slider: native range input; set --ds-slider-fill (0%–100%) for the filled part ── */
+.ds-slider {
+  --ds-slider-fill: 0%;
+  width: 100%;
+  height: 22px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.ds-slider::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: var(--ds-radius-pill);
+  background: linear-gradient(
+    90deg,
+    var(--ds-color-accent) 0 var(--ds-slider-fill),
+    var(--ds-color-track) var(--ds-slider-fill) 100%
+  );
+}
+
+.ds-slider::-moz-range-track {
+  height: 6px;
+  border-radius: var(--ds-radius-pill);
+  background: var(--ds-color-track);
+}
+
+.ds-slider::-moz-range-progress {
+  height: 6px;
+  border-radius: var(--ds-radius-pill);
+  background: var(--ds-color-accent);
+}
+
+.ds-slider::-webkit-slider-thumb {
+  width: 18px;
+  height: 18px;
+  margin-top: -6px;
+  border: 2px solid var(--ds-color-accent);
+  border-radius: var(--ds-radius-pill);
+  background: var(--ds-color-text);
+  box-shadow: var(--ds-shadow-control);
+  appearance: none;
+  -webkit-appearance: none;
+  transition: transform var(--ds-duration-fast) var(--ds-ease-out);
+}
+
+.ds-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--ds-color-accent);
+  border-radius: var(--ds-radius-pill);
+  background: var(--ds-color-text);
+}
+
+.ds-slider:hover::-webkit-slider-thumb {
+  transform: scale(1.12);
+}
+
+/* ── Segmented control: native radios in a row ── */
+.ds-segmented {
+  display: grid;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  gap: var(--ds-space-1);
+  padding: 3px;
+  border: 1px solid var(--ds-color-border-control);
+  border-radius: var(--ds-radius-md);
+  background: var(--ds-color-surface-raised);
+}
+
+.ds-segmented__option {
+  position: relative;
+  display: flex;
+}
+
+.ds-segmented__input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.ds-segmented__label {
+  flex: 1;
+  padding: 6px var(--ds-space-2);
+  border-radius: var(--ds-radius-sm);
+  font-size: var(--ds-text-sm);
+  font-weight: var(--ds-weight-semibold);
+  text-align: center;
+  color: var(--ds-color-text-muted);
+  transition:
+    background-color var(--ds-duration-fast) var(--ds-ease-out),
+    color var(--ds-duration-fast) var(--ds-ease-out);
+}
+
+.ds-segmented__option:hover .ds-segmented__label {
+  background: var(--ds-color-surface-hover);
+  color: var(--ds-color-text);
+}
+
+.ds-segmented__input:checked + .ds-segmented__label {
+  background: var(--ds-color-accent);
+  color: var(--ds-color-text-on-accent);
+}
+
+/* ── Select: native <select> when a segmented control would not fit ── */
+.ds-select {
+  box-sizing: border-box;
+  min-height: var(--ds-control-height);
+  padding: 0 var(--ds-space-3);
+  border: 1px solid var(--ds-color-border-control);
+  border-radius: var(--ds-radius-md);
+  background: var(--ds-color-surface-raised);
+  color: var(--ds-color-text);
+  font: inherit;
+  font-size: var(--ds-text-md);
+  cursor: pointer;
+}
+
+.ds-select:hover {
+  border-color: var(--ds-color-accent);
+}
+
+/* ── Key-cap: a keyboard key or mouse input in a hint ── */
+.ds-kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-width: 26px;
+  height: 24px;
+  padding: 0 7px;
+  border: 1px solid var(--ds-color-border-key);
+  border-bottom-width: 2px;
+  border-radius: var(--ds-radius-sm);
+  background: linear-gradient(180deg, var(--ds-indigo-700), var(--ds-indigo-800));
+  box-shadow: var(--ds-shadow-control);
+  color: var(--ds-color-text);
+  font-family: var(--ds-font-mono);
+  font-size: var(--ds-text-xs);
+  font-weight: var(--ds-weight-semibold);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+/* ── List rows: key / value pairs such as the controls list ── */
+.ds-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ds-list-row {
+  display: grid;
+  grid-template-columns: 5.5rem minmax(0, 1fr);
+  align-items: center;
+  gap: var(--ds-space-3);
+  margin: 0;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--ds-color-border);
+  font-size: var(--ds-text-sm);
+}
+
+.ds-list-row:last-child {
+  border-bottom: 0;
+}
+
+.ds-list-row > dt,
+.ds-list-row > dd {
+  margin: 0;
+}
+
+.ds-list--compact .ds-list-row {
+  padding: var(--ds-space-1) 0;
+  border-bottom: 0;
+}
+
+/* ── Start screen ── */
+.ds-screen {
+  flex-direction: column;
+  gap: var(--ds-space-4);
+  text-align: center;
+  cursor: pointer;
+  user-select: none;
+}
+
+.ds-screen__title {
+  margin: 0;
+  font-size: var(--ds-text-2xl);
+  font-weight: var(--ds-weight-semibold);
+  line-height: var(--ds-leading-tight);
+  color: var(--ds-color-text-accent);
+  text-shadow: var(--ds-text-shadow-glow);
+}
+
+.ds-screen__prompt {
+  margin: 0;
+  font-size: var(--ds-text-lg);
+  animation: ds-glow 2.4s ease-in-out infinite;
+}
+
+.ds-screen .ds-list {
+  text-align: left;
+}
+
+@keyframes ds-glow {
+  50% {
+    opacity: 0.7;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-panel,
+  .ds-screen__prompt {
+    animation: none;
+  }
+}
