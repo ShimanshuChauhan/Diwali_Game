@@ -1,0 +1,8 @@
+/*
+ * Design system entry point, linked once from index.html. Order matters:
+ * tokens first, then page defaults, then components.
+ * Guide: docs/design-system.md
+ */
+@import './tokens.css';
+@import './base.css';
+@import './components.css';

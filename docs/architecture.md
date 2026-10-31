@@ -49,6 +49,10 @@ logic, quality — must not import `three`. Where they need geometry they ask
 `WorldModule` (whose implementation may use Rapier) through plain-data
 queries, so tests can pass a fake world.
 
+**DOM UI** takes its colours, sizes and components from the design system
+in `src/ui/design/` (linked once from `index.html`). See
+[`design-system.md`](design-system.md) before adding or restyling UI.
+
 ## Data flow per frame
 
 ```

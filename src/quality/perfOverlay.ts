@@ -1,4 +1,5 @@
 import type { Unsubscribe } from '../core/eventBus';
+import { DS } from '../ui/design/tokens';
 import { perfLines, type PerfSnapshot } from './perfMonitor';
 
 /** Key that shows and hides the overlay. */
@@ -44,10 +45,10 @@ export function createPerfOverlay(options: PerfOverlayOptions): PerfOverlay {
     'padding:8px 10px',
     'border-radius:6px',
     'background:rgba(11,10,26,0.78)',
-    'color:#ffcf70',
-    'font:12px/1.35 ui-monospace,Menlo,Consolas,monospace',
+    `color:${DS.color.textAccent}`,
+    `font:${DS.text.xs}/1.35 ${DS.font.mono}`,
     'pointer-events:none',
-    'z-index:10',
+    `z-index:${DS.z.debug}`,
   ].join(';');
   parent.appendChild(panel);
 

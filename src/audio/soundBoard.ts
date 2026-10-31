@@ -5,6 +5,7 @@ import type { BurstPattern, CrackerType } from '../core/types';
 import { CRACKER_DEFINITIONS } from '../crackers/definitions';
 import { rollLadiChain } from '../crackers/ladi';
 import { BURST_PATTERNS } from '../effects/presets';
+import { DS } from '../ui/design/tokens';
 import { AudioEngine } from './audioEngine';
 
 /**
@@ -116,7 +117,7 @@ export function createSoundBoard(parent: HTMLElement): () => void {
     'position:fixed',
     'top:16px',
     'left:16px',
-    'z-index:1000',
+    `z-index:${DS.z.devtool}`,
     'display:grid',
     'grid-template-columns:repeat(2,minmax(0,1fr))',
     'gap:6px',
@@ -124,17 +125,18 @@ export function createSoundBoard(parent: HTMLElement): () => void {
     'max-width:320px',
     'border-radius:8px',
     'background:rgba(11,10,26,0.9)',
-    'font:13px system-ui,sans-serif',
+    `font:${DS.text.sm} ${DS.font.sans}`,
   ].join(';');
   const title = parent.ownerDocument.createElement('div');
   title.textContent = `Sound board · fuse ${fuse.anar}s`;
-  title.style.cssText = 'grid-column:1/-1;color:#ffcf70;font-weight:600';
+  title.style.cssText = `grid-column:1/-1;color:${DS.color.textAccent};font-weight:${DS.weight.semibold}`;
   panel.appendChild(title);
   for (const [label, run] of actions) {
     const button = parent.ownerDocument.createElement('button');
     button.type = 'button';
     button.textContent = label;
-    button.style.cssText = 'padding:6px 8px;border-radius:6px;border:1px solid #6b5a3a;background:#241c2e;color:#f6e7c8;cursor:pointer';
+    button.className = 'ds-btn ds-btn--secondary';
+    button.style.cssText = `min-height:0;padding:6px 8px;font-size:${DS.text.sm};font-weight:${DS.weight.regular}`;
     button.addEventListener('click', (event) => {
       // Keep the click from reaching the game's start screen.
       event.stopPropagation();

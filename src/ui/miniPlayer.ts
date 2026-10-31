@@ -3,9 +3,10 @@ import { AARTI_RECORDINGS } from '../audio/aarti/recordings';
 import type { Unsubscribe } from '../core/eventBus';
 import type { GameEventBus } from '../core/events';
 import { AARTI_SONG_IDS, type AartiSnapshot, type AartiSongId } from '../core/homes';
+import { DS } from './design/tokens';
 
-const ACCENT = '#ffcf70';
-const NOTICE = '#ff8a7a';
+const ACCENT = DS.color.accent;
+const NOTICE = DS.color.textDanger;
 
 /** One row of the song selector. */
 export interface MiniPlayerSong {
@@ -203,23 +204,23 @@ export function createMiniPlayer(
     'position:fixed',
     'left:16px',
     'top:16px',
-    'z-index:5',
+    `z-index:${DS.z.floating}`,
     'width:260px',
     'padding:10px 12px',
     'border-radius:8px',
     'background:rgba(11,10,26,0.78)',
-    `border:1px solid rgba(255,207,112,0.35)`,
-    'font-size:13px',
+    `border:1px solid ${DS.color.borderStrong}`,
+    `font-size:${DS.text.sm}`,
     'user-select:none',
     'pointer-events:none',
     'display:none',
   ]);
 
   const label = doc.createElement('div');
-  style(label, ['font-size:11px', 'letter-spacing:0.08em', 'text-transform:uppercase', 'opacity:0.7']);
+  style(label, [`font-size:${DS.text['2xs']}`, `letter-spacing:${DS.tracking.eyebrow}`, 'text-transform:uppercase', 'opacity:0.7']);
   label.textContent = 'Aarti · now playing';
   const title = doc.createElement('div');
-  style(title, ['margin-top:2px', 'font-size:15px', `color:${ACCENT}`]);
+  style(title, ['margin-top:2px', `font-size:${DS.text.md}`, `color:${ACCENT}`]);
 
   const bar = doc.createElement('div');
   style(bar, ['margin-top:8px', 'height:4px', 'border-radius:2px', 'background:rgba(255,255,255,0.15)', 'overflow:hidden']);
@@ -231,7 +232,7 @@ export function createMiniPlayer(
 
   const notice = doc.createElement('div');
   notice.setAttribute('role', 'status');
-  style(notice, ['margin-top:6px', `color:${NOTICE}`, 'font-size:12px']);
+  style(notice, ['margin-top:6px', `color:${NOTICE}`, `font-size:${DS.text.xs}`]);
 
   const list = doc.createElement('div');
   style(list, ['margin-top:8px', 'display:flex', 'flex-direction:column', 'gap:4px']);

@@ -14,5 +14,7 @@ export default defineConfig({
     // Gameplay rules must run headless, so tests use Node rather than a DOM.
     environment: 'node',
     include: ['tests/**/*.test.ts', 'src/**/*.test.ts'],
+    // The design-token tests read the stylesheets' real text (`?raw`).
+    css: { include: [/src\/ui\/design\/.+\.css/] },
   },
 });

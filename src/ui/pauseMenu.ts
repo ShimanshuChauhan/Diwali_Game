@@ -4,6 +4,7 @@ import type { Unsubscribe } from '../core/eventBus';
 import type { GameEventBus } from '../core/events';
 import { QUALITY_LEVELS } from '../core/quality';
 import type { QualityLevel } from '../core/types';
+import { button, controlsList, divider, el, sectionHeading, segmented } from './design/components';
 import { CONTROLS_HELP, QUALITY_LABELS } from './text';
 
 export type QualitySettings = Pick<QualityModule, 'profile' | 'setLevel'>;
@@ -34,6 +35,40 @@ export function bindQualitySelect(select: QualitySelect, quality: QualitySetting
   return () => select.removeEventListener('change', onChange);
 }
 
+/** Radio-like inputs: what a segmented control is made of. */
+export interface RadioInput extends EventTarget {
+  readonly value: string;
+  checked: boolean;
+}
+
+/**
+ * Present a group of radios as one `QualitySelect`: `value` is the checked
+ * radio's value, and a pick fires `change` on the group. Lets the segmented
+ * quality control reuse `bindQualitySelect`.
+ */
+export class RadioGroupSelect extends EventTarget implements QualitySelect {
+  private readonly forward = (): void => {
+    this.dispatchEvent(new Event('change'));
+  };
+
+  constructor(private readonly radios: readonly RadioInput[]) {
+    super();
+    for (const radio of radios) radio.addEventListener('change', this.forward);
+  }
+
+  get value(): string {
+    return this.radios.find((radio) => radio.checked)?.value ?? '';
+  }
+
+  set value(next: string) {
+    for (const radio of this.radios) radio.checked = radio.value === next;
+  }
+
+  dispose(): void {
+    for (const radio of this.radios) radio.removeEventListener('change', this.forward);
+  }
+}
+
 export interface PauseMenuOptions {
   readonly parent: HTMLElement;
   readonly bus: GameEventBus;
@@ -45,111 +80,106 @@ export interface PauseMenuOptions {
   readonly quality?: QualitySettings;
 }
 
-const BUTTON = [
-  'padding:8px 18px',
-  'border-radius:6px',
-  'border:1px solid #ffcf70',
-  'background:rgba(255,207,112,0.12)',
-  'color:inherit',
-  'font:inherit',
-  'cursor:pointer',
-].join(';');
+interface KeyLike extends Event {
+  readonly key?: string;
+  readonly shiftKey?: boolean;
+}
 
 /**
- * Escape pause menu: resume, controls help, sound, quality and restart.
- * Shown on `paused` and hidden on `resumed`/`sessionStarted`; the start
- * screen covers the session before it begins.
+ * Escape pause menu: resume, controls help, sound, quality and restart,
+ * built from the design system (docs/design-system.md). Shown on `paused`
+ * and hidden on `resumed`/`sessionStarted`; the start screen covers the
+ * session before it begins.
+ *
+ * Keyboard: Resume takes focus when the menu opens, Tab stays inside the
+ * panel, and keys pressed in the menu stop there so game bindings (which
+ * would otherwise swallow Space, digits and so on) never see them. Focus is
+ * dropped on close so a later key cannot press a hidden button.
  */
 export function createPauseMenu(options: PauseMenuOptions): Unsubscribe {
   const { parent, bus, onResume, onRestart, audio, quality } = options;
   const doc = parent.ownerDocument;
   const unbinds: (() => void)[] = [];
 
-  const overlay = doc.createElement('div');
-  overlay.className = 'pause-menu';
-  overlay.style.cssText = [
-    'position:fixed',
-    'inset:0',
-    'display:none',
-    'align-items:center',
-    'justify-content:center',
-    'background:rgba(11,10,26,0.72)',
-  ].join(';');
+  const overlay = el(doc, 'div', 'pause-menu ds-scrim');
+  overlay.hidden = true;
 
-  const panel = doc.createElement('div');
+  const panel = el(doc, 'div', 'pause-menu__panel ds-panel ds-stack');
   panel.setAttribute('role', 'dialog');
+  panel.setAttribute('aria-modal', 'true');
   panel.setAttribute('aria-label', 'Paused');
-  panel.style.cssText = [
-    'display:flex',
-    'flex-direction:column',
-    'gap:14px',
-    'min-width:320px',
-    'max-width:min(480px, calc(100vw - 32px))',
-    'padding:24px',
-    'border-radius:10px',
-    'background:rgba(24,20,44,0.95)',
-  ].join(';');
 
-  const title = doc.createElement('h2');
-  title.style.cssText = 'margin:0;font-weight:600;color:#ffcf70;text-align:center';
-  title.textContent = 'Paused';
+  const header = el(doc, 'header', 'ds-panel__header');
+  header.append(
+    el(doc, 'p', 'ds-eyebrow', 'Diwali Celebration'),
+    el(doc, 'h2', 'ds-panel__title', 'Paused'),
+    el(doc, 'p', 'ds-panel__lead', 'The lane waits while you take a break.'),
+  );
 
-  const resume = doc.createElement('button');
-  resume.type = 'button';
-  resume.style.cssText = BUTTON;
-  resume.textContent = 'Resume';
+  const resume = button(doc, 'Resume', { variant: 'primary', size: 'lg', block: true, className: 'pause-menu__resume' });
+  resume.dataset.action = 'resume';
   resume.addEventListener('click', onResume);
 
-  const help = doc.createElement('details');
-  const summary = doc.createElement('summary');
-  summary.style.cursor = 'pointer';
-  summary.textContent = 'Controls';
-  const list = doc.createElement('dl');
-  list.style.cssText = 'display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:8px 0 0;font-size:14px';
-  for (const [key, action] of CONTROLS_HELP) {
-    const term = doc.createElement('dt');
-    term.style.fontWeight = '600';
-    term.textContent = key;
-    const detail = doc.createElement('dd');
-    detail.style.margin = '0';
-    detail.textContent = action;
-    list.append(term, detail);
-  }
-  help.append(summary, list);
+  // Controls: one row per CONTROLS_HELP entry, so a new binding is one line in text.ts.
+  const help = el(doc, 'section', 'pause-menu__controls ds-section');
+  help.append(sectionHeading(doc, 'Controls'), controlsList(doc, CONTROLS_HELP));
 
-  panel.append(title, resume, help);
-
-  if (audio) panel.appendChild(createAudioControls(doc, audio));
+  const settings = el(doc, 'div', 'pause-menu__settings ds-stack');
+  settings.style.setProperty('--ds-stack-gap', 'var(--ds-space-6)');
+  if (audio) settings.appendChild(createAudioControls(doc, audio));
 
   if (quality) {
-    const select = doc.createElement('select');
-    for (const level of QUALITY_LEVELS) {
-      const option = doc.createElement('option');
-      option.value = level;
-      option.textContent = QUALITY_LABELS[level];
-      select.appendChild(option);
-    }
-    const label = doc.createElement('label');
-    label.append('Quality ', select);
-    panel.appendChild(label);
-    unbinds.push(bindQualitySelect(select, quality));
+    const section = el(doc, 'fieldset', 'pause-menu__quality ds-section');
+    const control = segmented(
+      doc,
+      'Quality',
+      QUALITY_LEVELS.map((level) => ({ value: level, label: QUALITY_LABELS[level] })),
+    );
+    section.append(
+      sectionHeading(doc, 'Quality', 'legend'),
+      control.root,
+      el(doc, 'p', 'ds-hint', 'Lower it if the fireworks stutter.'),
+    );
+    settings.appendChild(section);
+    const group = new RadioGroupSelect(control.inputs);
+    unbinds.push(bindQualitySelect(group, quality), () => group.dispose());
   }
 
-  const restart = doc.createElement('button');
-  restart.type = 'button';
-  restart.style.cssText = BUTTON;
-  restart.textContent = 'Restart fresh celebration';
-  restart.addEventListener('click', onRestart);
-  panel.appendChild(restart);
+  const body = el(doc, 'div', 'ds-panel__body');
+  body.append(help, settings);
 
+  const restart = button(doc, 'Restart fresh celebration', { variant: 'danger', className: 'pause-menu__restart' });
+  restart.dataset.action = 'restart';
+  restart.addEventListener('click', onRestart);
+  const footer = el(doc, 'footer', 'ds-panel__footer');
+  footer.append(el(doc, 'p', 'ds-hint', 'Starts the evening over from the beginning.'), restart);
+
+  panel.append(header, resume, body, divider(doc), footer);
   overlay.appendChild(panel);
   parent.appendChild(overlay);
 
+  const onKey = (event: KeyLike): void => {
+    event.stopPropagation();
+    if (event.type !== 'keydown' || event.key !== 'Tab') return;
+    // Resume and Restart are the first and last stops; wrap between them.
+    const active = doc.activeElement;
+    const leaving = event.shiftKey ? active === resume : active === restart;
+    if (leaving || !panel.contains(active)) {
+      event.preventDefault();
+      (event.shiftKey && panel.contains(active) ? restart : resume).focus();
+    }
+  };
+  overlay.addEventListener('keydown', onKey);
+  overlay.addEventListener('keyup', onKey);
+
   const show = (): void => {
-    overlay.style.display = 'flex';
+    overlay.hidden = false;
+    resume.focus({ preventScroll: true });
   };
   const hide = (): void => {
-    overlay.style.display = 'none';
+    const active = doc.activeElement as HTMLElement | null;
+    if (active && overlay.contains(active)) active.blur();
+    overlay.hidden = true;
   };
   unbinds.push(bus.on('paused', show), bus.on('resumed', hide), bus.on('sessionStarted', hide));
 
@@ -157,6 +187,8 @@ export function createPauseMenu(options: PauseMenuOptions): Unsubscribe {
     for (const unbind of unbinds.splice(0)) unbind();
     resume.removeEventListener('click', onResume);
     restart.removeEventListener('click', onRestart);
+    overlay.removeEventListener('keydown', onKey);
+    overlay.removeEventListener('keyup', onKey);
     overlay.remove();
   };
 }
