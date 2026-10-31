@@ -64,6 +64,8 @@ interface Graph {
   readonly sfx: GainNode;
   /** Near ladis' pops: their lane slapback and limiter, into `sfx`. */
   readonly ladi: GainNode;
+  /** The sutli under the balti: a bus of the ladi's build of its own, into `sfx`. */
+  readonly bomb: GainNode;
   readonly ambience: GainNode;
   /** Recorded music (aarti): under master gain and mute, dry of the lane echo. */
   readonly music: GainNode;
@@ -367,11 +369,12 @@ export class AudioEngine implements AudioModule, Steppable {
     sfx.connect(echo);
     echo.connect(createLaneEcho(ctx, this.random)).connect(master);
     const ladi = createLadiBus(ctx, sfx, this.random);
+    const bomb = createLadiBus(ctx, sfx, this.random);
     const ambience = ctx.createGain();
     ambience.connect(master);
     const music = ctx.createGain();
     music.connect(master);
-    return { ctx, master, sfx, ladi, ambience, music, bank: createNoiseBank(ctx, this.random), townCrackle: null };
+    return { ctx, master, sfx, ladi, bomb, ambience, music, bank: createNoiseBank(ctx, this.random), townCrackle: null };
   }
 
   private async resumeContext(): Promise<void> {
@@ -461,7 +464,7 @@ export class AudioEngine implements AudioModule, Steppable {
     const panner = this.createPanner(ctx, options.position, options.refDistance ?? spec.refDistance);
     if (options.moveTo) movePanner(panner, options.position, options.moveTo, t0, end);
     output.connect(panner);
-    panner.connect(spec.bus === 'ladi' ? graph.ladi : graph.sfx);
+    panner.connect(spec.bus === 'ladi' ? graph.ladi : spec.bus === 'bomb' ? graph.bomb : graph.sfx);
     synth = synthesise(ctx, graph.bank, kind, output, {
       t0,
       duration: options.duration,

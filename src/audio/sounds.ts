@@ -35,9 +35,11 @@ export interface SoundSpec {
   readonly refDistance: number;
   /**
    * `'ladi'` plays through the ladi bus (its lane slapback and limiter; see
-   * `createLadiBus`) instead of straight into the effects.
+   * `createLadiBus`) instead of straight into the effects. `'bomb'` is a
+   * bus of the same build kept for the sutli alone, so its boom can be
+   * driven far harder without ducking a ladi going off beside it.
    */
-  readonly bus?: 'ladi';
+  readonly bus?: 'ladi' | 'bomb';
 }
 
 export const SOUNDS: Readonly<Record<SoundKind, SoundSpec>> = {
@@ -62,8 +64,10 @@ export const SOUNDS: Readonly<Record<SoundKind, SoundSpec>> = {
   // boom, muffled by the steel over it, with the steel's bang and ring; the
   // tumbling pail's flutter; the clatter as it lands; its rattle or roll.
   baltiFuse: { priority: 1, gain: 0.3, refDistance: 1.5 },
-  // Trimmed so the layered boom peaks and averages near the first, single-layer one.
-  baltiBoom: { priority: 4, gain: 1.05, refDistance: 8 },
+  // A sutli is the loudest bomb there is: driven into its own limiter well
+  // past the ladi, so it slams as loud as the mix allows without clipping,
+  // and carries across the street.
+  baltiBoom: { priority: 4, gain: 14, refDistance: 14, bus: 'bomb' },
   baltiWhoosh: { priority: 0, gain: 0.14, refDistance: 3 },
   baltiClang: { priority: 2, gain: 0.5, refDistance: 3 },
   baltiRattle: { priority: 1, gain: 0.6, refDistance: 3 },

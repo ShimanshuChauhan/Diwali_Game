@@ -760,13 +760,17 @@ const RECIPES: Record<SoundKind, Recipe> = {
     // The thump: the gas shoved down against the ground and out under the rim.
     const thump = b.gain(0);
     thump.gain.setValueAtTime(0.0001, b.t0);
-    b.hit(thump.gain, 0.8, at, 0.42);
-    const sub = b.osc('sine', 95, at, b.until(at + 0.5));
-    sub.frequency.setValueAtTime(95, at);
-    sub.frequency.exponentialRampToValueAtTime(38, b.until(at + 0.35));
+    b.hit(thump.gain, 1, at, 0.6);
+    const sub = b.osc('sine', 110, at, b.until(at + 0.7));
+    sub.frequency.setValueAtTime(110, at);
+    sub.frequency.exponentialRampToValueAtTime(34, b.until(at + 0.5));
     b.chain(sub, thump, b.output);
-    const body = b.gain(0.8);
-    b.chain(b.blast(at, 0.62 + Math.random() * 0.08), b.filter('lowpass', muffle(far, 1000), 0.8), body, b.output);
+    // The blast. A sutli is wrapped tight in jute, so it cracks hard enough
+    // that the pail over it dulls it only a little.
+    const body = b.gain(1);
+    b.chain(b.blast(at, 0.75 + Math.random() * 0.1), b.filter('lowpass', muffle(far, 2600), 0.7), body, b.output);
+    // The crack itself, escaping under the rim before the steel can soak it up.
+    b.burst(b.bank.white, at, 0.9, 0.04, b.filter('bandpass', muffle(far, 1600), 0.5));
 
     // The bang of the steel: the shock hitting the base from inside.
     b.burst(b.bank.white, at + 0.002, 0.5, 0.05, b.filter('bandpass', muffle(far, 2600), 0.8));
