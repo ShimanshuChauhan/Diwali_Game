@@ -2,7 +2,7 @@ import type { GameAction } from '../core/actions';
 import type { InputModule } from '../core/contracts';
 import type { Unsubscribe } from '../core/eventBus';
 import type { GameEventBus } from '../core/events';
-import { bindingFor, PLACE_BUTTON } from './bindings';
+import { bindingFor, PLACE_BUTTON, WHEEL_STEP } from './bindings';
 
 export interface InputOptions {
   /** When given, input disables on `paused` and re-enables on `sessionStarted`/`resumed`. */
@@ -27,6 +27,8 @@ export class Input implements InputModule {
   private running = false;
   /** The place button is down, so its release ends a hold. */
   private placeHeld = false;
+  /** Wheel travel since the last step, pixels; positive scrolls down. */
+  private wheelTravel = 0;
   private enabled: boolean;
   private readonly unsubscribes: Unsubscribe[] = [];
 
@@ -87,6 +89,21 @@ export class Input implements InputModule {
     if (button === PLACE_BUTTON) this.releasePlace();
   }
 
+  /**
+   * Vertical wheel travel in pixels (down is positive, as in `WheelEvent`).
+   * Every `WHEEL_STEP` of travel one way cycles the item once: down to the
+   * next, up to the previous. One event steps at most once, so a hard flick
+   * never skips an item, and turning back starts the count afresh.
+   */
+  wheel(deltaY: number): void {
+    if (!this.enabled || deltaY === 0) return;
+    if (Math.sign(deltaY) !== Math.sign(this.wheelTravel)) this.wheelTravel = 0;
+    this.wheelTravel += deltaY;
+    if (Math.abs(this.wheelTravel) < WHEEL_STEP) return;
+    this.queue.push({ type: 'cycleItem', step: this.wheelTravel > 0 ? 1 : -1 });
+    this.wheelTravel = 0;
+  }
+
   /** Mouse delta in pixels; consecutive deltas merge into one action. */
   look(dx: number, dy: number): void {
     if (!this.enabled || (dx === 0 && dy === 0)) return;
@@ -113,6 +130,7 @@ export class Input implements InputModule {
    */
   releaseAll(): void {
     this.held.clear();
+    this.wheelTravel = 0;
     this.queue = this.queue.filter(
       (action) => action.type === 'move' || action.type === 'run' || action.type === 'placeReleased',
     );

@@ -7,6 +7,7 @@ import type {
   PlacementPreview,
   PlaceResult,
 } from '../core/contracts';
+import type { HandSelection } from '../core/actions';
 import type { Unsubscribe } from '../core/eventBus';
 import type { GameEventBus } from '../core/events';
 import { ladiBangerCentre, type LadiChain } from '../core/ladi';
@@ -41,8 +42,11 @@ export interface CrackersOptions {
   readonly random?: () => number;
   /** Where the held phuljhari is, read when it is lit and every step after. */
   readonly handPosition?: () => Vec3;
-  /** Selection at the start of every session; the phuljhari (key 1) by default. */
-  readonly initialSelection?: CrackerType;
+  /**
+   * Selection at the start of every session: bare hands (null) by default,
+   * so the player walks in empty-handed and picks a cracker up when ready.
+   */
+  readonly initialSelection?: HandSelection;
 }
 
 interface MutableVec3 {
@@ -98,14 +102,16 @@ export class Crackers implements CrackersModule {
   private readonly tuning: Tuning;
   private readonly random: () => number;
   private readonly handPosition: () => Vec3;
-  private readonly initialSelection: CrackerType;
+  private readonly initialSelection: HandSelection;
   private readonly unsubscribes: Unsubscribe[] = [];
 
   /** Ground crackers not yet finished, in placement order. */
   private readonly ground: CrackerRecord[] = [];
   private heldRecord: CrackerRecord | null = null;
   private heldItem: HeldItem | null = null;
-  private current: CrackerType;
+  private current: HandSelection;
+  /** The cracker that was in hand most recently; the quick holster takes it out again. */
+  private last: CrackerType;
   private nextId = 1;
 
   constructor(options: CrackersOptions) {
@@ -114,15 +120,22 @@ export class Crackers implements CrackersModule {
     this.tuning = options.tuning ?? TUNING;
     this.random = options.random ?? Math.random;
     this.handPosition = options.handPosition ?? (() => ORIGIN);
-    this.initialSelection = options.initialSelection ?? CRACKER_TYPES[0];
+    this.initialSelection = options.initialSelection === undefined ? null : options.initialSelection;
     this.definitions = crackerDefinitions(this.tuning);
     this.current = this.initialSelection;
+    this.last = this.initialSelection ?? CRACKER_TYPES[0];
     this.reset();
     this.unsubscribes.push(this.bus.on('sessionReset', () => this.reset()));
   }
 
-  get selected(): CrackerType {
+  /** The cracker in hand, or null for bare hands. */
+  get selected(): HandSelection {
     return this.current;
+  }
+
+  /** The cracker most recently in hand, kept through bare hands; the phuljhari before any. */
+  get lastCracker(): CrackerType {
+    return this.last;
   }
 
   get held(): HeldItem | null {
@@ -153,10 +166,12 @@ export class Crackers implements CrackersModule {
     return this.find(id)?.variant ?? null;
   }
 
-  select(type: CrackerType): void {
+  /** Null puts everything away for bare hands; a lit phuljhari is finished early, as for any switch. */
+  select(type: HandSelection): void {
     if (type !== 'phuljhari') this.dropHeld();
     else if (!this.heldRecord) this.takePhuljhari();
     this.current = type;
+    if (type) this.last = type;
     this.bus.emit('crackerSelected', { type });
   }
 
@@ -244,7 +259,8 @@ export class Crackers implements CrackersModule {
     this.ground.length = 0;
     this.setHeld(null);
     this.current = this.initialSelection;
-    if (isHandheld(this.current)) this.takePhuljhari();
+    this.last = this.initialSelection ?? CRACKER_TYPES[0];
+    if (this.current && isHandheld(this.current)) this.takePhuljhari();
   }
 
   dispose(): void {

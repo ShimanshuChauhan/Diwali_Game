@@ -47,6 +47,14 @@ interface KeyLike extends Event {
   readonly code?: string;
 }
 
+interface WheelLike extends Event {
+  readonly deltaY?: number;
+  readonly deltaMode?: number;
+}
+
+/** Pixels per `WheelEvent.deltaMode` unit: pixels, lines, pages. */
+const WHEEL_UNIT = [1, 40, 800] as const;
+
 interface MouseLike extends Event {
   readonly button?: number;
   readonly movementX?: number;
@@ -117,6 +125,16 @@ export function createDomControls(options: DomControlsOptions): DomControls {
         if (isLocked() && event.button !== undefined) input.mouseDown(event.button);
       },
     ],
+    // The wheel cycles bare hands and the crackers; the page never scrolls under the game.
+    [
+      element,
+      'wheel',
+      (event: WheelLike) => {
+        if (!isLocked()) return;
+        event.preventDefault();
+        input.wheel((event.deltaY ?? 0) * (WHEEL_UNIT[event.deltaMode ?? 0] ?? 1));
+      },
+    ],
     // Releases count wherever they land, so a hold never sticks; `Input` ignores ones it did not see start.
     [
       doc,
@@ -127,7 +145,10 @@ export function createDomControls(options: DomControlsOptions): DomControls {
     ],
   ];
 
-  for (const [target, type, listener] of listeners) target.addEventListener(type, listener);
+  // The wheel listener is not passive, so its preventDefault holds.
+  for (const [target, type, listener] of listeners) {
+    target.addEventListener(type, listener, type === 'wheel' ? { passive: false } : undefined);
+  }
 
   // A pause from gameplay (the Escape action) also hands the pointer back.
   const offPaused = bus.on('paused', () => {

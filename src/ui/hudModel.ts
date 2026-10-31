@@ -1,10 +1,10 @@
+import type { HandSelection } from '../core/actions';
 import type { HeldItem, Interactable, UiModule } from '../core/contracts';
 import type { Unsubscribe } from '../core/eventBus';
 import type { GameEventBus } from '../core/events';
 import type { LocationId } from '../core/homes';
 import { crackersAllowed } from '../crackers/outdoors';
 import {
-  CRACKER_TYPES,
   isHandheld,
   type CameraMode,
   type CrackerType,
@@ -22,10 +22,13 @@ import {
   isHomeInteractable,
   type HomePromptState,
 } from './homePrompts';
-import { CRACKER_LABELS, PHULJHARI_PUT_OUT_TEXT, rejectionText, type RejectionKind } from './text';
+import { CRACKER_LABELS, PHULJHARI_PUT_OUT_TEXT, rejectionText, selectionLabel, type RejectionKind } from './text';
 
 /** How long a rejection message stays on screen, in seconds. */
 export const REJECTION_SECONDS = 2.5;
+
+/** How long the switch toast names the new selection, in seconds. */
+export const SWITCH_TOAST_SECONDS = 1.2;
 
 /** One line of the contextual prompt under the crosshair. */
 export interface PromptLine {
@@ -70,7 +73,7 @@ function lower(type: CrackerType): string {
  * player is and what they are near and holding — never on the camera mode —
  * so the same prompts appear in first- and third-person.
  */
-export function promptLines(selected: CrackerType, context: HudContext): PromptLine[] {
+export function promptLines(selected: HandSelection, context: HudContext): PromptLine[] {
   const { interactable } = context;
   if (context.activity) return [...context.activity];
   if (interactable && isHomeInteractable(interactable)) {
@@ -94,8 +97,8 @@ export function promptLines(selected: CrackerType, context: HudContext): PromptL
     const label = context.interactableType ? lower(context.interactableType) : 'cracker';
     lines.push({ text: `E: Light ${label}`, blocked: false });
   }
-  // Crackers are outdoor-only: indoors the selection stays silent.
-  if (!crackersAllowed(context.location ?? 'outdoors')) return lines;
+  // Crackers are outdoor-only: indoors the selection stays silent. Bare hands hold nothing to light or place.
+  if (!crackersAllowed(context.location ?? 'outdoors') || selected === null) return lines;
 
   if (isHandheld(selected)) {
     if (!interactable && !context.held?.lit) lines.push({ text: `E: Light ${lower(selected)}`, blocked: false });
@@ -123,9 +126,10 @@ function sameLines(a: readonly PromptLine[], b: readonly PromptLine[]): boolean 
 export interface HudModelOptions {
   /** When given, the HUD follows selection, rejection, camera and pause events. */
   readonly bus?: GameEventBus;
-  /** Selection before any `crackerSelected`; defaults to slot 1. */
-  readonly selected?: CrackerType;
+  /** Selection before any `crackerSelected`; defaults to bare hands, as `Crackers` does. */
+  readonly selected?: HandSelection;
   readonly rejectionSeconds?: number;
+  readonly toastSeconds?: number;
 }
 
 /**
@@ -135,11 +139,12 @@ export interface HudModelOptions {
  * that change nothing cost nothing.
  */
 export class HudModel implements UiModule {
-  private readonly initialSelection: CrackerType;
+  private readonly initialSelection: HandSelection;
   private readonly rejectionSeconds: number;
+  private readonly toastSeconds: number;
   private readonly unsubscribes: Unsubscribe[] = [];
 
-  private currentSelection: CrackerType;
+  private currentSelection: HandSelection;
   private currentMode: CameraMode = 'firstPerson';
   private isPaused = true;
   private inAarti = false;
@@ -147,12 +152,14 @@ export class HudModel implements UiModule {
   private location: LocationId = 'outdoors';
   private lines: readonly PromptLine[] = [];
   private currentRejection: { text: string; remaining: number } | null = null;
+  private currentToast: { text: string; remaining: number } | null = null;
   private rev = 0;
 
   constructor(options: HudModelOptions = {}) {
-    this.initialSelection = options.selected ?? CRACKER_TYPES[0];
+    this.initialSelection = options.selected === undefined ? null : options.selected;
     this.currentSelection = this.initialSelection;
     this.rejectionSeconds = options.rejectionSeconds ?? REJECTION_SECONDS;
+    this.toastSeconds = options.toastSeconds ?? SWITCH_TOAST_SECONDS;
     const { bus } = options;
     if (bus) {
       this.unsubscribes.push(
@@ -181,8 +188,14 @@ export class HudModel implements UiModule {
     return this.rev;
   }
 
-  get selected(): CrackerType {
+  /** The highlighted slot; null is bare hands. */
+  get selected(): HandSelection {
     return this.currentSelection;
+  }
+
+  /** Names the selection for a moment after it changes, e.g. "Bare hands". */
+  get toast(): Rejection | null {
+    return this.currentToast;
   }
 
   get cameraMode(): CameraMode {
@@ -220,9 +233,15 @@ export class HudModel implements UiModule {
     return !this.isPaused && this.currentMode === 'firstPerson';
   }
 
-  setSelection(type: CrackerType): void {
+  /**
+   * Highlight `type`. A real change names it in the toast where the hotbar
+   * shows; re-selecting the same thing (a fresh phuljhari, a stick coming
+   * back after a plate) stays quiet.
+   */
+  setSelection(type: HandSelection): void {
     if (type === this.currentSelection) return;
     this.currentSelection = type;
+    this.currentToast = this.hotbarVisible ? { text: selectionLabel(type), remaining: this.toastSeconds } : null;
     this.changed();
   }
 
@@ -272,15 +291,25 @@ export class HudModel implements UiModule {
     this.changed();
   }
 
-  /** Age the rejection message by `dt` seconds of real time. */
+  /** Age the rejection message and the switch toast by `dt` seconds of real time. */
   update(dt: number): void {
+    // The countdowns alone change nothing visible, so no revision bump.
     const rejection = this.currentRejection;
-    if (!rejection) return;
-    rejection.remaining -= dt;
-    // The countdown alone changes nothing visible, so no revision bump.
-    if (rejection.remaining > 0) return;
-    this.currentRejection = null;
-    this.changed();
+    if (rejection) {
+      rejection.remaining -= dt;
+      if (rejection.remaining <= 0) {
+        this.currentRejection = null;
+        this.changed();
+      }
+    }
+    const toast = this.currentToast;
+    if (toast) {
+      toast.remaining -= dt;
+      if (toast.remaining <= 0) {
+        this.currentToast = null;
+        this.changed();
+      }
+    }
   }
 
   /** Fresh session: default selection, outdoors with free hands, no prompt, no message. */
@@ -291,6 +320,7 @@ export class HudModel implements UiModule {
     this.handsFull = false;
     this.location = 'outdoors';
     this.currentRejection = null;
+    this.currentToast = null;
     this.changed();
   }
 

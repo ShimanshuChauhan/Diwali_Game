@@ -1,4 +1,4 @@
-import type { GameAction } from './actions';
+import type { GameAction, HandSelection } from './actions';
 import type { HomeInteractable } from './homes';
 import type { QualityProfile } from './quality';
 import type {
@@ -201,11 +201,12 @@ export interface HeldItem {
 }
 
 export interface CrackersModule extends Steppable, Resettable {
-  readonly selected: CrackerType;
+  /** The cracker in hand, or null for bare hands. */
+  readonly selected: HandSelection;
   /** The handheld phuljhari while it is selected, else null. */
   readonly held: HeldItem | null;
-  /** Emits `crackerSelected`. */
-  select(type: CrackerType): void;
+  /** Emits `crackerSelected`; null selects bare hands. */
+  select(type: HandSelection): void;
   /**
    * Create a ground cracker from a validated preview. Emits `crackerPlaced`
    * or `placementRejected` (e.g. capacity).

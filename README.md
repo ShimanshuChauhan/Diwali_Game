@@ -23,6 +23,23 @@ npm install
 npm run dev        # dev server at http://localhost:5173
 ```
 
+## Controls
+
+| Key        | Action                                                        |
+| ---------- | ------------------------------------------------------------- |
+| WASD       | Move                                                          |
+| Shift      | Run                                                           |
+| Mouse      | Look                                                          |
+| 1–5        | Select phuljhari · anar · chakri · rocket · ladi              |
+| `` ` `` or 0 | Bare hands: put the cracker away (how a session starts)     |
+| Wheel      | Cycle bare hands and the crackers, wrapping round             |
+| H          | Holster, or take out the last cracker again                   |
+| Click      | Place the selected ground cracker                             |
+| E          | Light a nearby cracker or diya, or the held phuljhari; use doors, the puja, sweets and people |
+| V          | Switch first / third person                                   |
+| Esc        | Pause                                                         |
+| F3         | Show or hide performance stats                                |
+
 ## Scripts
 
 | Command             | What it does                                  |

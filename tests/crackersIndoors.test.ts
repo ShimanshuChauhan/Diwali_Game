@@ -75,7 +75,7 @@ describe('prompts in a home', () => {
 
   it('follows the location in HudModel and restores the prompt outdoors', () => {
     const bus = createGameEventBus();
-    const hud = new HudModel({ bus });
+    const hud = new HudModel({ bus, selected: 'phuljhari' });
     bus.emit('sessionStarted', {});
     const context: HudContext = { interactable: null, held: UNLIT, homes: { hands: null } };
     hud.setContext(context);

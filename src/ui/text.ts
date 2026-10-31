@@ -13,6 +13,14 @@ export const CRACKER_LABELS: Readonly<Record<CrackerType, string>> = {
   ladi: 'Ladi',
 };
 
+/** The bare-hands slot, first in the hotbar and the wheel cycle. */
+export const BARE_HANDS_LABEL = 'Hands';
+
+/** What the switch toast names for each selection; null is bare hands. */
+export function selectionLabel(type: CrackerType | null): string {
+  return type === null ? 'Bare hands' : CRACKER_LABELS[type];
+}
+
 export const QUALITY_LABELS: Readonly<Record<QualityLevel, string>> = {
   low: 'Low',
   medium: 'Medium',
@@ -69,6 +77,9 @@ export const CONTROLS_HELP: readonly (readonly [string, string])[] = [
   ['Space', 'Jump'],
   ['Mouse', 'Look'],
   ['1–5', 'Select phuljhari · anar · chakri · rocket · ladi'],
+  ['` or 0', 'Bare hands: put the cracker away'],
+  ['Wheel', 'Cycle bare hands and the crackers'],
+  ['H', 'Holster, or take out the last cracker again'],
   ['Click', 'Place the selected ground cracker'],
   ['E', 'Light a nearby cracker or diya, or the held phuljhari; use doors, the puja, sweets and people'],
   ['V', 'Switch first / third person'],

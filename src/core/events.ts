@@ -1,3 +1,4 @@
+import type { HandSelection } from './actions';
 import { EventBus } from './eventBus';
 import type {
   AartiRejection,
@@ -43,7 +44,8 @@ export interface GameEvents {
 
   cameraModeChanged: { readonly mode: CameraMode };
 
-  crackerSelected: { readonly type: CrackerType };
+  /** Null is bare hands. */
+  crackerSelected: { readonly type: HandSelection };
   crackerPlaced: { readonly id: CrackerId; readonly type: CrackerType; readonly position: Vec3 };
   placementRejected: { readonly type: CrackerType; readonly reason: PlacementRejection };
   fuseLit: {

@@ -134,7 +134,8 @@ describe('HudModel', () => {
 
   it('follows cracker selection on the hotbar', () => {
     const { bus, hud } = running();
-    expect(hud.selected).toBe('phuljhari');
+    // Bare hands until the player picks a cracker up, as `Crackers` starts.
+    expect(hud.selected).toBeNull();
     bus.emit('crackerSelected', { type: 'rocket' });
     expect(hud.selected).toBe('rocket');
   });
@@ -313,7 +314,7 @@ describe('HudModel', () => {
     const before = hud.revision;
     hud.setContext({ interactable: DIYA });
     hud.setContext({ interactable: { ...DIYA } });
-    bus.emit('crackerSelected', { type: 'phuljhari' });
+    bus.emit('crackerSelected', { type: null });
     expect(hud.revision).toBe(before);
 
     bus.emit('placementRejected', { type: 'anar', reason: 'outOfReach' });
@@ -337,7 +338,8 @@ describe('HudModel', () => {
     hud.setContext(NOTHING);
     bus.emit('placementRejected', { type: 'chakri', reason: 'nearNeighbour' });
     bus.emit('sessionReset', {});
-    expect(hud.selected).toBe('phuljhari');
+    expect(hud.selected).toBeNull();
+    expect(hud.toast).toBeNull();
     expect(hud.prompts).toEqual([]);
     expect(hud.rejection).toBeNull();
   });
@@ -346,7 +348,7 @@ describe('HudModel', () => {
     const { bus, hud } = running();
     hud.dispose();
     bus.emit('crackerSelected', { type: 'rocket' });
-    expect(hud.selected).toBe('phuljhari');
+    expect(hud.selected).toBeNull();
   });
 });
 

@@ -94,8 +94,8 @@ describe('ladi definition', () => {
 
   it('is selected with 5 and puts the held phuljhari down', () => {
     const bus = createGameEventBus();
-    const crackers = new Crackers({ bus });
-    const selected: string[] = [];
+    const crackers = new Crackers({ bus, initialSelection: 'phuljhari' });
+    const selected: (string | null)[] = [];
     bus.on('crackerSelected', ({ type }) => selected.push(type));
     expect(crackers.held).not.toBeNull();
     const binding = bindingFor('Digit5');
@@ -824,7 +824,7 @@ describe('ladi on the HUD', () => {
     expect(promptLines('ladi', { interactable: target, interactableType: 'ladi' })[0]).toEqual({ text: 'E: Light ladi', blocked: false });
   });
 
-  it('shows five slots, the fifth "5 Ladi"', () => {
+  it('shows bare hands and five slots, the last "5 Ladi"', () => {
     const doc = fakeDocument();
     const parent = doc.createElement('div');
     const bus = createGameEventBus();
@@ -833,8 +833,8 @@ describe('ladi on the HUD', () => {
     bus.emit('sessionStarted', {});
     bus.emit('crackerSelected', { type: 'ladi' });
     const hotbar = (parent.children[0] as FakeElement).children.at(-1) as FakeElement;
-    expect(hotbar.children).toHaveLength(5);
-    const fifth = hotbar.children[4] as FakeElement;
+    expect(hotbar.children).toHaveLength(6);
+    const fifth = hotbar.children[5] as FakeElement;
     expect((fifth.children[0] as FakeElement).textContent).toBe('5');
     expect(fifth.children[1]).toBe('Ladi');
     expect(model.selected).toBe('ladi');

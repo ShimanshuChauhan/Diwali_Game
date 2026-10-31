@@ -1,6 +1,6 @@
-import { CRACKER_TYPES } from '../core/types';
+import { ITEM_CYCLE } from '../core/actions';
 import type { HudModel } from './hudModel';
-import { CRACKER_LABELS } from './text';
+import { BARE_HANDS_LABEL, CRACKER_LABELS } from './text';
 
 const ACCENT = '#ffcf70';
 const BLOCKED = '#ff8a7a';
@@ -15,10 +15,18 @@ function style(element: HTMLElement, rules: readonly string[]): void {
   element.style.cssText = rules.join(';');
 }
 
+/** An open palm for the bare-hands slot, drawn in the text colour so it follows the highlight. */
+const HAND_ICON =
+  '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" ' +
+  'stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px">' +
+  '<path d="M7 11V5.5a1.5 1.5 0 0 1 3 0V10 4a1.5 1.5 0 0 1 3 0v6-4.5a1.5 1.5 0 0 1 3 0V12v-3.5a1.5 1.5 0 0 1 3 0V15' +
+  'a7 7 0 0 1-7 7h-.5a6.5 6.5 0 0 1-5.3-2.8L3.6 15.3a1.6 1.6 0 0 1 2.5-2L7 14.5"/></svg>';
+
 /**
- * DOM overlay for the HUD: hotbar of the five crackers with the selection
- * highlighted, a first-person crosshair, contextual prompt lines and a
- * fading rejection message. It never takes pointer events, so clicks still
+ * DOM overlay for the HUD: hotbar of bare hands and the five crackers with
+ * the selection highlighted, a short toast naming a new selection, a
+ * first-person crosshair, contextual prompt lines and a fading rejection
+ * message. It never takes pointer events, so clicks still
  * reach the canvas.
  */
 export function createHud(parent: HTMLElement, model: HudModel): HudView {
@@ -79,6 +87,21 @@ export function createHud(parent: HTMLElement, model: HudModel): HudView {
     'white-space:nowrap',
   ]);
 
+  // Names the new selection just above the hotbar, quieter than a refusal.
+  const toast = doc.createElement('div');
+  style(toast, [
+    'position:absolute',
+    'left:50%',
+    'bottom:72px',
+    'transform:translateX(-50%)',
+    'padding:3px 12px',
+    'border-radius:6px',
+    'background:rgba(11,10,26,0.6)',
+    `color:${ACCENT}`,
+    'font-size:14px',
+    'white-space:nowrap',
+  ]);
+
   const hotbar = doc.createElement('div');
   style(hotbar, [
     'position:absolute',
@@ -88,7 +111,7 @@ export function createHud(parent: HTMLElement, model: HudModel): HudView {
     'display:flex',
     'gap:8px',
   ]);
-  const slots = CRACKER_TYPES.map((type, i) => {
+  const slots = ITEM_CYCLE.map((type, i) => {
     const slot = doc.createElement('div');
     style(slot, [
       'min-width:84px',
@@ -101,13 +124,20 @@ export function createHud(parent: HTMLElement, model: HudModel): HudView {
     ]);
     const key = doc.createElement('div');
     style(key, ['font-size:11px', 'opacity:0.7']);
-    key.textContent = String(i + 1);
-    slot.append(key, CRACKER_LABELS[type]);
+    // Bare hands are on the key left of 1; the crackers keep 1–5.
+    key.textContent = type === null ? '`' : String(i);
+    if (type === null) {
+      // Fixed markup, no player text.
+      const icon = doc.createElement('span');
+      icon.innerHTML = HAND_ICON;
+      slot.append(key, icon, BARE_HANDS_LABEL);
+    }
+    else slot.append(key, CRACKER_LABELS[type]);
     hotbar.appendChild(slot);
     return slot;
   });
 
-  root.append(crosshair, prompts, rejection, hotbar);
+  root.append(crosshair, prompts, rejection, toast, hotbar);
   parent.appendChild(root);
 
   let drawn = -1;
@@ -119,7 +149,7 @@ export function createHud(parent: HTMLElement, model: HudModel): HudView {
     crosshair.style.display = model.crosshairVisible ? 'block' : 'none';
     hotbar.style.display = model.hotbarVisible ? 'flex' : 'none';
 
-    CRACKER_TYPES.forEach((type, i) => {
+    ITEM_CYCLE.forEach((type, i) => {
       const selected = type === model.selected;
       const slot = slots[i]!;
       slot.style.borderColor = selected ? ACCENT : 'transparent';
@@ -135,6 +165,11 @@ export function createHud(parent: HTMLElement, model: HudModel): HudView {
         return element;
       }),
     );
+
+    // A refusal takes the space; the toast only names a switch that went through.
+    const named = model.rejection ? null : model.toast;
+    toast.textContent = named?.text ?? '';
+    toast.style.display = named && model.hotbarVisible ? 'block' : 'none';
 
     const message = model.rejection;
     rejection.textContent = message?.text ?? '';

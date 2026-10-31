@@ -16,6 +16,7 @@ describe('key bindings', () => {
       [
         'KeyW', 'KeyA', 'KeyS', 'KeyD', 'ShiftLeft', 'ShiftRight', 'Space',
         'Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'KeyE', 'KeyV', 'Escape',
+        'Backquote', 'Digit0', 'KeyH',
       ].sort(),
     );
   });

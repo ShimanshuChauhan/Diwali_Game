@@ -1,8 +1,8 @@
+import type { HandSelection } from '../core/actions';
 import type { HeldItem } from '../core/contracts';
 import type { Unsubscribe } from '../core/eventBus';
 import type { GameEventBus } from '../core/events';
 import type { LocationId } from '../core/homes';
-import type { CrackerType } from '../core/types';
 
 /**
  * Crackers are outdoor-only: in a home there are no cracker prompts, no
@@ -15,9 +15,9 @@ export function crackersAllowed(location: LocationId): boolean {
 
 /** The part of the crackers module the door needs. `Crackers` satisfies it. */
 export interface DoorCrackers {
-  readonly selected: CrackerType;
+  readonly selected: HandSelection;
   readonly held: HeldItem | null;
-  select(type: CrackerType): void;
+  select(type: HandSelection): void;
   putAway(): void;
 }
 
