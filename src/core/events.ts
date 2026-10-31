@@ -146,6 +146,24 @@ export interface GameEvents {
   giftRejected: { readonly reason: GiftRejection };
 
   householdReacted: { readonly line: DialogueLine };
+
+  // ── Balti blast (see `src/balti`) ──
+
+  /**
+   * A set-up step of the balti prank: the sutli bomb set down, the balti put
+   * over it (both at the spot), or the fuse lit at `position`, its tip, with
+   * `fuse` seconds to the bang.
+   */
+  baltiStep: {
+    readonly step: 'placed' | 'covered' | 'lit';
+    readonly by: 'player' | 'kid';
+    readonly position: Vec3;
+    readonly fuse?: number;
+  };
+  /** The bomb went off under the balti at `position`, throwing it up. */
+  baltiBlast: { readonly position: Vec3; readonly by: 'player' | 'kid' };
+  /** The falling balti hit the ground at `speed` m/s. */
+  baltiBounce: { readonly position: Vec3; readonly speed: number };
 }
 
 export type GameEventName = keyof GameEvents;

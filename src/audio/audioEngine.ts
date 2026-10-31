@@ -32,6 +32,7 @@ import {
   type SynthVoice,
 } from './synth';
 import { VoicePool, type VoiceId } from './voicePool';
+import { BALTI_BOOM_DURATION, BALTI_CLANG_DURATION, BALTI_CLANG_FULL_SPEED } from './sounds';
 
 /** Metres per second; delays far bursts so the flash leads the boom. */
 const SPEED_OF_SOUND = 343;
@@ -293,6 +294,18 @@ export class AudioEngine implements AudioModule, Steppable {
           duration: DISTANT_SHELL_DURATION,
           delay: distance / SPEED_OF_SOUND,
         });
+      }),
+      // The balti blast: its fuse hisses, the bomb booms under the steel, the balti clangs down.
+      bus.on('baltiStep', ({ step, position, fuse }) => {
+        if (step === 'lit') this.play('fuseHiss', { position, duration: fuse ?? crackers.fuse.anar });
+      }),
+      bus.on('baltiBlast', ({ position }) => {
+        const distance = this.listener ? distanceBetween(this.listener.position, position) : 0;
+        this.play('baltiBoom', { position, duration: BALTI_BOOM_DURATION, delay: distance / SPEED_OF_SOUND });
+      }),
+      bus.on('baltiBounce', ({ position, speed }) => {
+        const gain = Math.min(1, Math.max(0.15, speed / BALTI_CLANG_FULL_SPEED));
+        this.play('baltiClang', { position, duration: BALTI_CLANG_DURATION, gain });
       }),
       bus.on('paused', () => {
         this.sessionPaused = true;

@@ -335,6 +335,24 @@ class VoiceBuilder {
   }
 
   /**
+   * A struck metal shell ringing from `at`: one decaying sine per partial
+   * (each detuned a little so no two strikes match), the higher ones
+   * quieter and shorter. `peak` is the first partial's level.
+   */
+  ring(at: number, partials: readonly number[], peak: number, decay: number): void {
+    for (let k = 0; k < partials.length; k++) {
+      const level = this.gain(0);
+      const top = Math.max(0.0002, peak / (1 + k * 0.8));
+      const fade = Math.min(this.end, at + decay / (1 + k * 0.5));
+      level.gain.setValueAtTime(0.0001, this.t0);
+      level.gain.setValueAtTime(0.0001, at);
+      level.gain.exponentialRampToValueAtTime(top, at + 0.003);
+      level.gain.exponentialRampToValueAtTime(0.0001, Math.max(at + 0.01, fade));
+      this.chain(this.osc('sine', partials[k]! * (0.97 + Math.random() * 0.06), at), level, this.output);
+    }
+  }
+
+  /**
    * A firecracker's bang heard across town: a sharp broadband crack, then
    * the same crack coming back off buildings a few times, each later echo
    * quieter and duller, over a rolling, unpitched rumble.
@@ -651,7 +669,36 @@ const RECIPES: Record<SoundKind, Recipe> = {
     b.chain(spin, depth);
     depth.connect(whirr.gain);
   },
+
+  /**
+   * A sutli bomb going off under an upturned balti: the same blast, but
+   * pitched down and muffled by the steel over it into a deep, dull boom,
+   * with the balti itself ringing out as it is struck from inside.
+   */
+  baltiBoom(b, p) {
+    b.output.gain.value = p.gain;
+    const body = b.gain(1);
+    b.chain(b.blast(b.t0, 0.7 + Math.random() * 0.1), b.filter('lowpass', 900, 0.7), body, b.output);
+    b.ring(b.t0 + 0.004, BALTI_PARTIALS, 0.16, 1.1);
+  },
+
+  /** The balti landing: a bright metal clang and a short scrape of grit. */
+  baltiClang(b, p) {
+    b.output.gain.value = p.gain;
+    const hit = b.gain(0);
+    hit.gain.setValueAtTime(0.0001, b.t0);
+    hit.gain.exponentialRampToValueAtTime(0.5, b.t0 + 0.002);
+    hit.gain.exponentialRampToValueAtTime(0.0001, b.t0 + 0.05);
+    b.chain(b.noise(b.bank.white, b.t0, b.t0 + 0.08), b.filter('bandpass', 3200, 0.9), hit, b.output);
+    b.ring(b.t0, BALTI_PARTIALS, 0.22, Math.max(0.2, b.end - b.t0 - 0.05));
+  },
 };
+
+/**
+ * A steel balti's partials, Hz: inharmonic like any struck shell, so it
+ * clangs rather than plays a note.
+ */
+const BALTI_PARTIALS: readonly number[] = [430, 1010, 1730, 2590];
 
 /** Of a distant ladi's pops, how many are its louder bangers. */
 const LADI_LOUD_CHANCE = 0.15;

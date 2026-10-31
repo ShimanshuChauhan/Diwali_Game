@@ -50,6 +50,8 @@ export interface HudContext {
   readonly homes?: HomePromptState;
   /** Where the player is; a home has no cracker prompts. `HudModel` fills it in; outdoors when omitted. */
   readonly location?: LocationId;
+  /** An outdoor activity's own lines (the balti blast), shown instead of the cracker prompts when given. */
+  readonly activity?: readonly PromptLine[] | null;
 }
 
 export interface Rejection {
@@ -70,6 +72,7 @@ function lower(type: CrackerType): string {
  */
 export function promptLines(selected: CrackerType, context: HudContext): PromptLine[] {
   const { interactable } = context;
+  if (context.activity) return [...context.activity];
   if (interactable && isHomeInteractable(interactable)) {
     return context.homes ? homePromptLines(interactable, context.homes) : [];
   }
