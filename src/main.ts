@@ -563,8 +563,9 @@ async function boot(): Promise<void> {
       interactable || locations.controlsLocked || !outdoors ? null : (interaction.findDoorHint(view)?.destination ?? null);
     const interactableType =
       interactable?.kind === 'cracker' ? crackers.list().find((c) => c.id === interactable.id)?.type : undefined;
+    // Bare hands have nothing to place, so no ghost.
     const placement =
-      session.paused || !crackersAllowed(locations.location) || isHandheld(selected) || heldItems.hands
+      session.paused || !crackersAllowed(locations.location) || !selected || isHandheld(selected) || heldItems.hands
         ? null
         : interaction.previewPlacement({ type: selected, playerPosition: feet, target: aimPoint(feet, view.forward) });
     // At the balti spot its own prompt replaces the cracker ones, and there is no ghost.

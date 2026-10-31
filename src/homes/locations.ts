@@ -45,7 +45,8 @@ export const TRANSITION_REJECTION_TEXT: Readonly<Record<TransitionRejection, str
  * While a door fade runs, only these actions get through: look, camera and
  * pause stay live, and move/run and a released click still update the held
  * state (so a key let go mid-fade is not stuck) though the player stands
- * still. Selecting, placing and interacting are dropped.
+ * still. Selecting (by key, wheel or holster), placing and interacting are
+ * dropped.
  */
 export function allowedDuringFade(action: GameAction): boolean {
   switch (action.type) {
@@ -57,6 +58,9 @@ export function allowedDuringFade(action: GameAction): boolean {
     case 'placeReleased':
       return true;
     case 'select':
+    case 'bareHands':
+    case 'cycleItem':
+    case 'holster':
     case 'place':
     case 'interact':
     case 'jump':

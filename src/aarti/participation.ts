@@ -24,7 +24,8 @@ export function slotForSong(song: AartiSongId): SelectSlot {
  *   on either way: circling is presentation and never touches timing, and
  *   nothing is scored.
  * - 1–3 choose a song in the mini player (the hands are full, so they cannot
- *   mean crackers); 4 does nothing.
+ *   mean crackers); 4 does nothing, and nor do bare hands, the wheel and the
+ *   holster: the thali stays in hand until the player leaves.
  * - E leaves: the thali goes down and movement comes back.
  * - Space does nothing: participants stand still.
  * - Look, camera, pause and the held movement keys pass through, so the
@@ -54,6 +55,10 @@ export function applyAartiAction(action: GameAction, ceremony: ParticipantCeremo
       if (song) ceremony.selectSong(song);
       return true;
     }
+    case 'bareHands':
+    case 'cycleItem':
+    case 'holster':
+      return true;
     case 'move':
     case 'run':
     case 'look':

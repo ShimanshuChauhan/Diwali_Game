@@ -1,3 +1,4 @@
+import type { HandSelection } from '../core/actions';
 import type { HeldItem } from '../core/contracts';
 import type { Unsubscribe } from '../core/eventBus';
 import type { GameEventBus } from '../core/events';
@@ -19,16 +20,18 @@ import { isHandheld, type CrackerType } from '../core/types';
  * held phuljhari and putting it away. `Crackers` satisfies it.
  */
 export interface HandCrackers {
-  readonly selected: CrackerType;
+  /** Null is bare hands. */
+  readonly selected: HandSelection;
   readonly held: HeldItem | null;
-  select(type: CrackerType): void;
+  select(type: HandSelection): void;
   putAway(): void;
 }
 
 /**
  * Everything the hands can be doing, one at a time. `cracker` is a ground
  * cracker selected for placing; `sparkler` the phuljhari in hand; `empty`
- * a burnt-out phuljhari not yet replaced. The rest are `HandItem`s.
+ * bare hands, or a burnt-out phuljhari not yet replaced. The rest are
+ * `HandItem`s.
  */
 export type HandState =
   | { readonly kind: 'empty' }
@@ -137,7 +140,7 @@ export class HeldItems implements HeldItemsModule {
     const held = this.crackers.held;
     if (held) return { kind: 'sparkler', lit: held.lit };
     const type = this.crackers.selected;
-    return isHandheld(type) ? { kind: 'empty' } : { kind: 'cracker', type };
+    return type === null || isHandheld(type) ? { kind: 'empty' } : { kind: 'cracker', type };
   }
 
   crackerBlock(): CrackerHandsRejection | null {
@@ -264,7 +267,8 @@ export class HeldItems implements HeldItemsModule {
   private restoreCracker(): void {
     if (!this.stowedPhuljhari) return;
     this.stowedPhuljhari = false;
-    if (isHandheld(this.crackers.selected) && !this.crackers.held) this.crackers.select(this.crackers.selected);
+    const type = this.crackers.selected;
+    if (type && isHandheld(type) && !this.crackers.held) this.crackers.select(type);
   }
 
   private reject(action: ItemAction, reason: ItemRejection): CommandResult<ItemRejection> {

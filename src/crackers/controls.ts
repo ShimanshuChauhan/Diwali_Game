@@ -1,4 +1,4 @@
-import { crackerForSlot, type GameAction } from '../core/actions';
+import { crackerForSlot, cycleSelection, type GameAction, type HandSelection } from '../core/actions';
 import type { CameraView, InteractionModule, PlayerPose } from '../core/contracts';
 import type { GameEventBus } from '../core/events';
 import type { CrackerAction, CrackerHandsRejection, LocationId } from '../core/homes';
@@ -72,12 +72,20 @@ function blocked(ctx: CrackerControlContext, action: CrackerAction): boolean {
   return reason !== null;
 }
 
+/** Switch what is in hand, unless the hands are busy; switching to the same thing re-selects it. */
+function switchTo(ctx: CrackerControlContext, type: HandSelection): void {
+  if (!blocked(ctx, 'select')) ctx.crackers.select(type);
+}
+
 /**
- * Route the cracker actions: 1–5 select, click places the selected ground
- * cracker (or lights the held phuljhari), E lights the nearest placed
- * cracker, else the held phuljhari. While the hands carry a plate, gift box
- * or thali, each of these is refused with `crackerBlocked` instead. In a
- * home, click and E do nothing to crackers; 1–4 still change the selection.
+ * Route the cracker actions: 1–5 select, ` or 0 bare hands, the wheel steps
+ * through bare hands and the crackers (wrapping round), H holsters or takes
+ * out the last cracker again; click places the selected ground cracker (or
+ * lights the held phuljhari), E lights the nearest placed cracker, else the
+ * held phuljhari. With bare hands click does nothing and E only lights placed
+ * crackers, silently otherwise. While the hands carry a plate, gift box or
+ * thali, each of these is refused with `crackerBlocked` instead. In a home,
+ * click and E do nothing to crackers; switching still changes the selection.
  * Returns false for actions it ignores.
  */
 export function applyCrackerAction(action: GameAction, ctx: CrackerControlContext): boolean {
@@ -85,10 +93,20 @@ export function applyCrackerAction(action: GameAction, ctx: CrackerControlContex
   const indoors = !crackersAllowed(ctx.location?.() ?? 'outdoors');
   switch (action.type) {
     case 'select':
-      if (!blocked(ctx, 'select')) crackers.select(crackerForSlot(action.slot));
+      switchTo(ctx, crackerForSlot(action.slot));
+      return true;
+    case 'bareHands':
+      switchTo(ctx, null);
+      return true;
+    case 'cycleItem':
+      switchTo(ctx, cycleSelection(crackers.selected, action.step));
+      return true;
+    case 'holster':
+      switchTo(ctx, crackers.selected === null ? crackers.lastCracker : null);
       return true;
     case 'place': {
-      if (indoors) return true;
+      // Bare hands have nothing to place or light.
+      if (indoors || crackers.selected === null) return true;
       const type = crackers.selected;
       if (isHandheld(type)) {
         if (!blocked(ctx, 'igniteHeld')) crackers.igniteHeld();
